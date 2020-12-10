@@ -27,6 +27,7 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
+import software.amazon.awssdk.services.dynamodb.model.ReturnValue
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 
 class DynamoDBTokenDataAccessProvider(configuration: DynamoDBDataAccessProviderDataAccessProviderConfig, private val dynamoDBClient: DynamoDBClient): TokenDataAccessProvider
@@ -95,11 +96,16 @@ class DynamoDBTokenDataAccessProvider(configuration: DynamoDBDataAccessProviderD
                 .expressionAttributeValues(mapOf<String, AttributeValue>(Pair(":status", AttributeValue.builder().s(newStatus.name).build())))
                 .updateExpression("SET #status = :status")
                 .expressionAttributeNames(mapOf(Pair("#status", "status")))
+                .returnValues(ReturnValue.UPDATED_NEW)
                 .build()
 
         val response = dynamoDBClient.updateItem(request)
 
-        return response.consumedCapacity().writeCapacityUnits().toLong()
+        return if (response.hasAttributes() && response.attributes().isNotEmpty()) {
+            1
+        } else {
+            0
+        }
     }
 
     override fun setStatus(tokenId: String, newStatus: TokenStatus): Long
@@ -111,20 +117,20 @@ class DynamoDBTokenDataAccessProvider(configuration: DynamoDBDataAccessProviderD
 
     private fun Token.toParametersMap(jsonHandler: Json): Map<String, AttributeValue>
     {
-        logger.warn("Token data, tokenHash: {}", tokenHash)
-        logger.warn("Token data, delegationsId: {}", delegationsId)
-        logger.warn("Token data, purpose: {}", purpose)
-        logger.warn("Token data, usage: {}", usage)
-        logger.warn("Token data, format: {}", format)
-        logger.warn("Token data, created: {}", created)
-        logger.warn("Token data, expires: {}", expires)
-        logger.warn("Token data, scope: {}", scope)
-        logger.warn("Token data, status.name: {}", status.name)
-        logger.warn("Token data, issuer: {}", issuer)
-        logger.warn("Token data, subject: {}", subject)
-        logger.warn("Token data, serAudience: {}", jsonHandler.toJson(audience.values))
-        logger.warn("Token data, notBefore: {}", notBefore)
-        logger.warn("Token data, data: {}", jsonHandler.toJson(data))
+//        logger.warn("Token data, tokenHash: {}", tokenHash)
+//        logger.warn("Token data, delegationsId: {}", delegationsId)
+//        logger.warn("Token data, purpose: {}", purpose)
+//        logger.warn("Token data, usage: {}", usage)
+//        logger.warn("Token data, format: {}", format)
+//        logger.warn("Token data, created: {}", created)
+//        logger.warn("Token data, expires: {}", expires)
+//        logger.warn("Token data, scope: {}", scope)
+//        logger.warn("Token data, status.name: {}", status.name)
+//        logger.warn("Token data, issuer: {}", issuer)
+//        logger.warn("Token data, subject: {}", subject)
+//        logger.warn("Token data, serAudience: {}", jsonHandler.toJson(audience.values))
+//        logger.warn("Token data, notBefore: {}", notBefore)
+//        logger.warn("Token data, data: {}", jsonHandler.toJson(data))
 
         val parameters: MutableMap<String, AttributeValue> = HashMap(15)
         parameters["tokenHash"] = AttributeValue.builder().s(tokenHash).build()

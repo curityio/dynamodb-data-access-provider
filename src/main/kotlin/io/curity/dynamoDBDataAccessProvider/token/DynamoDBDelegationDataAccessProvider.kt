@@ -18,22 +18,19 @@ package io.curity.dynamoDBDataAccessProvider.token
 import io.curity.dynamoDBDataAccessProvider.DynamoDBClient
 import io.curity.dynamoDBDataAccessProvider.configuration.DynamoDBDataAccessProviderDataAccessProviderConfig
 import io.curity.dynamoDBDataAccessProvider.toAttributeValue
+import io.curity.dynamoDBDataAccessProvider.toKey
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.data.authorization.Delegation
 import se.curity.identityserver.sdk.data.authorization.DelegationStatus
-import se.curity.identityserver.sdk.data.query.Filter
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.datasource.DelegationDataAccessProvider
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
-import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.QueryResponse
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanResponse
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
-import java.util.EnumMap
-import se.curity.identityserver.sdk.data.query.Filter.AttributeOperator.*
 
 class DynamoDBDelegationDataAccessProvider(private val dynamoDBClient: DynamoDBClient, configuration: DynamoDBDataAccessProviderDataAccessProviderConfig): DelegationDataAccessProvider
 {
@@ -41,18 +38,24 @@ class DynamoDBDelegationDataAccessProvider(private val dynamoDBClient: DynamoDBC
 
     override fun getById(id: String): Delegation?
     {
-        val request = GetItemRequest.builder()
+        val request = QueryRequest.builder()
                 .tableName(tableName)
-                .key(getKey(id))
+                .indexName("id-status-index")
+                .keyConditionExpression("id = :id AND #status = :status")
+                .expressionAttributeValues(mapOf(
+                        Pair(":id", id.toAttributeValue()),
+                        issuedStatusExpressionAttribute
+                ))
+                .expressionAttributeNames(issuedStatusExpressionAttributeNameMap)
                 .build()
 
-        val response = dynamoDBClient.getItem(request)
+        val response = dynamoDBClient.query(request)
 
-        if (!response.hasItem() || response.item().isEmpty()) {
+        if (!response.hasItems() || response.items().isEmpty()) {
             return null
         }
 
-        return toDelegation(response.item())
+        return toDelegation(response.items().first())
     }
 
     override fun getByAuthorizationCodeHash(authorizationCodeHash: String): Delegation?
@@ -87,10 +90,10 @@ class DynamoDBDelegationDataAccessProvider(private val dynamoDBClient: DynamoDBC
     {
         val request = UpdateItemRequest.builder()
                 .tableName(tableName)
-                .key(getKey(id))
+                .key(id.toKey("id"))
                 .updateExpression("SET #status = :status")
                 .expressionAttributeValues(mapOf(Pair(":status", AttributeValue.builder().s(newStatus.name).build())))
-                .expressionAttributeNames(mapOf(Pair("#status", "status")))
+                .expressionAttributeNames(issuedStatusExpressionAttributeNameMap)
                 .build()
 
         val response = dynamoDBClient.updateItem(request)
@@ -111,7 +114,7 @@ class DynamoDBDelegationDataAccessProvider(private val dynamoDBClient: DynamoDBC
                 .indexName("owner-index")
                 .keyConditionExpression("owner = :owner AND #status = issued")
                 .expressionAttributeValues(mapOf(Pair(":owner", AttributeValue.builder().s(owner).build())))
-                .expressionAttributeNames(mapOf(Pair("#status", "status")))
+                .expressionAttributeNames(issuedStatusExpressionAttributeNameMap)
                 .limit(count.toInt())
                 .build()
 
@@ -163,8 +166,8 @@ class DynamoDBDelegationDataAccessProvider(private val dynamoDBClient: DynamoDBC
         val request = ScanRequest.builder()
                 .tableName(tableName)
                 .filterExpression("#status = :status")
-                .expressionAttributeValues(mapOf(Pair(":status", AttributeValue.builder().s("issued").build())))
-                .expressionAttributeNames(mapOf(Pair("#status", "status")))
+                .expressionAttributeValues(issuedStatusExpressionAttributeMap)
+                .expressionAttributeNames(issuedStatusExpressionAttributeNameMap)
                 .build()
 
         val response = dynamoDBClient.scan(request)
@@ -196,7 +199,7 @@ class DynamoDBDelegationDataAccessProvider(private val dynamoDBClient: DynamoDBC
         val requestBuilder = ScanRequest.builder()
                 .tableName(tableName)
                 .filterExpression("status = :status")
-                .expressionAttributeValues(mapOf(Pair(":status", AttributeValue.builder().s("issued").build())))
+                .expressionAttributeValues(issuedStatusExpressionAttributeMap)
                 .expressionAttributeNames(mapOf(Pair("#status", "status")))
                 .projectionExpression("id")
 
@@ -252,8 +255,11 @@ class DynamoDBDelegationDataAccessProvider(private val dynamoDBClient: DynamoDBC
         return result
     }
 
-    private fun getKey(id: String): Map<String, AttributeValue> =
-            mapOf(Pair("id", AttributeValue.builder().s(id).build()))
+    private fun getKeyWithIssuedStatus(id: String): Map<String, AttributeValue> =
+        mapOf(
+            Pair("id", id.toAttributeValue()),
+            issuedStatusKey
+        )
 
     private fun Delegation.toItem(): Map<String, AttributeValue>
     {
@@ -328,5 +334,10 @@ class DynamoDBDelegationDataAccessProvider(private val dynamoDBClient: DynamoDBC
                 "redirectUri", "status", "claims", "claimMap", "customClaimValues", "authenticationAttributes",
                 "authorizationCodeHash", "mtlsClientCertificate", "mtlsClientCertificateDN", "mtlsClientCertificateX5TS256",
                 "consentResult")
+        private val issuedStatusKey = Pair("status", "issued".toAttributeValue())
+        private val issuedStatusExpressionAttribute = Pair(":status", "issued".toAttributeValue())
+        private val issuedStatusExpressionAttributeMap = mapOf(issuedStatusExpressionAttribute)
+        private val issuedStatusExpressionAttributeName = Pair("#status", "status")
+        private val issuedStatusExpressionAttributeNameMap = mapOf(issuedStatusExpressionAttributeName)
     }
 }

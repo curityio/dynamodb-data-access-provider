@@ -148,14 +148,14 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderDataAccessPro
                 ClientMethod.Scan -> client.scan(request as ScanRequest)
             }
         } catch (e: DynamoDbException) {
-            logger.warn("Exception code: {}", e.awsErrorDetails().errorCode(), e)
-            if (e.awsErrorDetails()?.errorCode() == "UnrecognizedClientException") {
-                throw ExternalServiceFailedAuthenticationAlarmException(e)
-            } else if (e.statusCode() >= 500) {
-                throw ExternalServiceFailedConnectionAlarmException(e)
+            when
+            {
+                e.awsErrorDetails()?.errorCode() == "ConditionalCheckFailedException" -> throw e
+                e.awsErrorDetails()?.errorCode() == "UnrecognizedClientException" -> throw ExternalServiceFailedAuthenticationAlarmException(e)
+                e.statusCode() >= 500 -> throw ExternalServiceFailedConnectionAlarmException(e)
+                else -> throw ExternalServiceFailedCommunicationAlarmException(e)
             }
 
-            throw ExternalServiceFailedCommunicationAlarmException(e)
         } catch (e: SdkException) {
             throw ExternalServiceFailedCommunicationAlarmException(e)
         }

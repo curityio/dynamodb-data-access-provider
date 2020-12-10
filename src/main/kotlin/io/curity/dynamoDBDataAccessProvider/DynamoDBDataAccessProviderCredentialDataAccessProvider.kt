@@ -60,20 +60,29 @@ class DynamoDBDataAccessProviderCredentialDataAccessProvider(private val dynamoD
         val request = GetItemRequest.builder()
                 .tableName(tableName)
                 .key(userName.toKey("userName"))
+                .attributesToGet("userName", "password", "active")
                 .build()
 
         val response = dynamoDBClient.getItem(request)
 
-        if (!response.hasItem()) {
-            return AuthenticationAttributes.of(SubjectAttributes.of(userName, Attributes.of(Attribute.of("password", ""))),
-                ContextAttributes.empty()
-                    )
+        if (!response.hasItem() || response.item().isEmpty()) {
+            return null
+        }
+
+        val item = response.item()
+
+        if (!item["active"]!!.bool()) {
+            return null
         }
 
         return AuthenticationAttributes.of(
-                SubjectAttributes.of(userName,
-                        Attributes.of(Attribute.of("password", response.item()["password"]?.s()))),
-                ContextAttributes.empty()
+            SubjectAttributes.of(userName,
+                Attributes.of(
+                    Attribute.of("password", item["password"]?.s()),
+                    Attribute.of("accountId", item["userName"]?.s()),
+                    Attribute.of("userName", item["userName"]?.s()))
+            ),
+            ContextAttributes.empty()
         )
     }
 

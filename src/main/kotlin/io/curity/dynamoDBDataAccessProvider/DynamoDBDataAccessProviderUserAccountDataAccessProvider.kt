@@ -15,10 +15,12 @@
  */
 package io.curity.dynamoDBDataAccessProvider
 
+import io.curity.dynamoDBDataAccessProvider.configuration.DynamoDBDataAccessProviderDataAccessProviderConfig
 import io.curity.dynamoDBDataAccessProvider.token.FilterParser
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.attribute.AccountAttributes
+import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.LinkedAccount
 import se.curity.identityserver.sdk.data.query.ResourceQuery
@@ -33,10 +35,13 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanResponse
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
+import java.time.Instant
 import java.util.Collections
 
-class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamoDBClient: DynamoDBClient): UserAccountDataAccessProvider
+class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamoDBClient: DynamoDBClient, configuration: DynamoDBDataAccessProviderDataAccessProviderConfig): UserAccountDataAccessProvider
 {
+    private val jsonHandler = configuration.getJsonHandler()
+
     override fun getByUserName(userName: String, attributesEnumeration: ResourceQuery.AttributesEnumeration?): ResourceAttributes<*>?
     {
         logger.debug("Received request to get account by username : {}", userName)
@@ -195,12 +200,13 @@ class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamo
          * Attributes: linkingAccountManager, localAccountId
          */
         val item = mutableMapOf<String, AttributeValue>()
-        item["localAccountId"] = AttributeValue.builder().s(localAccountId).build()
-        item["linkingAccountManager"] = AttributeValue.builder().s(linkingAccountManager).build()
-        item["foreignAccountAtDomain"] = AttributeValue.builder().s("$foreignUserName@$foreignDomainName").build()
-        item["foreignAccountId"] = AttributeValue.builder().s(foreignUserName).build()
-        item["foreignDomainName"] = AttributeValue.builder().s(foreignDomainName).build()
-        item["localIdToforeignIdAtdomainForManager"] = AttributeValue.builder().s("$foreignUserName@$foreignDomainName-$linkingAccountManager").build()
+        item["localAccountId"] = localAccountId.toAttributeValue()
+        item["linkingAccountManager"] = linkingAccountManager.toAttributeValue()
+        item["foreignAccountAtDomain"] = "$foreignUserName@$foreignDomainName".toAttributeValue()
+        item["foreignAccountId"] = foreignUserName.toAttributeValue()
+        item["foreignDomainName"] = foreignDomainName.toAttributeValue()
+        item["localIdToforeignIdAtdomainForManager"] = "$foreignUserName@$foreignDomainName-$linkingAccountManager".toAttributeValue()
+        item["created"] = Instant.now().epochSecond.toString().toAttributeValue()
 
         val request = PutItemRequest.builder()
                 .tableName(linksTableName)
@@ -226,7 +232,7 @@ class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamo
         val response = dynamoDBClient.query(request)
 
         return if (response.hasItems() && response.items().isNotEmpty()) {
-            response.items().map { item -> LinkedAccount.of(item["foreignDomainName"]?.s(), item["foreignAccountId"]?.s()) }
+            response.items().map { item -> LinkedAccount.of(item["foreignDomainName"]?.s(), item["foreignAccountId"]?.s(), "", item["created"]?.s()) }
         } else {
             emptyList()
         }
@@ -336,24 +342,35 @@ class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamo
     {
         val item = mutableMapOf<String, AttributeValue>()
 
-        if (name != null) {
-            item["name"] = AttributeValue.builder().m(
-                    mapOf(
-                            Pair("givenName", AttributeValue.builder().s(name.givenName).build()),
-                            Pair("familyName", AttributeValue.builder().s(name.familyName).build())
-                    )
-            ).build()
+        item["userName"] = userName.toAttributeValue()
+        item["active"] = isActive.toAttributeValue()
+        val now = Instant.now().epochSecond.toString().toAttributeValue()
+        item["updated"] = now
+        item["created"] = now
+
+        if (!password.isNullOrEmpty()) {
+            item["password"] = password.toAttributeValue()
         }
 
-        item["email"] = AttributeValue.builder().s(emails.primary.significantValue).build()
-
-        if (!phoneNumbers.isEmpty) {
-            item["phone"] = AttributeValue.builder().s(phoneNumbers.primary.significantValue).build()
+        if (emails != null) {
+            val email = emails.primaryOrFirst
+            if (email != null && !email.isEmpty) {
+                item["email"] = email.significantValue.toAttributeValue()
+            }
         }
 
-        item["userName"] = AttributeValue.builder().s(userName).build()
-        item["password"] = AttributeValue.builder().s(password).build()
-        item["active"] = AttributeValue.builder().bool(isActive).build()
+        if (phoneNumbers != null) {
+            val phone = phoneNumbers.primaryOrFirst
+            if (phone != null && !phone.isEmpty) {
+                item["phone"] = phone.significantValue.toAttributeValue()
+            }
+        }
+
+        val attributesToPersist = Attributes.of(filter { attribute -> !attributesToRemove.contains(attribute.name.value) })
+
+        if (!attributesToPersist.isEmpty) {
+            item["attributes"] = jsonHandler.fromAttributes(attributesToPersist).toAttributeValue()
+        }
 
         return item
     }
@@ -366,12 +383,10 @@ class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamo
 
         item.forEach {(key, value) ->
             when (key) {
-                "name" -> {
-                    val nameMap = value.m()
-                    map["name"] = mapOf(Pair("givenName", nameMap["givenName"]?.s()), Pair("familyName", nameMap["familyName"]?.s())) }
                 "active" -> map["active"] = value.bool()
-                "email" -> map["emails"] = listOf(mapOf(Pair("value", value.s()), Pair("isPrimary", true)))
-                "phone" -> map["phoneNumbers"] = listOf(mapOf(Pair("value", value.s()), Pair("isPrimary", true)))
+                "email" -> {} // skip, emails are in attributes
+                "phone" -> {} // skip, phones are in attributes
+                "attributes" -> map.putAll(jsonHandler.fromJson(item["attributes"]!!.s()))
                 else -> map[key] = value.s()
             }
         }
@@ -384,5 +399,7 @@ class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamo
         private const val tableName = "curity-accounts"
         private const val linksTableName = "curity-links"
         private val logger: Logger = LoggerFactory.getLogger(DynamoDBDataAccessProviderCredentialDataAccessProvider::class.java)
+
+        private val attributesToRemove = listOf("active", "password", "userName", "id", "schemas")
     }
 }

@@ -18,5 +18,8 @@ package io.curity.dynamoDBDataAccessProvider
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 
 fun String.toAttributeValue(): AttributeValue = AttributeValue.builder().s(this).build()
+fun Long.toAttributeValue(): AttributeValue = AttributeValue.builder().s(this.toString()).build()
+fun Boolean.toAttributeValue(): AttributeValue = AttributeValue.builder().bool(this).build()
+fun Collection<String>.toAttributeValue(): AttributeValue = AttributeValue.builder().l(map { item -> item.toAttributeValue() }).build()
 
 fun String.toKey(attributeName: String) = mapOf(Pair(attributeName, this.toAttributeValue()))
