@@ -22,6 +22,7 @@ import se.curity.identityserver.sdk.attribute.Attribute
 import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.MapAttributeValue
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
+import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes.META
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.ATTRIBUTES
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.AUTHENTICATED_USER
@@ -35,12 +36,14 @@ import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegi
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.STATUS
 import se.curity.identityserver.sdk.datasource.DynamicallyRegisteredClientDataAccessProvider
 import se.curity.identityserver.sdk.errors.ConflictException
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
 import software.amazon.awssdk.services.dynamodb.model.DynamoDbException
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 import java.time.Instant.now
+import java.time.Instant.ofEpochSecond
 
 class DynamoDBDataAccessProviderDynamicallyRegisteredClientDataAccessProvider(configuration: DynamoDBDataAccessProviderDataAccessProviderConfig, private val dynamoDBClient: DynamoDBClient): DynamicallyRegisteredClientDataAccessProvider
 {
@@ -71,8 +74,11 @@ class DynamoDBDataAccessProviderDynamicallyRegisteredClientDataAccessProvider(co
             result.add(Attribute.of(INSTANCE_OF_CLIENT, item["instanceOfClient"]!!.s()))
         }
 
-        result.add(Attribute.of(Meta.CREATED, item["created"]!!.s().toLong()))
-        result.add(Attribute.of(Meta.LAST_MODIFIED, item["updated"]!!.s().toLong()))
+        var meta = Meta.of(DynamicallyRegisteredClientAttributes.RESOURCE_TYPE)
+        meta = meta.withCreated(ofEpochSecond(item["created"]!!.s().toLong()))
+        meta = meta.withLastModified(ofEpochSecond(item["updated"]!!.s().toLong()))
+
+        result.add(Attribute.of(META, meta))
 
         if (item["initialClient"] != null) {
             result.add(Attribute.of(INITIAL_CLIENT, item["initialClient"]!!.s()))
@@ -99,7 +105,7 @@ class DynamoDBDataAccessProviderDynamicallyRegisteredClientDataAccessProvider(co
             result.add(Attribute.of(GRANT_TYPES, item["grantTypes"]!!.l().map { grant -> grant.s() }))
         }
 
-        return DynamicallyRegisteredClientAttributes.of(result)
+        return DynamicallyRegisteredClientAttributes.of(Attributes.of(result))
 
     }
 
@@ -111,11 +117,14 @@ class DynamoDBDataAccessProviderDynamicallyRegisteredClientDataAccessProvider(co
 
         val item = mutableMapOf(
                 Pair("clientId", dynamicallyRegisteredClientAttributes.clientId.toAttributeValue()),
-                Pair("clientSecret", dynamicallyRegisteredClientAttributes.clientSecret.toAttributeValue()),
                 Pair("created", created.epochSecond.toAttributeValue()),
                 Pair("updated", now().epochSecond.toAttributeValue()),
                 Pair("dcrStatus", dynamicallyRegisteredClientAttributes.status.name.toAttributeValue())
         )
+
+        if (!dynamicallyRegisteredClientAttributes.clientSecret.isNullOrEmpty()) {
+            item["clientSecret"] = dynamicallyRegisteredClientAttributes.clientSecret.toAttributeValue()
+        }
 
         if (dynamicallyRegisteredClientAttributes.authenticatedUser != null) {
             item["authenticatedUser"] = dynamicallyRegisteredClientAttributes.authenticatedUser.toAttributeValue()
@@ -165,26 +174,77 @@ class DynamoDBDataAccessProviderDynamicallyRegisteredClientDataAccessProvider(co
     {
         logger.debug("Received request to UPDATE dynamic client for client : {}", dynamicallyRegisteredClientAttributes.clientId)
 
-        val updateExpression = "SET clientSecret = :clientSecret, updated = :updated, attributes = :attributes, dcrStatus = :dcrStatus, scope = :scope, redirectUris = :redirectUris, grantTypes = :grantTypes"
+        val updateExpressionParts = mutableListOf<String>()
+        val valuesToUpdate = mutableMapOf<String, AttributeValue>()
+        val removeExpressionParts = mutableListOf<String>()
 
-        val valuesToUpdate = mapOf(
-                Pair(":clientSecret", dynamicallyRegisteredClientAttributes.clientSecret.toAttributeValue()),
-                Pair(":updated", now().epochSecond.toAttributeValue()),
-                Pair(":attributes", jsonHandler.fromAttributes(Attributes.of(dynamicallyRegisteredClientAttributes.attributes)).toAttributeValue()),
-                Pair(":dcrStatus", dynamicallyRegisteredClientAttributes.status.name.toAttributeValue()),
-                Pair(":scope", dynamicallyRegisteredClientAttributes.scope.toAttributeValue() ),
-                Pair(":redirectUris", dynamicallyRegisteredClientAttributes.redirectUris.toAttributeValue()),
-                Pair(":grantTypes", dynamicallyRegisteredClientAttributes.grantTypes.toAttributeValue())
-        )
+        if (!dynamicallyRegisteredClientAttributes.clientSecret.isNullOrEmpty()) {
+            updateExpressionParts.add("clientSecret = :clientSecret")
+            valuesToUpdate[":clientSecret"] = dynamicallyRegisteredClientAttributes.clientSecret.toAttributeValue()
+        }
 
-        val request = UpdateItemRequest.builder()
+        updateExpressionParts.add("updated = :updated")
+        valuesToUpdate[":updated"] = now().epochSecond.toAttributeValue()
+
+        if (dynamicallyRegisteredClientAttributes.attributes != null && !dynamicallyRegisteredClientAttributes.attributes.isEmpty) {
+            updateExpressionParts.add("attributes = :attributes")
+            valuesToUpdate[":attributes"] = jsonHandler.fromAttributes(Attributes.of(dynamicallyRegisteredClientAttributes.attributes)).toAttributeValue()
+        } else {
+            removeExpressionParts.add("attributes")
+        }
+
+        if (dynamicallyRegisteredClientAttributes.status != null) {
+            updateExpressionParts.add("dcrStatus = :dcrStatus")
+            valuesToUpdate[":dcrStatus"] = dynamicallyRegisteredClientAttributes.status.name.toAttributeValue()
+        }
+
+        if (!dynamicallyRegisteredClientAttributes.scope.isNullOrEmpty()) {
+            updateExpressionParts.add("#scope = :scope")
+            valuesToUpdate[":scope"] = dynamicallyRegisteredClientAttributes.scope.toAttributeValue()
+        } else {
+            removeExpressionParts.add("#scope")
+        }
+
+        if (!dynamicallyRegisteredClientAttributes.redirectUris.isNullOrEmpty()) {
+            updateExpressionParts.add("redirectUris = :redirectUris")
+            valuesToUpdate[":redirectUris"] = dynamicallyRegisteredClientAttributes.redirectUris.toAttributeValue()
+        } else {
+            removeExpressionParts.add("redirectUris")
+        }
+
+        if (!dynamicallyRegisteredClientAttributes.grantTypes.isNullOrEmpty()) {
+            updateExpressionParts.add("grantTypes = :grantTypes")
+            valuesToUpdate[":grantTypes"] = dynamicallyRegisteredClientAttributes.grantTypes.toAttributeValue()
+        } else {
+            removeExpressionParts.add("grantTypes")
+        }
+
+        if (updateExpressionParts.isEmpty() && removeExpressionParts.isEmpty()) {
+            logger.warn("Nothing to update in the client")
+            return
+        }
+
+        val requestBuilder = UpdateItemRequest.builder()
                 .tableName(tableName)
                 .key(dynamicallyRegisteredClientAttributes.clientId.toKey("clientId"))
-                .updateExpression(updateExpression)
-                .expressionAttributeValues(valuesToUpdate)
-                .build()
+                .expressionAttributeNames(scopeExpressionNameMap)
 
-        dynamoDBClient.updateItem(request)
+        var updateExpression = ""
+
+        if (updateExpressionParts.isNotEmpty()) {
+            updateExpression += "SET ${updateExpressionParts.joinToString(", ")} "
+            requestBuilder
+                .expressionAttributeValues(valuesToUpdate)
+
+        }
+
+        if (removeExpressionParts.isNotEmpty()) {
+            updateExpression += "REMOVE ${removeExpressionParts.joinToString(", ")} "
+        }
+
+        requestBuilder.updateExpression(updateExpression)
+
+        dynamoDBClient.updateItem(requestBuilder.build())
     }
 
     override fun delete(clientId: String)
@@ -203,5 +263,6 @@ class DynamoDBDataAccessProviderDynamicallyRegisteredClientDataAccessProvider(co
     {
         private val logger: Logger = LoggerFactory.getLogger(DynamoDBDataAccessProviderCredentialDataAccessProvider::class.java)
         private const val tableName = "curity-dynamic-clients"
+        private val scopeExpressionNameMap = mapOf(Pair("#scope", "scope"))
     }
 }

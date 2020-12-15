@@ -18,11 +18,11 @@ package io.curity.dynamoDBDataAccessProvider
 import io.curity.dynamoDBDataAccessProvider.configuration.DynamoDBDataAccessProviderDataAccessProviderConfig
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import se.curity.identityserver.sdk.Nullable
 import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.EXPIRES_AT
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.RESOURCE_TYPE
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.data.query.ResourceQueryResult
@@ -184,17 +184,35 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
         val deviceAttributesMap = deviceAttributes.asMap()
 
         deviceFields.forEach { deviceField ->
-            item[deviceField] = deviceAttributes[deviceField].attributeValue.toString().toAttributeValue()
-            deviceAttributesMap.remove(deviceField)
+            if (deviceAttributes[deviceField] != null) {
+                item[deviceField] = deviceAttributes[deviceField].value.toString().toAttributeValue()
+                deviceAttributesMap.remove(deviceField)
+            }
         }
 
-        item["created"] = Instant.now().epochSecond.toString().toAttributeValue()
+        if (deviceAttributes.expiresAt != null) {
+            item[EXPIRES_AT] = deviceAttributes.expiresAt.epochSecond.toAttributeValue()
+            deviceAttributesMap.remove(EXPIRES_AT)
+        }
+
+        if (deviceAttributes.meta != null) {
+            item[Meta.CREATED] = if (deviceAttributes.meta.created != null) {
+                deviceAttributes.meta.created.epochSecond.toAttributeValue()
+            } else {
+                Instant.now().epochSecond.toAttributeValue()
+            }
+            deviceAttributesMap.remove(Meta.CREATED)
+
+            if (deviceAttributes.meta.lastModified != null) {
+                item[Meta.LAST_MODIFIED] = deviceAttributes.meta.lastModified.epochSecond.toAttributeValue()
+                deviceAttributesMap.remove(Meta.LAST_MODIFIED)
+            }
+        }
+        deviceAttributesMap.remove(DeviceAttributes.META)
 
         if (item["id"] == null) {
             item["id"] = UUID.randomUUID().toString().toAttributeValue()
         }
-
-        deviceAttributesMap.remove(DeviceAttributes.META)
 
         if (deviceAttributesMap.isNotEmpty()) {
             item[DeviceAttributes.ATTRIBUTES] = jsonHandler.fromAttributes(Attributes.fromMap(deviceAttributesMap)).toAttributeValue()
@@ -297,10 +315,7 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
                 DeviceAttributes.ALIAS,
                 DeviceAttributes.FORM_FACTOR,
                 DeviceAttributes.DEVICE_TYPE,
-                DeviceAttributes.EXPIRES_AT,
                 DeviceAttributes.OWNER,
-                Meta.CREATED,
-                Meta.LAST_MODIFIED,
                 DeviceAttributes.ATTRIBUTES
         )
     }

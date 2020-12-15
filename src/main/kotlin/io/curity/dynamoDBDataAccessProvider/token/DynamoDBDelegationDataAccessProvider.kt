@@ -111,10 +111,10 @@ class DynamoDBDelegationDataAccessProvider(private val dynamoDBClient: DynamoDBC
 
         val request = QueryRequest.builder()
                 .tableName(tableName)
-                .indexName("owner-index")
-                .keyConditionExpression("owner = :owner AND #status = issued")
-                .expressionAttributeValues(mapOf(Pair(":owner", AttributeValue.builder().s(owner).build())))
-                .expressionAttributeNames(issuedStatusExpressionAttributeNameMap)
+                .indexName("owner-status-index")
+                .keyConditionExpression("#owner = :owner AND #status = :status")
+                .expressionAttributeValues(mapOf(Pair(":owner", AttributeValue.builder().s(owner).build()), issuedStatusExpressionAttribute))
+                .expressionAttributeNames(mapOf(issuedStatusExpressionAttributeName, ownerExpressionAttributeName))
                 .limit(count.toInt())
                 .build()
 
@@ -147,9 +147,10 @@ class DynamoDBDelegationDataAccessProvider(private val dynamoDBClient: DynamoDBC
     {
         val requestBuilder = QueryRequest.builder()
                 .tableName(tableName)
-                .indexName("owner-index")
-                .keyConditionExpression("owner = :owner")
-                .expressionAttributeValues(mapOf(Pair(":owner", AttributeValue.builder().s(owner).build())))
+                .indexName("owner-status-index")
+                .keyConditionExpression("#owner = :owner AND #status = :status")
+                .expressionAttributeValues(mapOf(Pair(":owner", owner.toAttributeValue()), issuedStatusExpressionAttribute))
+                .expressionAttributeNames(mapOf(issuedStatusExpressionAttributeName, ownerExpressionAttributeName))
                 .projectionExpression("id")
 
         if (exclusiveStartKey != null) {
@@ -198,7 +199,7 @@ class DynamoDBDelegationDataAccessProvider(private val dynamoDBClient: DynamoDBC
     private fun queryForActiveCount(exclusiveStartKey: Map<String, AttributeValue>?): ScanResponse {
         val requestBuilder = ScanRequest.builder()
                 .tableName(tableName)
-                .filterExpression("status = :status")
+                .filterExpression("#status = :status")
                 .expressionAttributeValues(issuedStatusExpressionAttributeMap)
                 .expressionAttributeNames(mapOf(Pair("#status", "status")))
                 .projectionExpression("id")
@@ -254,12 +255,6 @@ class DynamoDBDelegationDataAccessProvider(private val dynamoDBClient: DynamoDBC
 
         return result
     }
-
-    private fun getKeyWithIssuedStatus(id: String): Map<String, AttributeValue> =
-        mapOf(
-            Pair("id", id.toAttributeValue()),
-            issuedStatusKey
-        )
 
     private fun Delegation.toItem(): Map<String, AttributeValue>
     {
@@ -339,5 +334,6 @@ class DynamoDBDelegationDataAccessProvider(private val dynamoDBClient: DynamoDBC
         private val issuedStatusExpressionAttributeMap = mapOf(issuedStatusExpressionAttribute)
         private val issuedStatusExpressionAttributeName = Pair("#status", "status")
         private val issuedStatusExpressionAttributeNameMap = mapOf(issuedStatusExpressionAttributeName)
+        private val ownerExpressionAttributeName = Pair("#owner", "owner")
     }
 }
