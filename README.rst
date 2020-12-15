@@ -34,12 +34,12 @@ Next choose ``dynamodb-dataaccess-provider`` as the type of the provider, and fi
 1. Choose the region of your DynamodDB database.
 2. Configure access to the database by choosing one of the options:
 
-    - ``access-key-id and secret``. You must provide the access key and secret in appropriate fields. Optionally, you can
-      set the ARN role which will be used when obtaining credentials.
-    - ``awsprofile``. You must provide the profile name which will be used to retrieve credentials from the system. Optionally,
-      you can set the ARN role which will be used when obtaining credentials.
-    - ``ec2-instance-profile``. You can enable this setting to use an EC2 Instance Profile for DynamoDB access. This allows
-      for assigning an IAM Role with DynamoDB permissions directly to an EC2 instance.
+- ``access-key-id and secret``. You must provide the access key and secret in appropriate fields. Optionally, you can
+  set the ARN role which will be used when obtaining credentials.
+- ``awsprofile``. You must provide the profile name which will be used to retrieve credentials from the system. Optionally,
+  you can set the ARN role which will be used when obtaining credentials.
+- ``ec2-instance-profile``. You can enable this setting to use an EC2 Instance Profile for DynamoDB access. This allows
+  for assigning an IAM Role with DynamoDB permissions directly to an EC2 instance.
 
 If Aws Role Arn is defined an AssumeRole attempt will be made with the credentials found, either from config (Access Key ID
 and Access Key Secret) or from profile. The credentials then don't have to have direct access to DynamoDB but instead need
