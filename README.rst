@@ -49,69 +49,60 @@ Tables and indexes used
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 1. Table: curity-accounts
-
-- partition key: userName (String)
-- indexes:
-    a. email-index
-        - partition key: email (String)
-    b. phone-index
-        - partition key: phone (String)
+    - partition key: userName (String)
+    - indexes:
+        a. email-index
+            - partition key: email (String)
+        b. phone-index
+            - partition key: phone (String)
 
 2. Table: curity-bucket
-
-- partition key: subject (String)
-- sort key: purpose (String)
+    - partition key: subject (String)
+    - sort key: purpose (String)
 
 3. Table: curity-delegations
-
-- partition key: id (String)
-- indexes:
-    a. id-status-index
-        - partition key: id (String)
-        - sort key: status (String)
-    b. owner-status-index
-        - partition key: owner (String)
-        - sort key: status (String)
-    c. authorization-hash-index
-        - partition key: authorizationCodeHash (String)
+    - partition key: id (String)
+    - indexes:
+        a. id-status-index
+            - partition key: id (String)
+            - sort key: status (String)
+        b. owner-status-index
+            - partition key: owner (String)
+            - sort key: status (String)
+        c. authorization-hash-index
+            - partition key: authorizationCodeHash (String)
 
 4. Table: curity-devices
-
-- partition key: id (String)
-- indexes:
-    a. accountId-deviceId-index
-        - partition key: accountId (String)
-        - sort key: deviceId (String)
+    - partition key: id (String)
+    - indexes:
+        a. accountId-deviceId-index
+            - partition key: accountId (String)
+            - sort key: deviceId (String)
 
 5. Table: curity-dynamic-clients
-
-- partition key: clientId (String)
+    - partition key: clientId (String)
 
 6. Table: curity-links
-
-- partition key: localIdToforeignIdAtdomainForManager (String)
-- indexes:
-    a. resolve-link-index
-        - partition key: foreignIdAtDomain (String)
-        - sort key: linkingAccountManager (String)
-    b. list-links-index
-        - partition key: localAccountId (String)
-        - sort key: linkingAccountManager (String)
+    - partition key: localIdToforeignIdAtdomainForManager (String)
+    - indexes:
+        a. resolve-link-index
+            - partition key: foreignIdAtDomain (String)
+            - sort key: linkingAccountManager (String)
+        b. list-links-index
+            - partition key: localAccountId (String)
+            - sort key: linkingAccountManager (String)
 
 7. Table: curity-nonces
-
-- partition key: nonce (String)
+    - partition key: nonce (String)
 
 8. Table: curity-sessions
-
-- partition key: id (String)
+    - partition key: id (String)
 
 9. Table: curity-tokens
-
-- partition key: tokenHash (String)
-- indexes:
-    a. id-index
-        - partition key: id (String)
+    - partition key: tokenHash (String)
+    - indexes:
+        a. id-index
+            - partition key: id (String)
 
 More Information
 ~~~~~~~~~~~~~~~~
