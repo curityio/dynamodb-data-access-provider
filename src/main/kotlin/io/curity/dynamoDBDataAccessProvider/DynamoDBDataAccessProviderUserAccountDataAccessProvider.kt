@@ -16,12 +16,14 @@
 package io.curity.dynamoDBDataAccessProvider
 
 import io.curity.dynamoDBDataAccessProvider.configuration.DynamoDBDataAccessProviderDataAccessProviderConfig
-import io.curity.dynamoDBDataAccessProvider.token.FilterParser
+import io.curity.dynamoDBDataAccessProvider.token.UserAccountFilterParser
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.attribute.AccountAttributes
 import se.curity.identityserver.sdk.attribute.Attributes
+import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.LinkedAccount
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.data.query.ResourceQueryResult
@@ -33,10 +35,10 @@ import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
-import software.amazon.awssdk.services.dynamodb.model.ScanResponse
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 import java.time.Instant
-import java.util.Collections
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamoDBClient: DynamoDBClient, configuration: DynamoDBDataAccessProviderDataAccessProviderConfig): UserAccountDataAccessProvider
 {
@@ -50,19 +52,16 @@ class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamo
                 .tableName(tableName)
                 .key(userName.toKey("userName"))
 
-        if (attributesEnumeration != null && attributesEnumeration.attributes.isNotEmpty()) {
-            requestBuilder.attributesToGet(attributesEnumeration.attributes)
+        if (attributesEnumeration != null && !attributesEnumeration.isNeutral && attributesEnumeration is ResourceQuery.Inclusions)
+        {
+            requestBuilder.attributesToGet(requiredAttributesToGet + attributesEnumeration.attributes)
         }
 
         val request = requestBuilder.build()
 
         val response = dynamoDBClient.getItem(request)
 
-        return if (response.hasItem()) {
-            toAccountAttributes(response.item())
-        } else {
-            null
-        }
+        return if (response.hasItem()) response.item().toAccountAttributes(attributesEnumeration) else null
     }
 
     override fun getByEmail(email: String, attributesEnumeration: ResourceQuery.AttributesEnumeration?): ResourceAttributes<*>?
@@ -79,7 +78,8 @@ class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamo
         return retrieveByQuery("phone-index", "phone = :phone", ":phone", phone, attributesEnumeration)
     }
 
-    private fun retrieveByQuery(indexName: String, keyCondition: String, attributeKey: String, attributeValue: String, attributesEnumeration: ResourceQuery.AttributesEnumeration?): ResourceAttributes<*>? {
+    private fun retrieveByQuery(indexName: String, keyCondition: String, attributeKey: String, attributeValue: String, attributesEnumeration: ResourceQuery.AttributesEnumeration?): ResourceAttributes<*>?
+    {
         val requestBuilder = QueryRequest.builder()
                 .tableName(tableName)
                 .indexName(indexName)
@@ -87,17 +87,21 @@ class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamo
                 .expressionAttributeValues(mapOf(Pair(attributeKey, AttributeValue.builder().s(attributeValue).build())))
                 .limit(1)
 
-        if (attributesEnumeration != null && attributesEnumeration.attributes.isNotEmpty()) {
-            requestBuilder.attributesToGet(attributesEnumeration.attributes)
+        if (attributesEnumeration != null && !attributesEnumeration.isNeutral && attributesEnumeration is ResourceQuery.Inclusions)
+        {
+            requestBuilder.attributesToGet(requiredAttributesToGet + attributesEnumeration.attributes)
         }
 
         val request = requestBuilder.build()
 
         val response = dynamoDBClient.query(request)
 
-        return if (response.hasItems() && response.items().isNotEmpty()) {
-            toAccountAttributes(response.items().first())
-        } else {
+        return if (response.hasItems() && response.items().isNotEmpty())
+        {
+            response.items().first().toAccountAttributes(attributesEnumeration)
+        }
+        else
+        {
             null
         }
     }
@@ -111,79 +115,115 @@ class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamo
         val request = PutItemRequest.builder()
                 .tableName(tableName)
                 .item(item)
+                .conditionExpression("attribute_not_exists(userName)")
                 .build()
 
         dynamoDBClient.putItem(request)
 
-        return toAccountAttributes(item)
+        return item.toAccountAttributes()
     }
 
     override fun update(accountAttributes: AccountAttributes,
-                                        attributesEnumeration: ResourceQuery.AttributesEnumeration): ResourceAttributes<*>?
+                        attributesEnumeration: ResourceQuery.AttributesEnumeration): ResourceAttributes<*>?
     {
         logger.debug("Received request to update account with data : {}", accountAttributes)
 
-        // For now only update "active" status
+        val username = accountAttributes["userName"].value as String
 
-        val username = accountAttributes["userName"].attributeValue.toString()
-
-        val request = UpdateItemRequest.builder()
-                .tableName(tableName)
-                .key(username.toKey("userName"))
-                .expressionAttributeValues(mapOf<String, AttributeValue>(Pair(":active", AttributeValue.builder().bool(accountAttributes["active"].value as Boolean).build())))
-                .updateExpression("SET active = :active")
-                .build()
-
-        dynamoDBClient.updateItem(request)
+        updateAccount(username, accountAttributes)
 
         return getByUserName(username, attributesEnumeration)
     }
 
     override fun update(accountId: String, map: Map<String, Any>,
-                                        attributesEnumeration: ResourceQuery.AttributesEnumeration): ResourceAttributes<*>?
+                        attributesEnumeration: ResourceQuery.AttributesEnumeration): ResourceAttributes<*>?
     {
         logger.debug("Received request to update account with id:{} and data : {}", accountId, map)
 
-        // For now only update active
-
-        val request = UpdateItemRequest.builder()
-                .tableName(tableName)
-                .key(accountId.toKey("userName"))
-                .expressionAttributeValues(mapOf<String, AttributeValue>(Pair(":active", AttributeValue.builder().bool(map["active"] as Boolean).build())))
-                .updateExpression("SET active = :active")
-                .build()
-
-        dynamoDBClient.updateItem(request)
+        updateAccount(accountId, AccountAttributes.fromMap(map))
 
         return getByUserName(accountId, attributesEnumeration)
     }
 
+    private fun updateAccount(accountId: String, accountAttributes: AccountAttributes) {
+        val attributesToUpdate = mutableMapOf<String, AttributeValue>()
+        val attributesToRemoveFromItem = mutableListOf<String>()
+        val updateExpressionParts = mutableListOf<String>()
+
+
+        if (accountAttributes.emails != null) {
+            val email = accountAttributes.emails.primaryOrFirst
+            if (email != null && !email.isEmpty) {
+                updateExpressionParts.add("email = :email")
+                attributesToUpdate[":email"] = email.significantValue.toAttributeValue()
+            }
+        } else {
+            attributesToRemoveFromItem.add("email")
+        }
+
+        if (accountAttributes.phoneNumbers != null) {
+            val phone = accountAttributes.phoneNumbers.primaryOrFirst
+            if (phone != null && !phone.isEmpty) {
+                updateExpressionParts.add("phone = :phone")
+                attributesToUpdate[":phone"] = phone.significantValue.toAttributeValue()
+            }
+        } else {
+            attributesToRemoveFromItem.add("phone")
+        }
+
+        if (accountAttributes["active"] != null) {
+            updateExpressionParts.add("active = :active")
+            attributesToUpdate[":active"] = (accountAttributes["active"].value as Boolean).toAttributeValue()
+        }
+
+        val attributesToPersist = Attributes.of(accountAttributes.filter { attribute -> !attributesToRemove.contains(attribute.name.value) })
+
+        if (!attributesToPersist.isEmpty) {
+            updateExpressionParts.add("attributes = :attributes")
+            attributesToUpdate[":attributes"] = jsonHandler.fromAttributes(attributesToPersist).toAttributeValue()
+        }
+
+        updateExpressionParts.add("updated = :updated")
+        attributesToUpdate[":updated"] = Instant.now().epochSecond.toAttributeValue()
+
+        val requestBuilder = UpdateItemRequest.builder()
+                .tableName(tableName)
+                .key(accountId.toKey("userName"))
+
+        var updateExpression = ""
+
+        if (updateExpressionParts.isNotEmpty()) {
+            updateExpression += "SET ${updateExpressionParts.joinToString(", ")} "
+            requestBuilder
+                    .expressionAttributeValues(attributesToUpdate)
+
+        }
+
+        if (attributesToRemoveFromItem.isNotEmpty()) {
+            updateExpression += "REMOVE ${attributesToRemoveFromItem.joinToString(", ")} "
+        }
+
+        requestBuilder.updateExpression(updateExpression)
+
+        dynamoDBClient.updateItem(requestBuilder.build())
+    }
+
     override fun patch(accountId: String, attributeUpdate: AttributeUpdate,
-                                            attributesEnumeration: ResourceQuery.AttributesEnumeration): ResourceAttributes<*>?
+                       attributesEnumeration: ResourceQuery.AttributesEnumeration): ResourceAttributes<*>?
     {
         logger.debug("Received patch request with accountId:{} and data : {}", accountId, attributeUpdate)
 
         // For now only update "active"
 
-        if (attributeUpdate.attributeAdditions.contains("active") || attributeUpdate.attributeReplacements.contains("active")) {
+        if (!attributeUpdate.attributeAdditions.isEmpty || !attributeUpdate.attributeReplacements.isEmpty) {
+            updateAccount(accountId, AccountAttributes.of(attributeUpdate.attributeAdditions + attributeUpdate.attributeReplacements))
+        }
 
-            val active = if (attributeUpdate.attributeAdditions.contains("active"))
-                attributeUpdate.attributeAdditions["active"].value as Boolean else
-                attributeUpdate.attributeReplacements["active"].value as Boolean
-
+        if (!attributeUpdate.attributeDeletions.attributeNamesToDelete.isEmpty()) {
             val request = UpdateItemRequest.builder()
                     .tableName(tableName)
                     .key(accountId.toKey("userName"))
-                    .expressionAttributeValues(mapOf<String, AttributeValue>(Pair(":active", AttributeValue.builder().bool(active).build())))
-                    .updateExpression("SET active = :active")
-                    .build()
-
-            dynamoDBClient.updateItem(request)
-        } else if (attributeUpdate.attributeDeletions.attributeNamesToDelete.contains("active")) {
-            val request = UpdateItemRequest.builder()
-                    .tableName(tableName)
-                    .key(accountId.toKey("userName"))
-                    .updateExpression("REMOVE active")
+                    .updateExpression("REMOVE ${attributeUpdate.attributeDeletions.attributeNamesToDelete.joinToString(", ")}")
                     .build()
 
             dynamoDBClient.updateItem(request)
@@ -231,9 +271,12 @@ class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamo
 
         val response = dynamoDBClient.query(request)
 
-        return if (response.hasItems() && response.items().isNotEmpty()) {
+        return if (response.hasItems() && response.items().isNotEmpty())
+        {
             response.items().map { item -> LinkedAccount.of(item["foreignDomainName"]?.s(), item["foreignAccountId"]?.s(), "", item["created"]?.s()) }
-        } else {
+        }
+        else
+        {
             emptyList()
         }
     }
@@ -247,7 +290,8 @@ class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamo
 
         val response = dynamoDBClient.getItem(request)
 
-        if (!response.hasItem() || response.item().isEmpty()) {
+        if (!response.hasItem() || response.item().isEmpty())
+        {
             return null
         }
 
@@ -289,30 +333,35 @@ class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamo
 
         if (query.filter != null)
         {
-            val parsedFilter = FilterParser(query.filter)
+            val parsedFilter = UserAccountFilterParser(query.filter)
 
             requestBuilder
                     .filterExpression(parsedFilter.parsedFilter)
                     .expressionAttributeValues(parsedFilter.attributeValues)
-            if (parsedFilter.attributesNamesMap.isNotEmpty()) {
+            if (parsedFilter.attributesNamesMap.isNotEmpty())
+            {
                 requestBuilder.expressionAttributeNames(parsedFilter.attributesNamesMap)
             }
 
-//            logger.warn("Getting all users with filter: {}", parsedFilter.parsedFilter)
-//            logger.warn("Values for parameters: {}", parsedFilter.attributeValues.map { (k,v) -> "$k: ${v.s()}" }.joinToString(", "))
+        }
+
+        if (!query.attributesEnumeration.isNeutral && query.attributesEnumeration is ResourceQuery.Inclusions) {
+            requestBuilder.attributesToGet(requiredAttributesToGet + query.attributesEnumeration.attributes)
+        }
+
+        if (query.pagination?.count != null) {
+            requestBuilder.limit(query.pagination.count.toInt())
         }
 
         val response = dynamoDBClient.scan(requestBuilder.build())
 
-//        logger.warn("Found {} items, out of {} items", response.count(), response.scannedCount())
+        val results = mutableListOf<ResourceAttributes<*>>()
 
-        val results  = mutableListOf<ResourceAttributes<*>>()
-
-        response.items().forEach {item ->
-            results.add(toAccountAttributes(item))
+        response.items().forEach { item ->
+            results.add(item.toAccountAttributes(query.attributesEnumeration))
         }
 
-        return ResourceQueryResult(results, response.count().toLong(), 0, response.count().toLong())
+        return ResourceQueryResult(results, response.count().toLong(), 0, query.pagination.count)
     }
 
     override fun getAll(startIndex: Long, count: Long): ResourceQueryResult
@@ -326,13 +375,13 @@ class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamo
                 .build()
 
         val response = dynamoDBClient.scan(request)
-        val results  = mutableListOf<ResourceAttributes<*>>()
+        val results = mutableListOf<ResourceAttributes<*>>()
 
-        response.items().forEach {item ->
-            results.add(toAccountAttributes(item))
+        response.items().forEach { item ->
+            results.add(item.toAccountAttributes())
         }
 
-        return ResourceQueryResult(results, response.count().toLong(), 0, response.count().toLong())
+        return ResourceQueryResult(results, response.count().toLong(), 0, count)
     }
 
     private fun getLinksKey(foreignAccountId: String, foreignDomainName: String, linkingAccountManager: String): Map<String, AttributeValue> =
@@ -348,51 +397,84 @@ class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamo
         item["updated"] = now
         item["created"] = now
 
-        if (!password.isNullOrEmpty()) {
+        if (!password.isNullOrEmpty())
+        {
             item["password"] = password.toAttributeValue()
         }
 
-        if (emails != null) {
+        if (emails != null)
+        {
             val email = emails.primaryOrFirst
-            if (email != null && !email.isEmpty) {
+            if (email != null && !email.isEmpty)
+            {
                 item["email"] = email.significantValue.toAttributeValue()
             }
         }
 
-        if (phoneNumbers != null) {
+        if (phoneNumbers != null)
+        {
             val phone = phoneNumbers.primaryOrFirst
-            if (phone != null && !phone.isEmpty) {
+            if (phone != null && !phone.isEmpty)
+            {
                 item["phone"] = phone.significantValue.toAttributeValue()
             }
         }
 
         val attributesToPersist = Attributes.of(filter { attribute -> !attributesToRemove.contains(attribute.name.value) })
 
-        if (!attributesToPersist.isEmpty) {
+        if (!attributesToPersist.isEmpty)
+        {
             item["attributes"] = jsonHandler.fromAttributes(attributesToPersist).toAttributeValue()
         }
 
         return item
     }
 
-    private fun toAccountAttributes(item: Map<String, AttributeValue>): AccountAttributes
+    private fun Map<String, AttributeValue>.toAccountAttributes(): AccountAttributes = toAccountAttributes(null)
+    private fun Map<String, AttributeValue>.toAccountAttributes(attributesEnumeration: ResourceQuery.AttributesEnumeration?): AccountAttributes
     {
-        val map = mutableMapOf<String, Any?>()
+        var map = mutableMapOf<String, Any?>()
 
-        map["id"] = item["userName"]?.s()
+        map["id"] = this["userName"]?.s()
 
-        item.forEach {(key, value) ->
+        forEach {(key, value) ->
             when (key) {
                 "active" -> map["active"] = value.bool()
                 "email" -> {} // skip, emails are in attributes
                 "phone" -> {} // skip, phones are in attributes
-                "attributes" -> map.putAll(jsonHandler.fromJson(item["attributes"]!!.s()))
+                "attributes" -> map.putAll(jsonHandler.fromJson(this["attributes"]?.s()) ?: emptyMap<String, Any>())
+                "created" -> {} // skip, this goes to meta
+                "updated" -> {} // skip, this goes to meta
+                "password" -> {} // do not return passwords
                 else -> map[key] = value.s()
             }
         }
 
-        return AccountAttributes.fromMap(map)
+        if (attributesEnumeration.includeMeta()) {
+            // TODO - should the zone be system default or UTC?
+            val zoneId = if (map["timezone"] != null) ZoneId.of(map["timezone"].toString()) else ZoneId.systemDefault()
+
+            map["meta"] = mapOf(
+                    Pair(Meta.RESOURCE_TYPE, AccountAttributes.RESOURCE_TYPE),
+                    Pair("created", ZonedDateTime.ofInstant(Instant.ofEpochSecond(this["created"]?.s()?.toLong() ?: -1L), zoneId).toString()),
+                    Pair("lastModified", ZonedDateTime.ofInstant(Instant.ofEpochSecond(this["updated"]?.s()?.toLong() ?: -1L), zoneId).toString())
+            )
+        }
+
+        val accountAttributes = AccountAttributes.fromMap(map)
+
+        return if (attributesEnumeration != null) {
+            // Most of the attributes are in the "attributes" blob json, so the fields have to be filtered separately here
+            AccountAttributes.of(accountAttributes.filter(attributesEnumeration))
+        } else {
+            accountAttributes
+        }
     }
+
+
+
+    private fun ResourceQuery.AttributesEnumeration?.includeMeta() =
+            this == null || isNeutral || (this is ResourceQuery.Inclusions && attributes.contains("meta")) || (this is ResourceQuery.Exclusions && !attributes.contains("meta"))
 
     companion object
     {
@@ -401,5 +483,6 @@ class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamo
         private val logger: Logger = LoggerFactory.getLogger(DynamoDBDataAccessProviderCredentialDataAccessProvider::class.java)
 
         private val attributesToRemove = listOf("active", "password", "userName", "id", "schemas")
+        private val requiredAttributesToGet = setOf("userName", "attributes", "created", "updated")
     }
 }

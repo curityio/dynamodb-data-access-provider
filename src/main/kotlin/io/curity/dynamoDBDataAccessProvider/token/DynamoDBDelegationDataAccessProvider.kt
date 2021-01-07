@@ -231,7 +231,7 @@ class DynamoDBDelegationDataAccessProvider(private val dynamoDBClient: DynamoDBC
         }
 
         if (query.filter != null) {
-            val filterParser = FilterParser(query.filter)
+            val filterParser = DelegationsFilterParser(query.filter)
 
             logger.warn("Calling getAll with filter: {}, values set: {}. Values: {}", filterParser.parsedFilter, filterParser.attributeValues.count(),
                 filterParser.attributeValues.map { value -> value.value.s() }.joinToString(", ")

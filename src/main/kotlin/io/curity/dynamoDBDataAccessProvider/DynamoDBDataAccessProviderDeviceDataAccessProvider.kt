@@ -22,6 +22,7 @@ import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.ATTRIBUTES
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.EXPIRES_AT
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.RESOURCE_TYPE
 import se.curity.identityserver.sdk.data.query.ResourceQuery
@@ -75,7 +76,7 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
                 .expressionAttributeValues(getKey(deviceId, accountId))
                 .limit(1)
 
-        if (attributesEnumeration.isNeutral) {
+        if (!attributesEnumeration.isNeutral && attributesEnumeration is ResourceQuery.Inclusions) {
             requestBuilder.attributesToGet(attributesEnumeration.attributes)
         }
 
@@ -113,7 +114,7 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
                 .tableName(tableName)
                 .key(id.toKey("id"))
 
-        if (attributesEnumeration.isNeutral) {
+        if (!attributesEnumeration.isNeutral && attributesEnumeration is ResourceQuery.Inclusions) {
             requestBuilder.attributesToGet(attributesEnumeration.attributes)
         }
 
@@ -153,7 +154,7 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
             requestBuilder.exclusiveStartKey(startKey)
         }
 
-        if (attributesEnumeration != null && !attributesEnumeration.isNeutral) {
+        if (attributesEnumeration != null && !attributesEnumeration.isNeutral && attributesEnumeration is ResourceQuery.Inclusions) {
             requestBuilder.attributesToGet(attributesEnumeration.attributes)
         }
 
@@ -201,14 +202,12 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
             } else {
                 Instant.now().epochSecond.toAttributeValue()
             }
-            deviceAttributesMap.remove(Meta.CREATED)
-
-            if (deviceAttributes.meta.lastModified != null) {
-                item[Meta.LAST_MODIFIED] = deviceAttributes.meta.lastModified.epochSecond.toAttributeValue()
-                deviceAttributesMap.remove(Meta.LAST_MODIFIED)
-            }
         }
+
+        item[Meta.LAST_MODIFIED] = Instant.now().epochSecond.toAttributeValue()
+
         deviceAttributesMap.remove(DeviceAttributes.META)
+        deviceAttributesMap.remove(DeviceAttributes.SCHEMAS)
 
         if (item["id"] == null) {
             item["id"] = UUID.randomUUID().toString().toAttributeValue()
@@ -230,15 +229,66 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
     {
         _logger.debug("Received request to update device by deviceId: {}", deviceAttributes.deviceId)
 
-        // TODO for now only update alias
-        val request = UpdateItemRequest.builder()
+        val attributesToUpdate = mutableMapOf<String, AttributeValue>()
+        val attributesToRemove = mutableListOf<String>()
+        val deviceAttributesMap = deviceAttributes.asMap()
+        val updateExpressionParts = mutableListOf<String>()
+
+        deviceFields.forEach { deviceField ->
+            if (deviceField != DeviceAttributes.ID && deviceField != DeviceAttributes.DEVICE_ID) {
+                val deviceFieldAttributeKey = if (deviceField == "owner") "#$deviceField" else deviceField
+
+                if (deviceAttributes[deviceField] != null) {
+                    updateExpressionParts.add("$deviceFieldAttributeKey = :$deviceField")
+                    attributesToUpdate[":$deviceField"] = deviceAttributes[deviceField].value.toString().toAttributeValue()
+                    deviceAttributesMap.remove(deviceField)
+                } else if (deviceField != ATTRIBUTES) {
+                    attributesToRemove.add(deviceFieldAttributeKey)
+                }
+            }
+        }
+
+        deviceAttributesMap.remove(DeviceAttributes.SCHEMAS)
+        deviceAttributesMap.remove(DeviceAttributes.ID)
+        deviceAttributesMap.remove(DeviceAttributes.DEVICE_ID)
+        deviceAttributesMap.remove(DeviceAttributes.META)
+
+        if (deviceAttributes.expiresAt != null) {
+            updateExpressionParts.add("$EXPIRES_AT = :$EXPIRES_AT")
+            attributesToUpdate[":$EXPIRES_AT"] = deviceAttributes.expiresAt.epochSecond.toAttributeValue()
+            deviceAttributesMap.remove(EXPIRES_AT)
+        } else {
+            attributesToRemove.add(EXPIRES_AT)
+        }
+
+        if (deviceAttributesMap.isNotEmpty()) {
+            updateExpressionParts.add("$ATTRIBUTES = :$ATTRIBUTES")
+            attributesToUpdate[":$ATTRIBUTES"] = jsonHandler.fromAttributes(Attributes.fromMap(deviceAttributesMap)).toAttributeValue()
+        } else if (!attributesToUpdate.containsKey(":$ATTRIBUTES")) {
+            attributesToRemove.add(ATTRIBUTES)
+        }
+
+        val requestBuilder = UpdateItemRequest.builder()
                 .tableName(tableName)
                 .key(deviceAttributes.id.toKey("id"))
-                .updateExpression("SET ${DeviceAttributes.ALIAS} = :alias")
-                .expressionAttributeValues(mapOf(Pair(":alias", deviceAttributes.alias.toAttributeValue())))
-                .build()
 
-        dynamoDBClient.updateItem(request)
+        var updateExpression = ""
+
+        if (updateExpressionParts.isNotEmpty()) {
+            updateExpression += "SET ${updateExpressionParts.joinToString(", ")} "
+            requestBuilder
+                    .expressionAttributeValues(attributesToUpdate)
+
+        }
+
+        if (attributesToRemove.isNotEmpty()) {
+            updateExpression += "REMOVE ${attributesToRemove.joinToString(", ")} "
+        }
+
+        requestBuilder.updateExpression(updateExpression)
+        requestBuilder.expressionAttributeNames(ownerAttributeNameMap)
+
+        dynamoDBClient.updateItem(requestBuilder.build())
     }
 
     override fun delete(id: String)
@@ -278,13 +328,13 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
                 response.items().map { item -> toDeviceAttributes(item) },
                 response.count().toLong(),
                 0,
-                response.count().toLong()
+                count
         )
     }
 
     private fun getKey(deviceId: String, accountId: String): Map<String, AttributeValue> = mapOf(
-            Pair("deviceId", deviceId.toAttributeValue()),
-            Pair("accountId", accountId.toAttributeValue())
+            Pair(":deviceId", deviceId.toAttributeValue()),
+            Pair(":accountId", accountId.toAttributeValue())
     )
 
     private fun toDeviceAttributes(item: Map<String, AttributeValue>): DeviceAttributes = DeviceAttributes.createDevice(
@@ -316,7 +366,9 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
                 DeviceAttributes.FORM_FACTOR,
                 DeviceAttributes.DEVICE_TYPE,
                 DeviceAttributes.OWNER,
-                DeviceAttributes.ATTRIBUTES
+                ATTRIBUTES
         )
+
+        private val ownerAttributeNameMap = mapOf(Pair("#owner", "owner"))
     }
 }

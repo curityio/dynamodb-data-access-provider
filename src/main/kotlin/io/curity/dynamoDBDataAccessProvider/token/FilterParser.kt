@@ -15,11 +15,40 @@
  */
 package io.curity.dynamoDBDataAccessProvider.token
 
+import io.curity.dynamoDBDataAccessProvider.toAttributeValue
+import se.curity.identityserver.sdk.attribute.AccountAttributes
+import se.curity.identityserver.sdk.data.authorization.Delegation
 import se.curity.identityserver.sdk.data.query.Filter
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import java.util.EnumMap
 
-class FilterParser(filter: Filter)
+class DelegationsFilterParser(filter: Filter): FilterParser(filter, filterDelegationAttributeNamesToDynamoAttributesMap) {
+    companion object {
+        private val filterDelegationAttributeNamesToDynamoAttributesMap = mapOf(
+                Pair(AccountAttributes.USER_NAME, "owner"),
+                Pair(Delegation.KEY_OWNER, "owner"),
+                Pair(Delegation.KEY_SCOPE, "scope"),
+                Pair(Delegation.KEY_CLIENT_ID, "clientId"),
+                Pair("client_id", "clientId"),
+                Pair(Delegation.KEY_REDIRECT_URI, "redirectUri"),
+                Pair("redirect_uri", "redirectUri"),
+                Pair(Delegation.KEY_STATUS, "status"),
+                Pair("expires", "expires"),
+                Pair("externalId", "id")
+        )
+    }
+}
+
+class UserAccountFilterParser(filter: Filter): FilterParser(filter, filterUserAccountAttributeNamesToDynamoAttributesMap) {
+    companion object {
+        private val filterUserAccountAttributeNamesToDynamoAttributesMap = mapOf(
+                Pair("phoneNumbers", "phone"),
+                Pair("emails", "email")
+        )
+    }
+}
+
+sealed class FilterParser(filter: Filter, val filterAttributeNamesToDynamoAttributesMap: Map<String, String>)
 {
     val attributesNamesMap = mutableMapOf<String, String>()
     val attributeValues = mutableMapOf<String, AttributeValue>()
@@ -39,7 +68,7 @@ class FilterParser(filter: Filter)
 
         if (filter is Filter.AttributeExpression) {
             val name = getAttributeName(filter.attributeName)
-            attributeValues[":$name"] = AttributeValue.builder().s(filter.value.toString()).build()
+            attributeValues[":$name"] = if (filter.attributeName == "active") (filter.value as Boolean).toAttributeValue() else (filter.value as String).toAttributeValue()
             return getFilterExpressionPartWithOperator(filter.operator, filter.attributeName, name)
         }
 
@@ -47,16 +76,12 @@ class FilterParser(filter: Filter)
     }
 
     private fun getFilterExpressionPartWithOperator(operator: Filter.AttributeOperator, attributeKey: String, attributeValueName: String): String {
-        if (operator == Filter.AttributeOperator.EW) {
-            // DynamoDB does not have an ends-with operator
-            return ""
-        }
+        val mappedAttributeKey = filterAttributeNamesToDynamoAttributesMap[attributeKey] ?: attributeKey
+        var sanitizedAttributeKey = mappedAttributeKey
 
-        var sanitizedAttributeKey = attributeKey
-
-        if (reservedAttributeKeyNames.contains(attributeKey)) {
-            sanitizedAttributeKey = "#$attributeKey"
-            attributesNamesMap[sanitizedAttributeKey] = attributeKey
+        if (reservedAttributeKeyNames.contains(mappedAttributeKey)) {
+            sanitizedAttributeKey = "#$mappedAttributeKey"
+            attributesNamesMap[sanitizedAttributeKey] = mappedAttributeKey
         }
 
         return operatorToDynamoDB[operator]?.replace("_attribute_", sanitizedAttributeKey)?.replace("_attributeValue_", attributeValueName) ?: ""
@@ -83,7 +108,8 @@ class FilterParser(filter: Filter)
             map[Filter.AttributeOperator.NE]= "_attribute_ <> :_attributeValue_"
             map[Filter.AttributeOperator.CO]= " contains(_attribute_, :_attributeValue_)"
             map[Filter.AttributeOperator.SW]= " begins_with(_attribute_, :_attributeValue_)"
-            map[Filter.AttributeOperator.EW]= ""
+            // TODO: there is no "ends with" operator in DynamoDB, this should be further filtered in code
+            map[Filter.AttributeOperator.EW]= " contains(_attribute_, :_attributeValue_)"
             map[Filter.AttributeOperator.PR]= "attribute_exists(_attribute_) AND size(_attribute_) > 0"
             map[Filter.AttributeOperator.GT]= "_attribute_ > :_attributeValue_"
             map[Filter.AttributeOperator.GE]= "_attribute_ >= :_attributeValue_"
