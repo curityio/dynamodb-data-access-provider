@@ -51,6 +51,7 @@ import software.amazon.awssdk.services.sts.StsClient
 import software.amazon.awssdk.services.sts.model.AssumeRoleRequest
 import software.amazon.awssdk.services.sts.model.AssumeRoleResponse
 import software.amazon.awssdk.services.sts.model.Credentials
+import java.net.URI
 
 class DynamoDBClient(private val config: DynamoDBDataAccessProviderDataAccessProviderConfig): ManagedObject<DynamoDBDataAccessProviderDataAccessProviderConfig>(config)
 {
@@ -84,15 +85,34 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderDataAccessPro
             {
                 creds = getNewCredentialsFromAssumeRole(creds, awsProfile.awsRoleARN.get())
             }
+        } else if (accessMethod.aWSDirect.get().hostname.isPresent) {
+            val aWSDirect = accessMethod.aWSDirect.get()
+            creds = StaticCredentialsProvider.create(AwsBasicCredentials.create(aWSDirect.accessKeyId.get(), aWSDirect.accessKeySecret.get()))
+
+            /* roleARN is present, get temporary credentials through AssumeRole */
+            if (aWSDirect.awsRoleARN.isPresent) {
+                creds = getNewCredentialsFromAssumeRole(creds, aWSDirect.awsRoleARN.get())
+            }
         } else {
             creds = null
         }
 
+        if(!accessMethod.aWSDirect.get().hostname.isPresent) {
             return  DynamoDbClient.builder()
                 .region(_awsRegion)
                 .credentialsProvider(creds)
                 .build()
+        } else {
+            val aWSDirect = accessMethod.aWSDirect.get()
+            val hostname: String = aWSDirect.hostname.get()
+            val endpoint = URI(hostname)
+
+            return DynamoDbClient.builder()
+                .endpointOverride(endpoint)
+                .credentialsProvider(creds)
+                .build()
         }
+    }
 
     private fun getNewCredentialsFromAssumeRole(creds: AwsCredentialsProvider, roleARN: String): AwsCredentialsProvider
     {
