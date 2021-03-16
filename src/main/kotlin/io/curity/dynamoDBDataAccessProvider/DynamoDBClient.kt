@@ -66,14 +66,6 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderDataAccessPro
 
         if (accessMethod.isEC2InstanceProfile.isPresent && accessMethod.isEC2InstanceProfile.get()) {
             creds = InstanceProfileCredentialsProvider.builder().build()
-        } else if (accessMethod.accessKeyIdAndSecret.isPresent) {
-            val keyIdAndSecret = accessMethod.accessKeyIdAndSecret.get()
-            creds = StaticCredentialsProvider.create(AwsBasicCredentials.create(keyIdAndSecret.accessKeyId.get(), keyIdAndSecret.accessKeySecret.get()))
-
-            /* roleARN is present, get temporary credentials through AssumeRole */
-            if (keyIdAndSecret.awsRoleARN.isPresent) {
-                creds = getNewCredentialsFromAssumeRole(creds, keyIdAndSecret.awsRoleARN.get())
-            }
         } else if (accessMethod.aWSProfile.get().awsProfileName.isPresent) {
             val awsProfile = accessMethod.aWSProfile.get()
             creds = ProfileCredentialsProvider.builder()
@@ -93,16 +85,20 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderDataAccessPro
             if (aWSDirect.awsRoleARN.isPresent) {
                 creds = getNewCredentialsFromAssumeRole(creds, aWSDirect.awsRoleARN.get())
             }
+        } else if (accessMethod.accessKeyIdAndSecret.isPresent) {
+            val keyIdAndSecret = accessMethod.accessKeyIdAndSecret.get()
+            creds = StaticCredentialsProvider.create(AwsBasicCredentials.create(keyIdAndSecret.accessKeyId.get(), keyIdAndSecret.accessKeySecret.get()))
+
+            /* roleARN is present, get temporary credentials through AssumeRole */
+            if (keyIdAndSecret.awsRoleARN.isPresent) {
+                creds = getNewCredentialsFromAssumeRole(creds, keyIdAndSecret.awsRoleARN.get())
+            }
+
         } else {
             creds = null
         }
 
-        if(!accessMethod.aWSDirect.get().hostname.isPresent) {
-            return  DynamoDbClient.builder()
-                .region(_awsRegion)
-                .credentialsProvider(creds)
-                .build()
-        } else {
+        if(accessMethod.aWSDirect.get().hostname.isPresent) {
             val aWSDirect = accessMethod.aWSDirect.get()
             val hostname: String = aWSDirect.hostname.get()
             val endpoint = URI(hostname)
@@ -118,6 +114,11 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderDataAccessPro
             logger.debug("AWS Direct DbClient Endpoints: {}", dbclient.describeEndpoints().toString())
 
             return dbclient;
+        } else {
+            return  DynamoDbClient.builder()
+                .region(_awsRegion)
+                .credentialsProvider(creds)
+                .build()
         }
     }
 
