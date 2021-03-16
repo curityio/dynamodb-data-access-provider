@@ -40,12 +40,9 @@ interface DynamoDBDataAccessProviderDataAccessProviderConfig: Configuration
         interface AWSDirect
         {
           @get:Description("Hostname for direct connection, ex. http://localhost:8080 ")
-          val hostname: Optional<String>
-          val accessKeyId: Optional<String>
-          val accessKeySecret: Optional<String>
-          @get:Description("Optional role ARN used when requesting temporary credentials, ex. arn:aws:iam::123456789012:role/dynamodb-role")
-          val awsRoleARN: Optional<String>
-
+          val hostname: String
+          val accessKeyId: String
+          val accessKeySecret: String
         }
 
         interface AccessKeyIdAndSecret
