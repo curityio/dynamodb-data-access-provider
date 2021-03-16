@@ -35,6 +35,15 @@ interface DynamoDBDataAccessProviderDataAccessProviderConfig: Configuration
     {
         val accessKeyIdAndSecret: Optional<AccessKeyIdAndSecret>
         val aWSProfile: Optional<AWSProfile>
+        val aWSDirect: Optional<AWSDirect>
+
+        interface AWSDirect
+        {
+          @get:Description("Hostname for direct connection, ex. http://localhost:8080 ")
+          val hostname: String
+          val accessKeyId: String
+          val accessKeySecret: String
+        }
 
         interface AccessKeyIdAndSecret
         {
