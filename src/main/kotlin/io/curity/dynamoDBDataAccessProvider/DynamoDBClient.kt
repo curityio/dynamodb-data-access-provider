@@ -119,13 +119,12 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderDataAccessPro
                 val endpoint = URI(hostname)
 
                 logger.info("AWS Direct endpointOverride, hostname: {}", endpoint.toString())
-                val dbclient = DynamoDbClient.builder()
+                Optional.of(DynamoDbClient.builder()
                         .region(_awsRegion)
                         .credentialsProvider(creds.get())
                         .endpointOverride(endpoint)
                         .build()
-                logger.info("AWS Direct DbClient Endpoints: {}", dbclient.describeEndpoints().toString())
-                Optional.of(dbclient)
+                )
             } else if (creds.isPresent) {
                 logger.info("Credentials only ")
                 Optional.of(
