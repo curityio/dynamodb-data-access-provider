@@ -107,10 +107,17 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderDataAccessPro
             val hostname: String = aWSDirect.hostname.get()
             val endpoint = URI(hostname)
 
-            return DynamoDbClient.builder()
-                .endpointOverride(endpoint)
+            logger.debug("AWS Direct Config hostname: {}", hostname)
+
+
+            val dbclient = DynamoDbClient.builder()
                 .credentialsProvider(creds)
+                .endpointOverride(endpoint)
                 .build()
+
+            logger.debug("AWS Direct DbClient Endpoints: {}", dbclient.describeEndpoints().toString())
+
+            return dbclient;
         }
     }
 
