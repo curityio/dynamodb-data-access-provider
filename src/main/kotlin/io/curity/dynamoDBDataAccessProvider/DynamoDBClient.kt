@@ -73,7 +73,7 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderDataAccessPro
                 logger.info("AWS Direct DbClient?: access-key-secret {}, ", accessMethod.aWSDirect.get().accessKeySecret)
             }
             logger.warn("above ")
-            if (accessMethod.isEC2InstanceProfile.isPresent && accessMethod.isEC2InstanceProfile.isPresent) {
+            if (accessMethod.isEC2InstanceProfile.isPresent) {
                 logger.warn("EC2 Instance ")
                 creds = Optional.of(InstanceProfileCredentialsProvider.builder().build())
             } else if (accessMethod.accessKeyIdAndSecret.isPresent) {
@@ -85,7 +85,7 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderDataAccessPro
                 if (keyIdAndSecret.awsRoleARN.isPresent) {
                     creds = Optional.of(getNewCredentialsFromAssumeRole(creds.get(), keyIdAndSecret.awsRoleARN.get()))
                 }
-            } else if (accessMethod.aWSProfile.get().awsProfileName.isPresent) {
+            } else if (accessMethod.aWSProfile.isPresent && accessMethod.aWSProfile.get().awsProfileName.isPresent) {
                 logger.warn("AWS Profile")
                 val awsProfile = accessMethod.aWSProfile.get()
                 creds = Optional.of(ProfileCredentialsProvider.builder()
@@ -101,7 +101,7 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderDataAccessPro
                 val aWSDirect = accessMethod.aWSDirect.get()
                 creds = Optional.of(StaticCredentialsProvider.create(AwsBasicCredentials.create(aWSDirect.accessKeyId, aWSDirect.accessKeySecret)))
             } else {
-                logger.info("empty")
+                logger.info("empty - configuration issue")
                 creds = Optional.empty<AwsCredentialsProvider>()
             }
         } catch (e: Exception) {
