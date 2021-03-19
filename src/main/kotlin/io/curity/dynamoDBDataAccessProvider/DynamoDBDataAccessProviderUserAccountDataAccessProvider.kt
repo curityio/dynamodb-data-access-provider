@@ -213,13 +213,16 @@ class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamo
     {
         logger.debug("Received patch request with accountId:{} and data : {}", accountId, attributeUpdate)
 
-        // For now only update "active"
+        // TODO - updating values and removing fields should read data from db and compare
+        // all fields, as some of the data can be set in the "attributes" blob. Currently the
+        // implementation is naive and assumes we're only editing/removing root attributes which
+        // live in their own columns (not in the "attributes" blob)
 
         if (!attributeUpdate.attributeAdditions.isEmpty || !attributeUpdate.attributeReplacements.isEmpty) {
             updateAccount(accountId, AccountAttributes.of(attributeUpdate.attributeAdditions + attributeUpdate.attributeReplacements))
         }
 
-        if (!attributeUpdate.attributeDeletions.attributeNamesToDelete.isEmpty()) {
+        if (attributeUpdate.attributeDeletions.attributeNamesToDelete.isNotEmpty()) {
             val request = UpdateItemRequest.builder()
                     .tableName(tableName)
                     .key(accountId.toKey("userName"))
@@ -433,7 +436,7 @@ class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamo
     private fun Map<String, AttributeValue>.toAccountAttributes(): AccountAttributes = toAccountAttributes(null)
     private fun Map<String, AttributeValue>.toAccountAttributes(attributesEnumeration: ResourceQuery.AttributesEnumeration?): AccountAttributes
     {
-        var map = mutableMapOf<String, Any?>()
+        val map = mutableMapOf<String, Any?>()
 
         map["id"] = this["userName"]?.s()
 

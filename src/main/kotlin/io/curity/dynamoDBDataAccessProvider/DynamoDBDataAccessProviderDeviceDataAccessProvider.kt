@@ -18,13 +18,17 @@ package io.curity.dynamoDBDataAccessProvider
 import io.curity.dynamoDBDataAccessProvider.configuration.DynamoDBDataAccessProviderDataAccessProviderConfig
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import se.curity.identityserver.sdk.attribute.Attribute
 import se.curity.identityserver.sdk.attribute.Attributes
+import se.curity.identityserver.sdk.attribute.MapAttributeValue
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.ATTRIBUTES
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.EXPIRES_AT
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.META
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.RESOURCE_TYPE
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.of
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.data.query.ResourceQueryResult
 import se.curity.identityserver.sdk.datasource.DeviceDataAccessProvider
@@ -337,21 +341,31 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
             Pair(":accountId", accountId.toAttributeValue())
     )
 
-    private fun toDeviceAttributes(item: Map<String, AttributeValue>): DeviceAttributes = DeviceAttributes.createDevice(
-                item["id"]?.s(),
-                item["deviceId"]?.s(),
-                item["accountId"]?.s(),
-                item["externalId"]?.s(),
-                item["alias"]?.s(),
-                item["formFactor"]?.s(),
-                item["deviceType"]?.s(),
-                item["owner"]?.s(),
-                Instant.ofEpochSecond(item["expiresAt"]?.s()?.toLong() ?: -1L),
-                Meta.of(RESOURCE_TYPE)
-                        .withCreated(Instant.ofEpochSecond(item["created"]?.s()?.toLong() ?: -1L))
-                        .withLastModified(Instant.ofEpochSecond(item["lastModified"]?.s()?.toLong() ?: -1L))
-        )
+    private fun toDeviceAttributes(item: Map<String, AttributeValue>): DeviceAttributes
+    {
+        val attributes = mutableMapOf<String, Attribute>()
 
+        item.forEach {entry ->
+            if (deviceFieldsMap[entry.key] != null) {
+                val fieldKey = deviceFieldsMap[entry.key]!!
+                if (fieldKey == EXPIRES_AT) {
+                    attributes[fieldKey] = Attribute.of(fieldKey, Instant.ofEpochSecond(entry.value.s()?.toLong() ?: -1L))
+                } else {
+                    attributes[fieldKey] = Attribute.of(fieldKey, entry.value.s())
+                }
+            }
+        }
+
+        attributes[META] = Attribute.of(META, MapAttributeValue.of(
+            mapOf<String, Attribute>(
+                Pair("resourceType", Attribute.of("resourceType", RESOURCE_TYPE)),
+                Pair("created", Attribute.of("created", Instant.ofEpochSecond(item["created"]?.s()?.toLong() ?: -1L))),
+                Pair("lastModified", Attribute.of("lastModified", Instant.ofEpochSecond(item["lastModified"]?.s()?.toLong() ?: -1L)))
+            )
+        ))
+
+        return of(Attributes.fromMap(attributes))
+    }
 
     companion object
     {
@@ -367,6 +381,19 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
                 DeviceAttributes.DEVICE_TYPE,
                 DeviceAttributes.OWNER,
                 ATTRIBUTES
+        )
+
+        private val deviceFieldsMap = mapOf(
+            Pair("id", ResourceAttributes.ID),
+            Pair("deviceId", DeviceAttributes.DEVICE_ID),
+            Pair("accountId", DeviceAttributes.ACCOUNT_ID),
+            Pair("externalId", ResourceAttributes.EXTERNAL_ID),
+            Pair("alias", DeviceAttributes.ALIAS),
+            Pair("formFactor", DeviceAttributes.FORM_FACTOR),
+            Pair("deviceType", DeviceAttributes.DEVICE_TYPE),
+            Pair("owner", DeviceAttributes.OWNER),
+            Pair("expiresAt", EXPIRES_AT),
+            Pair("attributes", ATTRIBUTES)
         )
 
         private val ownerAttributeNameMap = mapOf(Pair("#owner", "owner"))
