@@ -83,7 +83,7 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
                 .limit(1)
 
         if (!attributesEnumeration.isNeutral && attributesEnumeration is ResourceQuery.Inclusions) {
-            requestBuilder.attributesToGet(attributesEnumeration.attributes)
+            requestBuilder.projectionExpression(attributesEnumeration.attributes.joinToString(","))
         }
 
         val response = dynamoDBClient.query(requestBuilder.build())
@@ -92,7 +92,7 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
             return null
         }
 
-        return toDeviceAttributes(response.items().first())
+        return toDeviceAttributes(response.items().first(), attributesEnumeration)
     }
 
     override fun getById(id: String): DeviceAttributes?
@@ -202,17 +202,10 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
             deviceAttributesMap.remove(EXPIRES_AT)
         }
 
-        if (deviceAttributes.meta != null) {
-            item[Meta.CREATED] = if (deviceAttributes.meta.created != null) {
-                deviceAttributes.meta.created.epochSecond.toAttributeValue()
-            } else {
-                Instant.now().epochSecond.toAttributeValue()
-            }
-        }
-
+        item[Meta.CREATED] = Instant.now().epochSecond.toAttributeValue()
         item[Meta.LAST_MODIFIED] = Instant.now().epochSecond.toAttributeValue()
 
-        deviceAttributesMap.remove(DeviceAttributes.META)
+        deviceAttributesMap.remove(META)
         deviceAttributesMap.remove(DeviceAttributes.SCHEMAS)
 
         if (item["id"] == null) {
@@ -220,7 +213,7 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
         }
 
         if (deviceAttributesMap.isNotEmpty()) {
-            item[DeviceAttributes.ATTRIBUTES] = jsonHandler.fromAttributes(Attributes.fromMap(deviceAttributesMap)).toAttributeValue()
+            item[ATTRIBUTES] = jsonHandler.fromAttributes(Attributes.fromMap(deviceAttributesMap)).toAttributeValue()
         }
 
         val request = PutItemRequest.builder()
@@ -257,7 +250,7 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
         deviceAttributesMap.remove(DeviceAttributes.SCHEMAS)
         deviceAttributesMap.remove(DeviceAttributes.ID)
         deviceAttributesMap.remove(DeviceAttributes.DEVICE_ID)
-        deviceAttributesMap.remove(DeviceAttributes.META)
+        deviceAttributesMap.remove(META)
 
         if (deviceAttributes.expiresAt != null) {
             updateExpressionParts.add("$EXPIRES_AT = :$EXPIRES_AT")
@@ -343,34 +336,51 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
             Pair(":accountId", accountId.toAttributeValue())
     )
 
-    private fun toDeviceAttributes(item: Map<String, AttributeValue>): DeviceAttributes
+    private fun toDeviceAttributes(item: Map<String, AttributeValue>): DeviceAttributes = toDeviceAttributes(item, null)
+
+    private fun toDeviceAttributes(item: Map<String, AttributeValue>, attributesEnumeration: ResourceQuery.AttributesEnumeration?): DeviceAttributes
     {
-        val attributes = mutableMapOf<String, Attribute>()
+        val attributes = mutableListOf<Attribute>()
 
         item.forEach {entry ->
             if (deviceFieldsMap[entry.key] != null) {
-                val fieldKey = deviceFieldsMap[entry.key]!!
-                if (fieldKey == EXPIRES_AT) {
-                    val zonedDateTime = Instant.ofEpochSecond(entry.value.s()?.toLong() ?: -1L).atZone(UTC)
-                    attributes[fieldKey] = Attribute.of(fieldKey, zonedDateTime.format(ISO_DATE_TIME))
-                } else {
-                    attributes[fieldKey] = Attribute.of(fieldKey, entry.value.s())
+                when (val fieldKey = deviceFieldsMap[entry.key]!!)
+                {
+                    EXPIRES_AT ->
+                    {
+                        val zonedDateTime = Instant.ofEpochSecond(entry.value.s()?.toLong() ?: -1L).atZone(UTC)
+                        attributes.add(Attribute.of(fieldKey, zonedDateTime.format(ISO_DATE_TIME)))
+                    }
+                    ATTRIBUTES ->
+                    {
+                        attributes.addAll(jsonHandler.toAttributes(entry.value.s()))
+                    }
+                    else ->
+                    {
+                        attributes.add(Attribute.of(fieldKey, entry.value.s()))
+                    }
                 }
             }
         }
 
-        val zonedCreated = Instant.ofEpochSecond(item["created"]?.s()?.toLong() ?: -1L).atZone(UTC)
-        val zonedModified = Instant.ofEpochSecond(item["lastModified"]?.s()?.toLong() ?: -1L).atZone(UTC)
-        attributes[META] = Attribute.of(META, MapAttributeValue.of(
-            mapOf<String, Attribute>(
-                Pair("resourceType", Attribute.of("resourceType", RESOURCE_TYPE)),
-                Pair("created", Attribute.of("created", zonedCreated.format(ISO_DATE_TIME))),
-                Pair("lastModified", Attribute.of("lastModified", zonedModified.format(ISO_DATE_TIME)))
-            )
-        ))
+        if (shouldIncludeMeta(attributesEnumeration)) {
+            val zonedCreated = Instant.ofEpochSecond(item["created"]?.s()?.toLong() ?: -1L).atZone(UTC)
+            val zonedModified = Instant.ofEpochSecond(item["lastModified"]?.s()?.toLong() ?: -1L).atZone(UTC)
+            attributes.add(Attribute.of(META, MapAttributeValue.of(
+                mapOf<String, String>(
+                    Pair("resourceType", RESOURCE_TYPE),
+                    Pair("created", zonedCreated.format(ISO_DATE_TIME)),
+                    Pair("lastModified", zonedModified.format(ISO_DATE_TIME))
+                )
+            )))
+        }
 
-        return of(Attributes.fromMap(attributes))
+        return of(Attributes.of(attributes))
     }
+
+    private fun shouldIncludeMeta(attributesEnumeration: ResourceQuery.AttributesEnumeration?): Boolean =
+        (attributesEnumeration == null || attributesEnumeration.isNeutral)
+        || (attributesEnumeration is ResourceQuery.Inclusions && attributesEnumeration.attributes.contains(META))
 
     companion object
     {
