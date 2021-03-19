@@ -41,6 +41,8 @@ import software.amazon.awssdk.services.dynamodb.model.QueryResponse
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 import java.time.Instant
+import java.time.ZoneOffset.UTC
+import java.time.format.DateTimeFormatter.ISO_DATE_TIME
 import java.util.UUID
 
 class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBClient: DynamoDBClient, private val configuration: DynamoDBDataAccessProviderDataAccessProviderConfig): DeviceDataAccessProvider
@@ -349,18 +351,21 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
             if (deviceFieldsMap[entry.key] != null) {
                 val fieldKey = deviceFieldsMap[entry.key]!!
                 if (fieldKey == EXPIRES_AT) {
-                    attributes[fieldKey] = Attribute.of(fieldKey, Instant.ofEpochSecond(entry.value.s()?.toLong() ?: -1L))
+                    val zonedDateTime = Instant.ofEpochSecond(entry.value.s()?.toLong() ?: -1L).atZone(UTC)
+                    attributes[fieldKey] = Attribute.of(fieldKey, zonedDateTime.format(ISO_DATE_TIME))
                 } else {
                     attributes[fieldKey] = Attribute.of(fieldKey, entry.value.s())
                 }
             }
         }
 
+        val zonedCreated = Instant.ofEpochSecond(item["created"]?.s()?.toLong() ?: -1L).atZone(UTC)
+        val zonedModified = Instant.ofEpochSecond(item["lastModified"]?.s()?.toLong() ?: -1L).atZone(UTC)
         attributes[META] = Attribute.of(META, MapAttributeValue.of(
             mapOf<String, Attribute>(
                 Pair("resourceType", Attribute.of("resourceType", RESOURCE_TYPE)),
-                Pair("created", Attribute.of("created", Instant.ofEpochSecond(item["created"]?.s()?.toLong() ?: -1L))),
-                Pair("lastModified", Attribute.of("lastModified", Instant.ofEpochSecond(item["lastModified"]?.s()?.toLong() ?: -1L)))
+                Pair("created", Attribute.of("created", zonedCreated.format(ISO_DATE_TIME))),
+                Pair("lastModified", Attribute.of("lastModified", zonedModified.format(ISO_DATE_TIME)))
             )
         ))
 
