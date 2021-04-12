@@ -28,6 +28,9 @@ interface DynamoDBDataAccessProviderDataAccessProviderConfig: Configuration
     @Description("The AWS Region where DynamoDB is deployed.")
     fun getAwsRegion(): AWSRegion
 
+    @Description("Override the endpoint used to connect to DynamoDB. Useful for testing.")
+    fun getEndpointOverride(): Optional<String>
+
     @Description("Choose how to access DynamoDB")
     fun getDynamodbAccessMethod(): AWSAccessMethod
 

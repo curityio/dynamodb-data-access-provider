@@ -18,13 +18,17 @@ package io.curity.dynamoDBDataAccessProvider
 import io.curity.dynamoDBDataAccessProvider.configuration.DynamoDBDataAccessProviderDataAccessProviderConfig
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import se.curity.identityserver.sdk.attribute.Attribute
 import se.curity.identityserver.sdk.attribute.Attributes
+import se.curity.identityserver.sdk.attribute.MapAttributeValue
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.ATTRIBUTES
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.EXPIRES_AT
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.META
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.RESOURCE_TYPE
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.of
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.data.query.ResourceQueryResult
 import se.curity.identityserver.sdk.datasource.DeviceDataAccessProvider
@@ -37,6 +41,8 @@ import software.amazon.awssdk.services.dynamodb.model.QueryResponse
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 import java.time.Instant
+import java.time.ZoneOffset.UTC
+import java.time.format.DateTimeFormatter.ISO_DATE_TIME
 import java.util.UUID
 
 class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBClient: DynamoDBClient, private val configuration: DynamoDBDataAccessProviderDataAccessProviderConfig): DeviceDataAccessProvider
@@ -77,7 +83,7 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
                 .limit(1)
 
         if (!attributesEnumeration.isNeutral && attributesEnumeration is ResourceQuery.Inclusions) {
-            requestBuilder.attributesToGet(attributesEnumeration.attributes)
+            requestBuilder.projectionExpression(attributesEnumeration.attributes.joinToString(","))
         }
 
         val response = dynamoDBClient.query(requestBuilder.build())
@@ -86,7 +92,7 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
             return null
         }
 
-        return toDeviceAttributes(response.items().first())
+        return toDeviceAttributes(response.items().first(), attributesEnumeration)
     }
 
     override fun getById(id: String): DeviceAttributes?
@@ -196,17 +202,10 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
             deviceAttributesMap.remove(EXPIRES_AT)
         }
 
-        if (deviceAttributes.meta != null) {
-            item[Meta.CREATED] = if (deviceAttributes.meta.created != null) {
-                deviceAttributes.meta.created.epochSecond.toAttributeValue()
-            } else {
-                Instant.now().epochSecond.toAttributeValue()
-            }
-        }
-
+        item[Meta.CREATED] = Instant.now().epochSecond.toAttributeValue()
         item[Meta.LAST_MODIFIED] = Instant.now().epochSecond.toAttributeValue()
 
-        deviceAttributesMap.remove(DeviceAttributes.META)
+        deviceAttributesMap.remove(META)
         deviceAttributesMap.remove(DeviceAttributes.SCHEMAS)
 
         if (item["id"] == null) {
@@ -214,7 +213,7 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
         }
 
         if (deviceAttributesMap.isNotEmpty()) {
-            item[DeviceAttributes.ATTRIBUTES] = jsonHandler.fromAttributes(Attributes.fromMap(deviceAttributesMap)).toAttributeValue()
+            item[ATTRIBUTES] = jsonHandler.fromAttributes(Attributes.fromMap(deviceAttributesMap)).toAttributeValue()
         }
 
         val request = PutItemRequest.builder()
@@ -251,7 +250,7 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
         deviceAttributesMap.remove(DeviceAttributes.SCHEMAS)
         deviceAttributesMap.remove(DeviceAttributes.ID)
         deviceAttributesMap.remove(DeviceAttributes.DEVICE_ID)
-        deviceAttributesMap.remove(DeviceAttributes.META)
+        deviceAttributesMap.remove(META)
 
         if (deviceAttributes.expiresAt != null) {
             updateExpressionParts.add("$EXPIRES_AT = :$EXPIRES_AT")
@@ -337,21 +336,51 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
             Pair(":accountId", accountId.toAttributeValue())
     )
 
-    private fun toDeviceAttributes(item: Map<String, AttributeValue>): DeviceAttributes = DeviceAttributes.createDevice(
-                item["id"]?.s(),
-                item["deviceId"]?.s(),
-                item["accountId"]?.s(),
-                item["externalId"]?.s(),
-                item["alias"]?.s(),
-                item["formFactor"]?.s(),
-                item["deviceType"]?.s(),
-                item["owner"]?.s(),
-                Instant.ofEpochSecond(item["expiresAt"]?.s()?.toLong() ?: -1L),
-                Meta.of(RESOURCE_TYPE)
-                        .withCreated(Instant.ofEpochSecond(item["created"]?.s()?.toLong() ?: -1L))
-                        .withLastModified(Instant.ofEpochSecond(item["lastModified"]?.s()?.toLong() ?: -1L))
-        )
+    private fun toDeviceAttributes(item: Map<String, AttributeValue>): DeviceAttributes = toDeviceAttributes(item, null)
 
+    private fun toDeviceAttributes(item: Map<String, AttributeValue>, attributesEnumeration: ResourceQuery.AttributesEnumeration?): DeviceAttributes
+    {
+        val attributes = mutableListOf<Attribute>()
+
+        item.forEach {entry ->
+            if (deviceFieldsMap[entry.key] != null) {
+                when (val fieldKey = deviceFieldsMap[entry.key]!!)
+                {
+                    EXPIRES_AT ->
+                    {
+                        val zonedDateTime = Instant.ofEpochSecond(entry.value.s()?.toLong() ?: -1L).atZone(UTC)
+                        attributes.add(Attribute.of(fieldKey, zonedDateTime.format(ISO_DATE_TIME)))
+                    }
+                    ATTRIBUTES ->
+                    {
+                        attributes.addAll(jsonHandler.toAttributes(entry.value.s()))
+                    }
+                    else ->
+                    {
+                        attributes.add(Attribute.of(fieldKey, entry.value.s()))
+                    }
+                }
+            }
+        }
+
+        if (shouldIncludeMeta(attributesEnumeration)) {
+            val zonedCreated = Instant.ofEpochSecond(item["created"]?.s()?.toLong() ?: -1L).atZone(UTC)
+            val zonedModified = Instant.ofEpochSecond(item["lastModified"]?.s()?.toLong() ?: -1L).atZone(UTC)
+            attributes.add(Attribute.of(META, MapAttributeValue.of(
+                mapOf<String, String>(
+                    Pair("resourceType", RESOURCE_TYPE),
+                    Pair("created", zonedCreated.format(ISO_DATE_TIME)),
+                    Pair("lastModified", zonedModified.format(ISO_DATE_TIME))
+                )
+            )))
+        }
+
+        return of(Attributes.of(attributes))
+    }
+
+    private fun shouldIncludeMeta(attributesEnumeration: ResourceQuery.AttributesEnumeration?): Boolean =
+        (attributesEnumeration == null || attributesEnumeration.isNeutral)
+        || (attributesEnumeration is ResourceQuery.Inclusions && attributesEnumeration.attributes.contains(META))
 
     companion object
     {
@@ -367,6 +396,19 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
                 DeviceAttributes.DEVICE_TYPE,
                 DeviceAttributes.OWNER,
                 ATTRIBUTES
+        )
+
+        private val deviceFieldsMap = mapOf(
+            Pair("id", ResourceAttributes.ID),
+            Pair("deviceId", DeviceAttributes.DEVICE_ID),
+            Pair("accountId", DeviceAttributes.ACCOUNT_ID),
+            Pair("externalId", ResourceAttributes.EXTERNAL_ID),
+            Pair("alias", DeviceAttributes.ALIAS),
+            Pair("formFactor", DeviceAttributes.FORM_FACTOR),
+            Pair("deviceType", DeviceAttributes.DEVICE_TYPE),
+            Pair("owner", DeviceAttributes.OWNER),
+            Pair("expiresAt", EXPIRES_AT),
+            Pair("attributes", ATTRIBUTES)
         )
 
         private val ownerAttributeNameMap = mapOf(Pair("#owner", "owner"))

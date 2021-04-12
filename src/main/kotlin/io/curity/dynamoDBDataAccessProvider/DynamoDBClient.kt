@@ -51,6 +51,7 @@ import software.amazon.awssdk.services.sts.StsClient
 import software.amazon.awssdk.services.sts.model.AssumeRoleRequest
 import software.amazon.awssdk.services.sts.model.AssumeRoleResponse
 import software.amazon.awssdk.services.sts.model.Credentials
+import java.net.URI
 
 class DynamoDBClient(private val config: DynamoDBDataAccessProviderDataAccessProviderConfig): ManagedObject<DynamoDBDataAccessProviderDataAccessProviderConfig>(config)
 {
@@ -88,11 +89,17 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderDataAccessPro
             creds = null
         }
 
-            return  DynamoDbClient.builder()
-                .region(_awsRegion)
-                .credentialsProvider(creds)
-                .build()
+        val builder = DynamoDbClient.builder()
+            .credentialsProvider(creds)
+
+        if (config.getEndpointOverride().isPresent) {
+            builder.endpointOverride(URI.create(config.getEndpointOverride().get()))
+        } else {
+            builder.region(_awsRegion)
         }
+
+        return builder.build()
+    }
 
     private fun getNewCredentialsFromAssumeRole(creds: AwsCredentialsProvider, roleARN: String): AwsCredentialsProvider
     {
