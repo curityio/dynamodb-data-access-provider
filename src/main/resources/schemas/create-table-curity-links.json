@@ -1,0 +1,75 @@
+{
+  "TableName": "curity-links",
+  "AttributeDefinitions": [
+    {
+      "AttributeName": "localIdToforeignIdAtdomainForManager",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "foreignIdAtDomain",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "linkingAccountManager",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "localAccountId",
+      "AttributeType": "S"
+    }
+  ],
+  "KeySchema": [
+    {
+      "AttributeName": "localIdToforeignIdAtdomainForManager",
+      "KeyType": "HASH"
+    }
+  ],
+  "GlobalSecondaryIndexes": [
+    {
+      "IndexName": "resolve-link-index",
+      "Projection": {
+        "ProjectionType": "ALL"
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName": "foreignIdAtDomain"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "linkingAccountManager"
+        }
+      ]
+    },
+    {
+      "IndexName": "list-links-index",
+      "Projection": {
+        "ProjectionType": "ALL"
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName": "localAccountId"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "linkingAccountManager"
+        }
+      ]
+    }
+  ],
+  "ProvisionedThroughput": {
+    "WriteCapacityUnits": 5,
+    "ReadCapacityUnits": 10
+  }
+}
+
+
