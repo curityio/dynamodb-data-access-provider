@@ -94,9 +94,8 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderDataAccessPro
 
         if (config.getEndpointOverride().isPresent) {
             builder.endpointOverride(URI.create(config.getEndpointOverride().get()))
-        } else {
-            builder.region(_awsRegion)
         }
+        builder.region(_awsRegion)
 
         return builder.build()
     }
