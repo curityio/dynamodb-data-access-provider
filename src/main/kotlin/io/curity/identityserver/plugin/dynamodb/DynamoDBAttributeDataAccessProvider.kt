@@ -13,7 +13,7 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package io.curity.dynamoDBDataAccessProvider
+package io.curity.identityserver.plugin.dynamodb
 
 import se.curity.identityserver.sdk.attribute.AttributeTableView
 import se.curity.identityserver.sdk.attribute.Attributes

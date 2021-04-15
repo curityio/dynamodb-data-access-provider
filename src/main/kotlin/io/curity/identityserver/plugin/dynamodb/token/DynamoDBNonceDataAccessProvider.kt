@@ -13,9 +13,9 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package io.curity.dynamoDBDataAccessProvider.token
+package io.curity.identityserver.plugin.dynamodb.token
 
-import io.curity.dynamoDBDataAccessProvider.DynamoDBClient
+import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import se.curity.identityserver.sdk.datasource.NonceDataAccessProvider
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest

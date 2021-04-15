@@ -13,17 +13,16 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package io.curity.dynamoDBDataAccessProvider
+package io.curity.identityserver.plugin.dynamodb
 
-import io.curity.dynamoDBDataAccessProvider.configuration.DynamoDBDataAccessProviderDataAccessProviderConfig
-import io.curity.dynamoDBDataAccessProvider.token.UserAccountFilterParser
+import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
+import io.curity.identityserver.plugin.dynamodb.token.UserAccountFilterParser
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.attribute.AccountAttributes
 import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
-import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.LinkedAccount
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.data.query.ResourceQueryResult
@@ -40,7 +39,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
-class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamoDBClient: DynamoDBClient, configuration: DynamoDBDataAccessProviderDataAccessProviderConfig): UserAccountDataAccessProvider
+class DynamoDBUserAccountDataAccessProvider(private val dynamoDBClient: DynamoDBClient, configuration: DynamoDBDataAccessProviderConfiguration): UserAccountDataAccessProvider
 {
     private val jsonHandler = configuration.getJsonHandler()
 
@@ -483,7 +482,7 @@ class DynamoDBDataAccessProviderUserAccountDataAccessProvider(private val dynamo
     {
         private const val tableName = "curity-accounts"
         private const val linksTableName = "curity-links"
-        private val logger: Logger = LoggerFactory.getLogger(DynamoDBDataAccessProviderCredentialDataAccessProvider::class.java)
+        private val logger: Logger = LoggerFactory.getLogger(DynamoDBCredentialDataAccessProvider::class.java)
 
         private val attributesToRemove = listOf("active", "password", "userName", "id", "schemas")
         private val requiredAttributesToGet = setOf("userName", "attributes", "created", "updated")

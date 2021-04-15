@@ -13,12 +13,12 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package io.curity.dynamoDBDataAccessProvider.token
+package io.curity.identityserver.plugin.dynamodb.token
 
-import io.curity.dynamoDBDataAccessProvider.DynamoDBClient
-import io.curity.dynamoDBDataAccessProvider.configuration.DynamoDBDataAccessProviderDataAccessProviderConfig
-import io.curity.dynamoDBDataAccessProvider.toAttributeValue
-import io.curity.dynamoDBDataAccessProvider.toKey
+import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
+import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
+import io.curity.identityserver.plugin.dynamodb.toAttributeValue
+import io.curity.identityserver.plugin.dynamodb.toKey
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.data.authorization.Delegation
 import se.curity.identityserver.sdk.data.authorization.DelegationStatus
@@ -32,7 +32,7 @@ import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanResponse
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 
-class DynamoDBDelegationDataAccessProvider(private val dynamoDBClient: DynamoDBClient, configuration: DynamoDBDataAccessProviderDataAccessProviderConfig): DelegationDataAccessProvider
+class DynamoDBDelegationDataAccessProvider(private val dynamoDBClient: DynamoDBClient, configuration: DynamoDBDataAccessProviderConfiguration): DelegationDataAccessProvider
 {
     private val jsonHandler = configuration.getJsonHandler()
 

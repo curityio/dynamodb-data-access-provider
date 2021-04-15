@@ -13,7 +13,7 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package io.curity.dynamoDBDataAccessProvider.configuration
+package io.curity.identityserver.plugin.dynamodb.configuration
 
 import se.curity.identityserver.sdk.config.Configuration
 import se.curity.identityserver.sdk.config.OneOf
@@ -23,7 +23,7 @@ import se.curity.identityserver.sdk.service.Json
 import java.util.Optional
 
 
-interface DynamoDBDataAccessProviderDataAccessProviderConfig: Configuration
+interface DynamoDBDataAccessProviderConfiguration: Configuration
 {
     @Description("The AWS Region where DynamoDB is deployed.")
     fun getAwsRegion(): AWSRegion

@@ -13,9 +13,9 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package io.curity.dynamoDBDataAccessProvider.token
+package io.curity.identityserver.plugin.dynamodb.token
 
-import io.curity.dynamoDBDataAccessProvider.toAttributeValue
+import io.curity.identityserver.plugin.dynamodb.toAttributeValue
 import se.curity.identityserver.sdk.attribute.AccountAttributes
 import se.curity.identityserver.sdk.data.authorization.Delegation
 import se.curity.identityserver.sdk.data.query.Filter

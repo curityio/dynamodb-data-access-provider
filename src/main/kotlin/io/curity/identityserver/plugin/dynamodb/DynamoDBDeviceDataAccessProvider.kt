@@ -13,9 +13,9 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package io.curity.dynamoDBDataAccessProvider
+package io.curity.identityserver.plugin.dynamodb
 
-import io.curity.dynamoDBDataAccessProvider.configuration.DynamoDBDataAccessProviderDataAccessProviderConfig
+import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.attribute.Attribute
@@ -45,7 +45,7 @@ import java.time.ZoneOffset.UTC
 import java.time.format.DateTimeFormatter.ISO_DATE_TIME
 import java.util.UUID
 
-class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBClient: DynamoDBClient, private val configuration: DynamoDBDataAccessProviderDataAccessProviderConfig): DeviceDataAccessProvider
+class DynamoDBDeviceDataAccessProvider(private val dynamoDBClient: DynamoDBClient, private val configuration: DynamoDBDataAccessProviderConfiguration): DeviceDataAccessProvider
 {
     private val jsonHandler = configuration.getJsonHandler()
 
@@ -384,7 +384,7 @@ class DynamoDBDataAccessProviderDeviceDataAccessProvider(private val dynamoDBCli
 
     companion object
     {
-        private val _logger: Logger = LoggerFactory.getLogger(DynamoDBDataAccessProviderCredentialDataAccessProvider::class.java)
+        private val _logger: Logger = LoggerFactory.getLogger(DynamoDBCredentialDataAccessProvider::class.java)
         private const val tableName = "curity-devices"
         private val deviceFields = setOf(
                 ResourceAttributes.ID,

@@ -13,9 +13,9 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package io.curity.dynamoDBDataAccessProvider
+package io.curity.identityserver.plugin.dynamodb
 
-import io.curity.dynamoDBDataAccessProvider.configuration.DynamoDBDataAccessProviderDataAccessProviderConfig
+import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.alarm.ExternalServiceFailedAuthenticationAlarmException
@@ -53,7 +53,7 @@ import software.amazon.awssdk.services.sts.model.AssumeRoleResponse
 import software.amazon.awssdk.services.sts.model.Credentials
 import java.net.URI
 
-class DynamoDBClient(private val config: DynamoDBDataAccessProviderDataAccessProviderConfig): ManagedObject<DynamoDBDataAccessProviderDataAccessProviderConfig>(config)
+class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration): ManagedObject<DynamoDBDataAccessProviderConfiguration>(config)
 {
     private val _awsRegion = Region.of(config.getAwsRegion().awsRegion)
     private val client: DynamoDbClient = initializeDynamoDBClient()

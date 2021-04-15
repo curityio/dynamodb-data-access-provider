@@ -13,7 +13,7 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package io.curity.dynamoDBDataAccessProvider
+package io.curity.identityserver.plugin.dynamodb
 
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -28,7 +28,7 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 
-class DynamoDBDataAccessProviderCredentialDataAccessProvider(private val dynamoDBClient: DynamoDBClient): CredentialDataAccessProvider
+class DynamoDBCredentialDataAccessProvider(private val dynamoDBClient: DynamoDBClient): CredentialDataAccessProvider
 {
     override fun updatePassword(accountAttributes: AccountAttributes)
     {
@@ -94,6 +94,6 @@ class DynamoDBDataAccessProviderCredentialDataAccessProvider(private val dynamoD
     companion object
     {
         private const val tableName = "curity-accounts"
-        private val logger: Logger = LoggerFactory.getLogger(DynamoDBDataAccessProviderCredentialDataAccessProvider::class.java)
+        private val logger: Logger = LoggerFactory.getLogger(DynamoDBCredentialDataAccessProvider::class.java)
     }
 }

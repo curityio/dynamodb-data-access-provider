@@ -13,7 +13,7 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package io.curity.dynamoDBDataAccessProvider.configuration
+package io.curity.identityserver.plugin.dynamodb.configuration
 
 enum class AWSRegion(val awsRegion: String)
 {

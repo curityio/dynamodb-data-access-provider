@@ -13,11 +13,10 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package io.curity.dynamoDBDataAccessProvider.token
+package io.curity.identityserver.plugin.dynamodb.token
 
-import io.curity.dynamoDBDataAccessProvider.DynamoDBClient
-import io.curity.dynamoDBDataAccessProvider.configuration.DynamoDBDataAccessProviderDataAccessProviderConfig
-import org.slf4j.Logger
+import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
+import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.data.authorization.Token
 import se.curity.identityserver.sdk.data.authorization.TokenStatus
@@ -30,7 +29,7 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ReturnValue
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 
-class DynamoDBTokenDataAccessProvider(configuration: DynamoDBDataAccessProviderDataAccessProviderConfig, private val dynamoDBClient: DynamoDBClient): TokenDataAccessProvider
+class DynamoDBTokenDataAccessProvider(configuration: DynamoDBDataAccessProviderConfiguration, private val dynamoDBClient: DynamoDBClient): TokenDataAccessProvider
 {
     private val jsonHandler = configuration.getJsonHandler()
 

@@ -13,9 +13,9 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package io.curity.dynamoDBDataAccessProvider
+package io.curity.identityserver.plugin.dynamodb
 
-import io.curity.dynamoDBDataAccessProvider.configuration.DynamoDBDataAccessProviderDataAccessProviderConfig
+import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.attribute.Attribute
@@ -45,7 +45,7 @@ import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 import java.time.Instant.now
 import java.time.Instant.ofEpochSecond
 
-class DynamoDBDataAccessProviderDynamicallyRegisteredClientDataAccessProvider(configuration: DynamoDBDataAccessProviderDataAccessProviderConfig, private val dynamoDBClient: DynamoDBClient): DynamicallyRegisteredClientDataAccessProvider
+class DynamoDBDynamicallyRegisteredClientDataAccessProvider(configuration: DynamoDBDataAccessProviderConfiguration, private val dynamoDBClient: DynamoDBClient): DynamicallyRegisteredClientDataAccessProvider
 {
     private val jsonHandler = configuration.getJsonHandler()
 
@@ -261,7 +261,7 @@ class DynamoDBDataAccessProviderDynamicallyRegisteredClientDataAccessProvider(co
 
     companion object
     {
-        private val logger: Logger = LoggerFactory.getLogger(DynamoDBDataAccessProviderCredentialDataAccessProvider::class.java)
+        private val logger: Logger = LoggerFactory.getLogger(DynamoDBCredentialDataAccessProvider::class.java)
         private const val tableName = "curity-dynamic-clients"
         private val scopeExpressionNameMap = mapOf(Pair("#scope", "scope"))
     }

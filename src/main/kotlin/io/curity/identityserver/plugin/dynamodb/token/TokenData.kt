@@ -13,7 +13,7 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package io.curity.dynamoDBDataAccessProvider.token
+package io.curity.identityserver.plugin.dynamodb.token
 
 import se.curity.identityserver.sdk.data.StringOrArray
 import se.curity.identityserver.sdk.data.authorization.Token
