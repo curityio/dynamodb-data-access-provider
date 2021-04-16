@@ -67,7 +67,7 @@ class DynamoDBBucketDataAccessProvider(
         val request = UpdateItemRequest.builder()
             .tableName(BucketsTable.name)
             .key(BucketsTable.key(subject, purpose))
-            .updateExpression(UpdateExpression, UpdateExpression.values(attributesString, now, now))
+            .updateExpression(newUpdateExpression(attributesString, now, now))
             .build()
 
         _client.updateItem(request)
@@ -102,20 +102,23 @@ class DynamoDBBucketDataAccessProvider(
         )
     }
 
-    private object UpdateExpression : Expression(
-        BucketsTable.attributes, BucketsTable.created, BucketsTable.updated
-    ) {
-        override val expression = "SET #attributes = :attributes, #updated = :updated, #created = if_not_exists(#created, :created)"
-        fun values(attributesString: String, created: Long, updated: Long) =
-            mapOf(
-                BucketsTable.attributes.toExpressionNameValuePair(attributesString),
-                BucketsTable.updated.toExpressionNameValuePair(created),
-                BucketsTable.created.toExpressionNameValuePair(updated)
-            )
+    private fun newUpdateExpression(attributesString: String, created: Long, updated: Long) = object : Expression(
+        _updateExpressionBuilder
+    )
+    {
+        override val values = mapOf(
+            BucketsTable.attributes.toExpressionNameValuePair(attributesString),
+            BucketsTable.updated.toExpressionNameValuePair(created),
+            BucketsTable.created.toExpressionNameValuePair(updated)
+        )
     }
 
     companion object
     {
+        private val _updateExpressionBuilder = ExpressionBuilder(
+            "SET #attributes = :attributes, #updated = :updated, #created = if_not_exists(#created, :created)",
+            BucketsTable.attributes, BucketsTable.created, BucketsTable.updated
+        )
         private val _logger: Logger =
             LoggerFactory.getLogger(DynamoDBBucketDataAccessProvider::class.java)
     }

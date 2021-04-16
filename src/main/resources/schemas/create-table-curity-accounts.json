@@ -2,6 +2,10 @@
   "TableName": "curity-accounts",
   "AttributeDefinitions": [
     {
+      "AttributeName": "pk",
+      "AttributeType": "S"
+    },
+    {
       "AttributeName": "userName",
       "AttributeType": "S"
     },
@@ -16,11 +20,27 @@
   ],
   "KeySchema": [
     {
-      "AttributeName": "userName",
+      "AttributeName": "pk",
       "KeyType": "HASH"
     }
   ],
   "GlobalSecondaryIndexes": [
+    {
+      "IndexName": "userName-index",
+      "Projection": {
+        "ProjectionType": "ALL"
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName": "userName"
+        }
+      ]
+    },
     {
       "IndexName": "email-index",
       "Projection": {

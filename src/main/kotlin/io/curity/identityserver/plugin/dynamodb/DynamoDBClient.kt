@@ -45,6 +45,8 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.QueryResponse
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanResponse
+import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
+import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsResponse
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemResponse
 import software.amazon.awssdk.services.sts.StsClient
@@ -142,6 +144,8 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
     fun deleteItem(request: DeleteItemRequest): DeleteItemResponse = callClient(ClientMethod.DeleteItem, request) as DeleteItemResponse
     fun query(request: QueryRequest): QueryResponse = callClient(ClientMethod.Query, request) as QueryResponse
     fun scan(request: ScanRequest): ScanResponse = callClient(ClientMethod.Scan, request) as ScanResponse
+    fun transactionWriteItems(request: TransactWriteItemsRequest) = callClient(ClientMethod.TransactWriteItems, request)
+            as TransactWriteItemsResponse
 
     private fun callClient(method: ClientMethod, request: DynamoDbRequest): DynamoDbResponse? {
         return try {
@@ -152,6 +156,7 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
                 ClientMethod.DeleteItem -> client.deleteItem(request as DeleteItemRequest)
                 ClientMethod.Query -> client.query(request as QueryRequest)
                 ClientMethod.Scan -> client.scan(request as ScanRequest)
+                ClientMethod.TransactWriteItems -> client.transactWriteItems(request as TransactWriteItemsRequest)
             }
         } catch (e: DynamoDbException) {
             when
@@ -172,6 +177,6 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
     }
 
     enum class ClientMethod {
-        GetItem, PutItem, UpdateItem, DeleteItem, Query, Scan
+        GetItem, PutItem, UpdateItem, DeleteItem, Query, Scan, TransactWriteItems
     }
 }
