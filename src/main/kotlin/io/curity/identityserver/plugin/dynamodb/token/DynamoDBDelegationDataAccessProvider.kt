@@ -222,6 +222,7 @@ class DynamoDBDelegationDataAccessProvider(private val dynamoDBClient: DynamoDBC
         if (!query.attributesEnumeration.isNeutral) {
             val attributesEnumeration = query.attributesEnumeration
 
+            // TODO stop using the attributesToGet and use projectionExpression instead
             if (attributesEnumeration is ResourceQuery.Inclusions) {
                 requestBuilder.attributesToGet(attributesEnumeration.attributes)
             } else {

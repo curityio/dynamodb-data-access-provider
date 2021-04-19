@@ -20,6 +20,7 @@ import io.curity.identityserver.plugin.dynamodb.token.UserAccountFilterParser
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.attribute.AccountAttributes
+import se.curity.identityserver.sdk.attribute.Attribute
 import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
@@ -37,10 +38,17 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
-import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
+
+// TODO consider using the ResourceQuery.AttributesEnumeration on the query/scan projection expression.
+
+private typealias Item = Map<String, AttributeValue>
+
+private fun Item.version(): Long =
+    DynamoDBUserAccountDataAccessProvider.AccountsTable.version.from(this)
+        ?: throw Exception("TODO")
 
 class DynamoDBUserAccountDataAccessProvider(
     private val _client: DynamoDBClient,
@@ -55,7 +63,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
     override fun getById(
         accountId: String,
-        attributesEnumeration: ResourceQuery.AttributesEnumeration?
+        attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): ResourceAttributes<*>?
     {
         logger.debug("Received request to get account by ID : {}", accountId)
@@ -64,21 +72,22 @@ class DynamoDBUserAccountDataAccessProvider(
             .tableName(AccountsTable.name)
             .key(AccountsTable.key(accountId))
 
-        if (attributesEnumeration != null && !attributesEnumeration.isNeutral && attributesEnumeration is ResourceQuery.Inclusions)
-        {
-            requestBuilder.attributesToGet(requiredAttributesToGet + attributesEnumeration.attributes)
-        }
-
         val request = requestBuilder.build()
 
         val response = _client.getItem(request)
 
-        return if (response.hasItem()) response.item().toAccountAttributes(attributesEnumeration) else null
+        return if (response.hasItem())
+        {
+            response.item().toAccountAttributes(attributesEnumeration)
+        } else
+        {
+            null
+        }
     }
 
     override fun getByUserName(
         userName: String,
-        attributesEnumeration: ResourceQuery.AttributesEnumeration?
+        attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): ResourceAttributes<*>?
     {
         logger.debug("Received request to get account by userName : {}", userName)
@@ -88,7 +97,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
     override fun getByEmail(
         email: String,
-        attributesEnumeration: ResourceQuery.AttributesEnumeration?
+        attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): ResourceAttributes<*>?
     {
         logger.debug("Received request to get account by email : {}", email)
@@ -98,7 +107,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
     override fun getByPhone(
         phone: String,
-        attributesEnumeration: ResourceQuery.AttributesEnumeration?
+        attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): ResourceAttributes<*>?
     {
         logger.debug("Received request to get account by phone number : {}", phone)
@@ -120,11 +129,6 @@ class DynamoDBUserAccountDataAccessProvider(
             .expressionAttributeNames(index.expressionNameMap)
             .expressionAttributeValues(mapOf(keyAttribute.toExpressionNameValuePair(keyValue)))
             .limit(1)
-
-        if (attributesEnumeration != null && !attributesEnumeration.isNeutral && attributesEnumeration is ResourceQuery.Inclusions)
-        {
-            requestBuilder.attributesToGet(requiredAttributesToGet + attributesEnumeration.attributes)
-        }
 
         val request = requestBuilder.build()
 
@@ -346,30 +350,21 @@ class DynamoDBUserAccountDataAccessProvider(
 
         updateAccount(accountId, AccountAttributes.fromMap(map))
 
-        return getByUserName(accountId, attributesEnumeration)
+        // TODO is this really required
+        return getById(accountId, attributesEnumeration)
     }
 
     private fun updateAccount(accountId: String, accountAttributes: AccountAttributes) =
-        retry("updateAccount", N_OF_ATTEMPTS) { tryUpdateAccount(accountId, accountAttributes) }
+        retry("updateAccount", N_OF_ATTEMPTS) {
+            val observedItem = getItemByAccountId(accountId) ?: return@retry TransactionAttemptResult.Success(null)
+            tryUpdateAccount(accountId, accountAttributes, observedItem)
+        }
 
-    private fun tryUpdateAccount(accountId: String, accountAttributes: AccountAttributes)
+    private fun tryUpdateAccount(accountId: String, accountAttributes: AccountAttributes, observedItem: Item)
             : TransactionAttemptResult<Unit>
     {
         val key = AccountsTable.key(accountId)
-        val getItemResponse = _client.getItem(
-            GetItemRequest.builder()
-                .tableName(AccountsTable.name)
-                .key(key)
-                .build()
-        )
-
-        if (!getItemResponse.hasItem())
-        {
-            throw Exception("TODO")
-        }
-
-        val item = getItemResponse.item()
-        val observedVersion = AccountsTable.version.from(item) ?: throw Exception("TODO")
+        val observedVersion = observedItem.version()
         val newVersion = observedVersion + 1
         val now = Instant.now().epochSecond
 
@@ -389,25 +384,25 @@ class DynamoDBUserAccountDataAccessProvider(
 
         updateBuilder.handleUniqueAttribute(
             AccountsTable.userName,
-            AccountsTable.userName.from(item),
+            AccountsTable.userName.from(observedItem),
             accountAttributes.userName
         )
 
         updateBuilder.handleUniqueAttribute(
             AccountsTable.email,
-            AccountsTable.email.from(item),
+            AccountsTable.email.from(observedItem),
             accountAttributes.emails.primaryOrFirst?.significantValue
         )
 
         updateBuilder.handleUniqueAttribute(
             AccountsTable.phone,
-            AccountsTable.phone.from(item),
+            AccountsTable.phone.from(observedItem),
             accountAttributes.phoneNumbers.primaryOrFirst?.significantValue
         )
 
         updateBuilder.handleNonUniqueAttribute(
             AccountsTable.active,
-            AccountsTable.active.from(item),
+            AccountsTable.active.from(observedItem),
             accountAttributes.isActive
         )
 
@@ -416,7 +411,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
         updateBuilder.handleNonUniqueAttribute(
             AccountsTable.attributes,
-            AccountsTable.attributes.from(item),
+            AccountsTable.attributes.from(observedItem),
             jsonHandler.fromAttributes(attributesToPersist)
         )
 
@@ -451,33 +446,47 @@ class DynamoDBUserAccountDataAccessProvider(
         attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): ResourceAttributes<*>?
     {
-        logger.debug("Received patch request with accountId:{} and data : {}", accountId, attributeUpdate)
-
-        // TODO - updating values and removing fields should read data from db and compare
-        // all fields, as some of the data can be set in the "attributes" blob. Currently the
-        // implementation is naive and assumes we're only editing/removing root attributes which
-        // live in their own columns (not in the "attributes" blob)
-
-        if (!attributeUpdate.attributeAdditions.isEmpty || !attributeUpdate.attributeReplacements.isEmpty)
+        retry("updateAccount", N_OF_ATTEMPTS)
         {
-            updateAccount(
-                accountId,
-                AccountAttributes.of(attributeUpdate.attributeAdditions + attributeUpdate.attributeReplacements)
+            val observedItem = getItemByAccountId(accountId) ?: return@retry TransactionAttemptResult.Success(null)
+            val observedAttributes = observedItem.toAccountAttributes()
+
+            if (attributeUpdate.attributeAdditions.contains(AccountAttributes.PASSWORD) ||
+                attributeUpdate.attributeReplacements.contains(AccountAttributes.PASSWORD)
             )
+            {
+                logger.info(
+                    "Received an account with a password to update. Cannot update passwords using this method, " +
+                            "so the password will be ignored."
+                )
+            }
+
+            var newAttributes = attributeUpdate.applyOn<Attributes>(observedAttributes)
+                .with(Attribute.of(ResourceAttributes.ID, accountId))
+                .removeAttribute(ResourceAttributes.META)
+
+            if (newAttributes.contains(AccountAttributes.PASSWORD))
+            {
+                newAttributes = newAttributes.removeAttribute(AccountAttributes.PASSWORD)
+            }
+
+            tryUpdateAccount(accountId, fromAttributes(newAttributes), observedItem)
         }
 
-        if (attributeUpdate.attributeDeletions.attributeNamesToDelete.isNotEmpty())
-        {
-            val request = UpdateItemRequest.builder()
-                .tableName(tableName)
-                .key(accountId.toKey("userName"))
-                .updateExpression("REMOVE ${attributeUpdate.attributeDeletions.attributeNamesToDelete.joinToString(", ")}")
-                .build()
+        // TODO is this really required
+        return getById(accountId, attributesEnumeration)
+    }
 
-            _client.updateItem(request)
-        }
+    private fun getItemByAccountId(accountId: String): Item?
+    {
+        val requestBuilder = GetItemRequest.builder()
+            .tableName(AccountsTable.name)
+            .key(AccountsTable.key(accountId))
 
-        return getByUserName(accountId, attributesEnumeration)
+        val request = requestBuilder.build()
+
+        val response = _client.getItem(request)
+        return if (response.hasItem()) response.item() else null
     }
 
     override fun link(
@@ -593,17 +602,16 @@ class DynamoDBUserAccountDataAccessProvider(
             val parsedFilter = UserAccountFilterParser(query.filter)
 
             requestBuilder
-                .filterExpression(parsedFilter.parsedFilter)
+                .filterExpression("attribute_exists(${AccountsTable.active.name}) AND (${parsedFilter.parsedFilter})")
                 .expressionAttributeValues(parsedFilter.attributeValues)
             if (parsedFilter.attributesNamesMap.isNotEmpty())
             {
                 requestBuilder.expressionAttributeNames(parsedFilter.attributesNamesMap)
             }
-        }
-
-        if (!query.attributesEnumeration.isNeutral && query.attributesEnumeration is ResourceQuery.Inclusions)
+        } else
         {
-            requestBuilder.attributesToGet(requiredAttributesToGet + query.attributesEnumeration.attributes)
+            requestBuilder
+                .filterExpression("attribute_exists(${AccountsTable.active.name})")
         }
 
         if (query.pagination?.count != null)
@@ -816,10 +824,12 @@ class DynamoDBUserAccountDataAccessProvider(
         private const val linksTableName = "curity-links"
         private val logger: Logger = LoggerFactory.getLogger(DynamoDBCredentialDataAccessProvider::class.java)
 
-        private val attributesToRemove = listOf("active", "password", "userName", "id", "schemas")
-        private val requiredAttributesToGet = setOf("userName", "attributes", "created", "updated")
+        private val attributesToRemove = listOf(
+            // these are SDK attribute names and not DynamoDB table attribute names
+            "active", "password", "userName", "id", "schemas"
+        )
 
-        private const val N_OF_ATTEMPTS = 10;
+        private const val N_OF_ATTEMPTS = 3
     }
 }
 
