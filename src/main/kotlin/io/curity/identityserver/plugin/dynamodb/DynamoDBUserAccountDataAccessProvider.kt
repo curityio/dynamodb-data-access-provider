@@ -596,22 +596,21 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val requestBuilder = ScanRequest.builder()
             .tableName(tableName)
+            // By using the userName index only main entries are considered and the secondary ones are skipped
+            // This is possible because the userName index has all the main entries (i.e. all users have userName)
+            .indexName(AccountsTable.UserNameIndex.name)
 
         if (query.filter != null)
         {
             val parsedFilter = UserAccountFilterParser(query.filter)
 
             requestBuilder
-                .filterExpression("attribute_exists(${AccountsTable.active.name}) AND (${parsedFilter.parsedFilter})")
+                .filterExpression(parsedFilter.parsedFilter)
                 .expressionAttributeValues(parsedFilter.attributeValues)
             if (parsedFilter.attributesNamesMap.isNotEmpty())
             {
                 requestBuilder.expressionAttributeNames(parsedFilter.attributesNamesMap)
             }
-        } else
-        {
-            requestBuilder
-                .filterExpression("attribute_exists(${AccountsTable.active.name})")
         }
 
         if (query.pagination?.count != null)
@@ -638,6 +637,9 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val request = ScanRequest.builder()
             .tableName(tableName)
+            // By using the userName index only main entries are considered and the secondary ones are skipped
+            // This is possible because the userName index has all the main entries (i.e. all users have userName)
+            .indexName(AccountsTable.UserNameIndex.name)
             .build()
 
         val response = _client.scan(request)
