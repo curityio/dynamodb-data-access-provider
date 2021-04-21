@@ -2,49 +2,25 @@
   "TableName": "curity-links",
   "AttributeDefinitions": [
     {
-      "AttributeName": "localIdToforeignIdAtdomainForManager",
+      "AttributeName": "linkedAccountId_linkedAccountDomainName",
       "AttributeType": "S"
     },
     {
-      "AttributeName": "foreignIdAtDomain",
+      "AttributeName": "accountId",
       "AttributeType": "S"
     },
     {
       "AttributeName": "linkingAccountManager",
       "AttributeType": "S"
-    },
-    {
-      "AttributeName": "localAccountId",
-      "AttributeType": "S"
     }
   ],
   "KeySchema": [
     {
-      "AttributeName": "localIdToforeignIdAtdomainForManager",
+      "AttributeName": "linkedAccountId_linkedAccountDomainName",
       "KeyType": "HASH"
     }
   ],
   "GlobalSecondaryIndexes": [
-    {
-      "IndexName": "resolve-link-index",
-      "Projection": {
-        "ProjectionType": "ALL"
-      },
-      "ProvisionedThroughput": {
-        "WriteCapacityUnits": 5,
-        "ReadCapacityUnits": 10
-      },
-      "KeySchema": [
-        {
-          "KeyType": "HASH",
-          "AttributeName": "foreignIdAtDomain"
-        },
-        {
-          "KeyType": "RANGE",
-          "AttributeName": "linkingAccountManager"
-        }
-      ]
-    },
     {
       "IndexName": "list-links-index",
       "Projection": {
@@ -57,7 +33,7 @@
       "KeySchema": [
         {
           "KeyType": "HASH",
-          "AttributeName": "localAccountId"
+          "AttributeName": "accountId"
         },
         {
           "KeyType": "RANGE",
@@ -71,5 +47,3 @@
     "ReadCapacityUnits": 10
   }
 }
-
-

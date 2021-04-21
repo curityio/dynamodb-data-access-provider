@@ -38,6 +38,7 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
+import java.lang.UnsupportedOperationException
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -59,7 +60,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
     override fun getById(
         accountId: String
-    ): AccountAttributes = fromAttributes(getById(accountId, ResourceQuery.Exclusions.none()))
+    ): AccountAttributes? = fromAttributes(getById(accountId, ResourceQuery.Exclusions.none()))
 
     override fun getById(
         accountId: String,
@@ -92,7 +93,7 @@ class DynamoDBUserAccountDataAccessProvider(
     {
         logger.debug("Received request to get account by userName : {}", userName)
 
-        return retrieveByIndexQuery(AccountsTable.UserNameIndex, userName, attributesEnumeration)
+        return retrieveByIndexQuery(AccountsTable.userNameIndex, userName, attributesEnumeration)
     }
 
     override fun getByEmail(
@@ -102,7 +103,7 @@ class DynamoDBUserAccountDataAccessProvider(
     {
         logger.debug("Received request to get account by email : {}", email)
 
-        return retrieveByIndexQuery(AccountsTable.EmailIndex, email, attributesEnumeration)
+        return retrieveByIndexQuery(AccountsTable.emailIndex, email, attributesEnumeration)
     }
 
     override fun getByPhone(
@@ -112,7 +113,7 @@ class DynamoDBUserAccountDataAccessProvider(
     {
         logger.debug("Received request to get account by phone number : {}", phone)
 
-        return retrieveByIndexQuery(AccountsTable.PhoneIndex, phone, attributesEnumeration)
+        return retrieveByIndexQuery(AccountsTable.phoneIndex, phone, attributesEnumeration)
     }
 
     private fun retrieveByIndexQuery(
@@ -406,13 +407,12 @@ class DynamoDBUserAccountDataAccessProvider(
             accountAttributes.isActive
         )
 
-        val attributesToPersist =
-            Attributes.of(accountAttributes.filter { attribute -> !attributesToRemove.contains(attribute.name.value) })
+        val attributesToPersist = serialize(accountAttributes)
 
         updateBuilder.handleNonUniqueAttribute(
             AccountsTable.attributes,
             AccountsTable.attributes.from(observedItem),
-            jsonHandler.fromAttributes(attributesToPersist)
+            attributesToPersist
         )
 
         updateBuilder.handleNonUniqueAttribute(
@@ -496,24 +496,9 @@ class DynamoDBUserAccountDataAccessProvider(
         foreignUserName: String
     )
     {
-        /**
-         * The account links table has primary key: foreignUserName@foreignDomainName-linkingAccountManager
-         * Secondary Index: primary key: foreignId@Domain with sort key linkingAccountManager
-         * Attributes: linkingAccountManager, localAccountId
-         */
-        val item = mutableMapOf<String, AttributeValue>()
-        item["localAccountId"] = localAccountId.toAttributeValue()
-        item["linkingAccountManager"] = linkingAccountManager.toAttributeValue()
-        item["foreignAccountAtDomain"] = "$foreignUserName@$foreignDomainName".toAttributeValue()
-        item["foreignAccountId"] = foreignUserName.toAttributeValue()
-        item["foreignDomainName"] = foreignDomainName.toAttributeValue()
-        item["localIdToforeignIdAtdomainForManager"] =
-            "$foreignUserName@$foreignDomainName-$linkingAccountManager".toAttributeValue()
-        item["created"] = Instant.now().epochSecond.toString().toAttributeValue()
-
         val request = PutItemRequest.builder()
             .tableName(linksTableName)
-            .item(item)
+            .item(LinksTable.createItem(linkingAccountManager, localAccountId, foreignDomainName, foreignUserName))
             .build()
 
         _client.putItem(request)
@@ -521,15 +506,16 @@ class DynamoDBUserAccountDataAccessProvider(
 
     override fun listLinks(linkingAccountManager: String, localAccountId: String): Collection<LinkedAccount>
     {
-        val attributes = mapOf(
-            Pair(":manager", AttributeValue.builder().s(linkingAccountManager).build()),
-            Pair(":accountId", AttributeValue.builder().s(localAccountId).build())
-        )
         val request = QueryRequest.builder()
             .tableName(linksTableName)
-            .indexName("list-links-index")
-            .keyConditionExpression("linkingAccountManager = :manager AND localAccountId = :accountId")
-            .expressionAttributeValues(attributes)
+            .indexName(LinksTable.listLinksIndex.name)
+            .keyConditionExpression(LinksTable.listLinksIndex.keyConditionExpression)
+            .expressionAttributeValues(
+                LinksTable.listLinksIndex.expressionValueMap(
+                    localAccountId,
+                    linkingAccountManager
+                )
+            )
             .build()
 
         val response = _client.query(request)
@@ -538,10 +524,10 @@ class DynamoDBUserAccountDataAccessProvider(
         {
             response.items().map { item ->
                 LinkedAccount.of(
-                    item["foreignDomainName"]?.s(),
-                    item["foreignAccountId"]?.s(),
-                    "",
-                    item["created"]?.s()
+                    LinksTable.linkedAccountDomainName.from(item),
+                    LinksTable.linkedAccountId.from(item),
+                    NO_LINK_DESCRIPTION,
+                    LinksTable.created.from(item).toString()
                 )
             }
         } else
@@ -556,9 +542,10 @@ class DynamoDBUserAccountDataAccessProvider(
         foreignAccountId: String
     ): AccountAttributes?
     {
+        // TODO consider using a QueryRequest instead of a GetItemRequest to include the linkingAccountManager condition
         val request = GetItemRequest.builder()
-            .tableName(linksTableName)
-            .key(getLinksKey(foreignAccountId, foreignDomainName, linkingAccountManager))
+            .tableName(LinksTable.name)
+            .key(mapOf(LinksTable.pk.toNameValuePair(foreignAccountId, foreignDomainName)))
             .build()
 
         val response = _client.getItem(request)
@@ -568,7 +555,18 @@ class DynamoDBUserAccountDataAccessProvider(
             return null
         }
 
-        val localAccountId = response.item()["localAccountId"]!!.s()
+        val item = response.item()
+
+        val itemAccountManager = LinksTable.linkingAccountManager.from(item)
+            ?: throw SchemaErrorException(LinksTable, LinksTable.linkingAccountManager)
+
+        if (itemAccountManager != linkingAccountManager)
+        {
+            return null
+        }
+
+        val localAccountId = LinksTable.localAccountId.from(item)
+            ?: throw SchemaErrorException(LinksTable, LinksTable.localAccountId)
 
         return getById(localAccountId)
     }
@@ -581,8 +579,18 @@ class DynamoDBUserAccountDataAccessProvider(
     ): Boolean
     {
         val request = DeleteItemRequest.builder()
-            .tableName(linksTableName)
-            .key(getLinksKey(foreignAccountId, foreignDomainName, linkingAccountManager))
+            .tableName(LinksTable.name)
+            .key(mapOf(LinksTable.pk.toNameValuePair(foreignAccountId, foreignDomainName)))
+            .conditionExpression(
+                "${LinksTable.localAccountId.name} = ${LinksTable.localAccountId.colonName} AND "
+                        + "${LinksTable.linkingAccountManager.name} = ${LinksTable.linkingAccountManager.colonName}"
+            )
+            .expressionAttributeValues(
+                mapOf(
+                    LinksTable.localAccountId.toExpressionNameValuePair(localAccountId),
+                    LinksTable.linkingAccountManager.toExpressionNameValuePair(linkingAccountManager)
+                )
+            )
             .build()
 
         val response = _client.deleteItem(request)
@@ -598,7 +606,7 @@ class DynamoDBUserAccountDataAccessProvider(
             .tableName(tableName)
             // By using the userName index only main entries are considered and the secondary ones are skipped
             // This is possible because the userName index has all the main entries (i.e. all users have userName)
-            .indexName(AccountsTable.UserNameIndex.name)
+            .indexName(AccountsTable.userNameIndex.name)
 
         if (query.filter != null)
         {
@@ -639,44 +647,39 @@ class DynamoDBUserAccountDataAccessProvider(
             .tableName(tableName)
             // By using the userName index only main entries are considered and the secondary ones are skipped
             // This is possible because the userName index has all the main entries (i.e. all users have userName)
-            .indexName(AccountsTable.UserNameIndex.name)
+            .indexName(AccountsTable.userNameIndex.name)
             .build()
 
         val response = _client.scan(request)
-        val results = mutableListOf<ResourceAttributes<*>>()
-
-        response.items().forEach { item ->
-            results.add(item.toAccountAttributes())
+        if (response.hasLastEvaluatedKey())
+        {
+            // TODO is this an acceptable behavior?
+            throw UnsupportedOperationException("DynamoDB doesn't support getAll on a table that exceeds the maximum page size")
         }
 
-        return ResourceQueryResult(results, response.count().toLong(), 0, count)
-    }
+        val results = response.items().asSequence()
+            .drop(startIndex.toInt())
+            .map{ it.toAccountAttributes() }
+            .take(count.toInt())
+            .toList()
 
-    private fun getLinksKey(
-        foreignAccountId: String,
-        foreignDomainName: String,
-        linkingAccountManager: String
-    ): Map<String, AttributeValue> =
-        mapOf(
-            Pair(
-                "localIdToforeignIdAtdomainForManager",
-                AttributeValue.builder().s("$foreignAccountId@$foreignDomainName-$linkingAccountManager").build()
-            )
-        )
+        return ResourceQueryResult(results, response.count().toLong(), startIndex, results.size.toLong())
+    }
 
     private fun AccountAttributes.toItem(): MutableMap<String, AttributeValue>
     {
         val item = mutableMapOf<String, AttributeValue>()
 
-        item["userName"] = userName.toAttributeValue()
-        item["active"] = isActive.toAttributeValue()
-        val now = Instant.now().epochSecond.toString().toAttributeValue()
-        item["updated"] = now
-        item["created"] = now
+        item.addAttr(AccountsTable.userName, userName)
+        item.addAttr(AccountsTable.active, isActive)
+        val now = Instant.now().epochSecond
+        item.addAttr(AccountsTable.created, now)
+        item.addAttr(AccountsTable.updated, now)
+
 
         if (!password.isNullOrEmpty())
         {
-            item["password"] = password.toAttributeValue()
+            item.addAttr(AccountsTable.password, password)
         }
 
         if (emails != null)
@@ -684,7 +687,7 @@ class DynamoDBUserAccountDataAccessProvider(
             val email = emails.primaryOrFirst
             if (email != null && !email.isEmpty)
             {
-                item["email"] = email.significantValue.toAttributeValue()
+                item.addAttr(AccountsTable.email, email.significantValue)
             }
         }
 
@@ -693,19 +696,34 @@ class DynamoDBUserAccountDataAccessProvider(
             val phone = phoneNumbers.primaryOrFirst
             if (phone != null && !phone.isEmpty)
             {
-                item["phone"] = phone.significantValue.toAttributeValue()
+                item.addAttr(AccountsTable.phone, phone.significantValue)
             }
         }
 
-        val attributesToPersist =
-            Attributes.of(filter { attribute -> !attributesToRemove.contains(attribute.name.value) })
-
-        if (!attributesToPersist.isEmpty)
-        {
-            item["attributes"] = jsonHandler.fromAttributes(attributesToPersist).toAttributeValue()
+        serialize(this)?.let {
+            item.addAttr(AccountsTable.attributes, it)
         }
 
         return item
+    }
+
+    private fun serialize(accountAttributes: AccountAttributes): String?
+    {
+        val filteredAttributes =
+            Attributes.of(
+                removeLinkedAccounts(accountAttributes)
+                    .filter {
+                        !attributesToRemove.contains(it.name.value)
+                    }
+            )
+
+        return if (!filteredAttributes.isEmpty)
+        {
+            jsonHandler.fromAttributes(filteredAttributes)
+        } else
+        {
+            null
+        }
     }
 
     private fun Map<String, AttributeValue>.toAccountAttributes(): AccountAttributes = toAccountAttributes(null)
@@ -713,7 +731,7 @@ class DynamoDBUserAccountDataAccessProvider(
     {
         val map = mutableMapOf<String, Any?>()
 
-        map["id"] = this["accountId"]?.s()
+        map["id"] = AccountsTable.accountId.from(this)
 
         forEach { (key, value) ->
             when (key)
@@ -721,21 +739,23 @@ class DynamoDBUserAccountDataAccessProvider(
                 AccountsTable.pk.name ->
                 { /*ignore*/
                 }
-                "active" -> map["active"] = value.bool()
-                "email" ->
+                AccountsTable.active.name -> map["active"] = value.bool()
+                AccountsTable.email.name ->
                 {
                 } // skip, emails are in attributes
-                "phone" ->
+                AccountsTable.phone.name ->
                 {
                 } // skip, phones are in attributes
-                "attributes" -> map.putAll(jsonHandler.fromJson(this["attributes"]?.s()) ?: emptyMap<String, Any>())
-                "created" ->
+                AccountsTable.attributes.name -> map.putAll(
+                    jsonHandler.fromJson(AccountsTable.attributes.from(this)) ?: emptyMap<String, Any>()
+                )
+                AccountsTable.created.name ->
                 {
                 } // skip, this goes to meta
-                "updated" ->
+                AccountsTable.updated.name ->
                 {
                 } // skip, this goes to meta
-                "password" ->
+                AccountsTable.password.name ->
                 {
                 } // do not return passwords
                 else -> map[key] = value.s()
@@ -745,18 +765,19 @@ class DynamoDBUserAccountDataAccessProvider(
         if (attributesEnumeration.includeMeta())
         {
             // TODO - should the zone be system default or UTC?
-            val zoneId = if (map["timezone"] != null) ZoneId.of(map["timezone"].toString()) else ZoneId.systemDefault()
+            val zoneId =
+                if (map["timezone"] != null) ZoneId.of(map["timezone"].toString()) else ZoneId.systemDefault()
 
             map["meta"] = mapOf(
                 Pair(Meta.RESOURCE_TYPE, AccountAttributes.RESOURCE_TYPE),
                 Pair(
                     "created",
-                    ZonedDateTime.ofInstant(Instant.ofEpochSecond(this["created"]?.s()?.toLong() ?: -1L), zoneId)
+                    ZonedDateTime.ofInstant(Instant.ofEpochSecond(AccountsTable.created.from(this) ?: -1L), zoneId)
                         .toString()
                 ),
                 Pair(
                     "lastModified",
-                    ZonedDateTime.ofInstant(Instant.ofEpochSecond(this["updated"]?.s()?.toLong() ?: -1L), zoneId)
+                    ZonedDateTime.ofInstant(Instant.ofEpochSecond(AccountsTable.updated.from(this) ?: -1L), zoneId)
                         .toString()
                 )
             )
@@ -797,11 +818,38 @@ class DynamoDBUserAccountDataAccessProvider(
             pk.name to pk.toAttrValue(accountId.uniquenessValueFrom(accountIdValue))
         )
 
-        object UserNameIndex : Index<String>("userName-index", userName)
+        val userNameIndex = Index("userName-index", userName)
 
-        object EmailIndex : Index<String>("email-index", email)
+        val emailIndex = Index("email-index", email)
 
-        object PhoneIndex : Index<String>("phone-index", phone)
+        val phoneIndex = Index("phone-index", phone)
+    }
+
+    object LinksTable : Table("curity-links")
+    {
+        val pk =
+            StringCompositeAttribute2("linkedAccountId_linkedAccountDomainName") { linkedAccountId, linkedAccountDomainName -> "$linkedAccountId@$linkedAccountDomainName" }
+        val localAccountId = StringAttribute("accountId")
+        val linkedAccountId = StringAttribute("linkedAccountId")
+        val linkedAccountDomainName = StringAttribute("linkedAccountDomainName")
+        val linkingAccountManager = StringAttribute("linkingAccountManager")
+        val created = NumberLongAttribute("created")
+
+        val listLinksIndex = Index2("list-links-index", localAccountId, linkingAccountManager)
+
+        fun createItem(
+            linkingAccountManagerValue: String,
+            localAccountIdValue: String,
+            foreignDomainNameValue: String,
+            foreignUserNameValue: String
+        ) = mapOf(
+            pk.toNameValuePair(foreignUserNameValue, foreignDomainNameValue),
+            localAccountId.toNameValuePair(localAccountIdValue),
+            linkedAccountId.toNameValuePair(foreignUserNameValue),
+            linkedAccountDomainName.toNameValuePair(foreignDomainNameValue),
+            linkingAccountManager.toNameValuePair(linkingAccountManagerValue),
+            created.toNameValuePair(Instant.now().epochSecond)
+        )
     }
 
     private fun newConditionExpression(version: Long, accountId: String) = object : Expression(
@@ -831,7 +879,23 @@ class DynamoDBUserAccountDataAccessProvider(
             "active", "password", "userName", "id", "schemas"
         )
 
+        private val NO_LINK_DESCRIPTION: String? = null
+
         private const val N_OF_ATTEMPTS = 3
+
+        private fun removeLinkedAccounts(account: AccountAttributes): AccountAttributes
+        {
+            var withoutLinks = account
+            for (linkedAccount in account.linkedAccounts.toList())
+            {
+                logger.trace(
+                    "Removing linked account before persisting to accounts table '{}'",
+                    linkedAccount
+                )
+                withoutLinks = account.removeLinkedAccounts(linkedAccount)
+            }
+            return withoutLinks.removeAttribute(AccountAttributes.LINKED_ACCOUNTS)
+        }
     }
 }
 

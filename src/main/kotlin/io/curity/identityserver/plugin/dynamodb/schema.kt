@@ -15,6 +15,7 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.Delete
 import software.amazon.awssdk.services.dynamodb.model.Update
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
+import java.lang.UnsupportedOperationException
 
 enum class AttributeType(val typeName: String)
 {
@@ -39,6 +40,7 @@ interface Attribute<T>
     val colonName: String
     fun toAttrValue(value: T): AttributeValue
     fun from(attrValue: AttributeValue): T
+    fun addTo(map: MutableMap<String, AttributeValue>, value: T)
 }
 
 interface UniqueAttribute<T> : Attribute<T>
@@ -56,6 +58,9 @@ abstract class BaseAttribute<T>(
     override fun toNameValuePair(value: T) = name to toAttrValue(value)
     override fun toExpressionNameValuePair(value: T) = ":${name}" to toAttrValue(value)
     override fun from(map: Map<String, AttributeValue>): T? = map[name]?.let { from(it) }
+    override fun addTo(map: MutableMap<String, AttributeValue>, value: T) {
+        map[name] = toAttrValue(value)
+    }
 
     override val hashName = "#${name}"
     override val colonName = ":${name}"
@@ -66,6 +71,16 @@ class StringAttribute(name: String) : BaseAttribute<String>(name, AttributeType.
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
     override fun from(attrValue: AttributeValue): String = attrValue.s()
 }
+
+class StringCompositeAttribute2(name: String, private val template: (String, String)->String) : BaseAttribute<String>(name, AttributeType.S)
+{
+    override fun toAttrValue(value: String): AttributeValue = throw UnsupportedOperationException("Cannot create from a single value")
+    fun toAttrValue2(first: String, second: String): AttributeValue =
+        AttributeValue.builder().s(template(first, second)).build()
+    fun toNameValuePair(first: String, second: String) = name to toAttrValue2(first, second)
+    override fun from(attrValue: AttributeValue): String = attrValue.s()
+}
+
 
 class UniqueStringAttribute(name: String, val _f: (String) -> String)
     : BaseAttribute<String>(name, AttributeType.S), UniqueAttribute<String>
@@ -134,8 +149,23 @@ fun Delete.Builder.conditionExpression(expression: Expression)
     return this
 }
 
-abstract class Index<T>(val name: String, val attribute: Attribute<T>)
+class Index<T>(val name: String, val attribute: Attribute<T>)
 {
     override fun toString() = name
     val expressionNameMap = mapOf(attribute.hashName to attribute.name)
+}
+
+class Index2<T>(val name: String, private val attribute1: Attribute<T>, private val attribute2: Attribute<T>)
+{
+    override fun toString() = name
+    fun expressionValueMap(first: T, second: T) = mapOf(
+        attribute1.toExpressionNameValuePair(first),
+        attribute2.toExpressionNameValuePair(second)
+    )
+
+    val keyConditionExpression = "${attribute1.name} = ${attribute1.colonName} AND ${attribute2.name} = ${attribute2.colonName}"
+}
+
+fun <T> MutableMap<String, AttributeValue>.addAttr(attribute: Attribute<T>, value: T) {
+    this[attribute.name] = attribute.toAttrValue(value)
 }
