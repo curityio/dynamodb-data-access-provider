@@ -24,11 +24,10 @@ import se.curity.identityserver.sdk.attribute.AuthenticationAttributes
 import se.curity.identityserver.sdk.attribute.ContextAttributes
 import se.curity.identityserver.sdk.attribute.SubjectAttributes
 import se.curity.identityserver.sdk.datasource.CredentialDataAccessProvider
-import software.amazon.awssdk.services.dynamodb.model.AttributeValue
-import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
+import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 
-class DynamoDBCredentialDataAccessProvider(private val dynamoDBClient: DynamoDBClient): CredentialDataAccessProvider
+class DynamoDBCredentialDataAccessProvider(private val dynamoDBClient: DynamoDBClient) : CredentialDataAccessProvider
 {
     override fun updatePassword(accountAttributes: AccountAttributes)
     {
@@ -38,17 +37,18 @@ class DynamoDBCredentialDataAccessProvider(private val dynamoDBClient: DynamoDBC
 
         val newPassword: String? = accountAttributes.password
 
-        if (newPassword == null) {
+        if (newPassword == null)
+        {
             logger.debug("Cannot update account password for {}, missing password value.", username)
             return
         }
 
         val request = UpdateItemRequest.builder()
-                .tableName(tableName)
-                .key(username.toKey("userName"))
-                .expressionAttributeValues(mapOf<String, AttributeValue>(Pair(":password", AttributeValue.builder().s(newPassword).build())))
-                .updateExpression("SET password = :password")
-                .build()
+            .tableName(AccountsTable.name)
+            .key(AccountsTable.key(accountAttributes.id))
+            .updateExpression("SET ${AccountsTable.password.name} = ${AccountsTable.password.colonName}")
+            .expressionAttributeValues(mapOf(AccountsTable.password.toExpressionNameValuePair(newPassword)))
+            .build()
 
         dynamoDBClient.updateItem(request)
     }
@@ -57,30 +57,36 @@ class DynamoDBCredentialDataAccessProvider(private val dynamoDBClient: DynamoDBC
     {
         logger.debug("Received request to verify password for username : {}", userName)
 
-        val request = GetItemRequest.builder()
-                .tableName(tableName)
-                .key(userName.toKey("userName"))
-                .attributesToGet("userName", "password", "active")
-                .build()
+        val request = QueryRequest.builder()
+            .tableName(AccountsTable.name)
+            .indexName(AccountsTable.userNameIndex.name)
+            .keyConditionExpression("${AccountsTable.userName.name} = ${AccountsTable.userName.colonName}")
+            .expressionAttributeValues(mapOf(AccountsTable.userName.toExpressionNameValuePair(userName)))
+            .projectionExpression("${AccountsTable.userName.name}, ${AccountsTable.password.name}, ${AccountsTable.active.name}")
+            .build()
 
-        val response = dynamoDBClient.getItem(request)
+        val response = dynamoDBClient.query(request)
 
-        if (!response.hasItem() || response.item().isEmpty()) {
+        if (!response.hasItems() || response.items().isEmpty())
+        {
             return null
         }
 
-        val item = response.item()
+        val item = response.items()[0]
 
-        if (!item["active"]!!.bool()) {
+        if (!item["active"]!!.bool())
+        {
             return null
         }
 
         return AuthenticationAttributes.of(
-            SubjectAttributes.of(userName,
+            SubjectAttributes.of(
+                userName,
                 Attributes.of(
-                    Attribute.of("password", item["password"]?.s()),
-                    Attribute.of("accountId", item["userName"]?.s()),
-                    Attribute.of("userName", item["userName"]?.s()))
+                    Attribute.of("password", AccountsTable.password.from(item)),
+                    Attribute.of("accountId", AccountsTable.accountId.from(item)),
+                    Attribute.of("userName", AccountsTable.userName.from(item))
+                )
             ),
             ContextAttributes.empty()
         )
@@ -93,7 +99,7 @@ class DynamoDBCredentialDataAccessProvider(private val dynamoDBClient: DynamoDBC
 
     companion object
     {
-        private const val tableName = "curity-accounts"
+        private val AccountsTable = DynamoDBUserAccountDataAccessProvider.AccountsTable
         private val logger: Logger = LoggerFactory.getLogger(DynamoDBCredentialDataAccessProvider::class.java)
     }
 }
