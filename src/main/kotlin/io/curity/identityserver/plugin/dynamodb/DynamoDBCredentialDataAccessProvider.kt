@@ -62,7 +62,7 @@ class DynamoDBCredentialDataAccessProvider(private val dynamoDBClient: DynamoDBC
             .indexName(AccountsTable.userNameIndex.name)
             .keyConditionExpression("${AccountsTable.userName.name} = ${AccountsTable.userName.colonName}")
             .expressionAttributeValues(mapOf(AccountsTable.userName.toExpressionNameValuePair(userName)))
-            .projectionExpression("${AccountsTable.userName.name}, ${AccountsTable.password.name}, ${AccountsTable.active.name}")
+            .projectionExpression("${AccountsTable.accountId.name}, ${AccountsTable.userName.name}, ${AccountsTable.password.name}, ${AccountsTable.active.name}")
             .build()
 
         val response = dynamoDBClient.query(request)

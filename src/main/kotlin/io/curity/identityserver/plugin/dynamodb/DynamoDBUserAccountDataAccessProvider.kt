@@ -231,8 +231,8 @@ class DynamoDBUserAccountDataAccessProvider(
             if (ex.isTransactionCancelledDueToConditionFailure())
             {
                 throw ConflictException(
-                    "Unable to create user as uniqueness check failed"
-                )
+                    "Unable to create user with username '${accountAttributes.userName}' as uniqueness check failed")
+
             }
             throw ex
         }
@@ -504,6 +504,7 @@ class DynamoDBUserAccountDataAccessProvider(
         _client.putItem(request)
     }
 
+    // TODO support DynamoDB paging
     override fun listLinks(linkingAccountManager: String, localAccountId: String): Collection<LinkedAccount>
     {
         val request = QueryRequest.builder()

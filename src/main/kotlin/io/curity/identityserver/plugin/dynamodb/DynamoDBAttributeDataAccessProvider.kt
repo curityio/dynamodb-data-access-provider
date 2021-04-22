@@ -15,33 +15,72 @@
  */
 package io.curity.identityserver.plugin.dynamodb
 
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.attribute.AttributeTableView
 import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.datasource.AttributeDataAccessProvider
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 
-class DynamoDBAttributeDataAccessProvider(private val dynamoDBClient: DynamoDBClient): AttributeDataAccessProvider
+class DynamoDBAttributeDataAccessProvider(private val dynamoDBClient: DynamoDBClient) : AttributeDataAccessProvider
 {
     override fun getAttributes(subject: String): AttributeTableView
     {
-        // TODO should implement dynamodb paging
+        val accountQuery = QueryRequest.builder()
+            .tableName(AccountsTable.name)
+            .indexName(AccountsTable.userNameIndex.name)
+            .keyConditionExpression("${AccountsTable.userName.name} = ${AccountsTable.userName.colonName}")
+            .expressionAttributeValues(mapOf(AccountsTable.userName.toExpressionNameValuePair(subject)))
+            .build()
 
-        val request = QueryRequest.builder()
-                .tableName("curity-links")
-                .indexName("list-links-index")
-                .keyConditionExpression("localAccountId = :localAccountId")
-                .expressionAttributeValues(mapOf(Pair(":localAccountId", subject.toAttributeValue())))
-                .build()
+        val accountQueryResult = dynamoDBClient.query(accountQuery)
+        if (!accountQueryResult.hasItems())
+        {
+            return AttributeTableView.empty()
+        }
+        val accountQueryItem = accountQueryResult.items()[0]
+        val accountId = AccountsTable.accountId.from(accountQueryItem)
+            ?: throw SchemaErrorException(AccountsTable, AccountsTable.accountId)
 
-        val response = dynamoDBClient.query(request)
+        // TODO support paging
 
-        if (!response.hasItems() || response.items().isEmpty()) {
+        val linksQueryRequest = QueryRequest.builder()
+            .tableName(LinksTable.name)
+            .indexName(LinksTable.listLinksIndex.name)
+            .keyConditionExpression("${LinksTable.localAccountId.name} = ${LinksTable.localAccountId.colonName}")
+            .expressionAttributeValues(mapOf(LinksTable.localAccountId.toExpressionNameValuePair(accountId)))
+            .build()
+
+        val linksQueryResponse = dynamoDBClient.query(linksQueryRequest)
+
+        if (!linksQueryResponse.hasItems() || linksQueryResponse.items().isEmpty())
+        {
             return AttributeTableView.empty()
         }
 
-        val result = mutableListOf<Attributes>()
-        response.items().forEach {item -> result.add(Attributes.fromMap(item.mapValues { v -> v.value.s() }))}
+        // TODO make this clearer
+        return AttributeTableView.ofAttributes(
+            linksQueryResponse.items()
+                .map { item ->
+                    Attributes.fromMap(
+                        item
+                            .map { entry -> (dynamoNamesToJdbcNames[entry.key] ?: entry.key) to entry.value.s() }
+                            .toMap()
+                    )
+                }
+        )
+    }
 
-        return AttributeTableView.ofAttributes(result)
+    companion object
+    {
+        private val AccountsTable = DynamoDBUserAccountDataAccessProvider.AccountsTable
+        private val LinksTable = DynamoDBUserAccountDataAccessProvider.LinksTable
+        private val logger: Logger = LoggerFactory.getLogger(DynamoDBAttributeDataAccessProvider::class.java)
+        private val dynamoNamesToJdbcNames = mapOf(
+            LinksTable.localAccountId.name to "account_id",
+            LinksTable.linkingAccountManager.name to "linking_account_manager",
+            LinksTable.linkedAccountDomainName.name to "linked_account_domain_name",
+            LinksTable.linkedAccountId.name to "linked_account_id"
+        )
     }
 }
