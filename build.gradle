@@ -17,6 +17,7 @@ compileKotlin {
 }
 
 dependencies {
+    // TODO change dependencies references when moving out to GitHub
     compile libraries.amazonaws_dynamodb
     compile libraries.amazonaws_sts
     runtime libraries.reactive_streams
