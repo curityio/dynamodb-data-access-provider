@@ -152,6 +152,8 @@ fun Delete.Builder.conditionExpression(expression: Expression)
 class Index<T>(val name: String, val attribute: Attribute<T>)
 {
     override fun toString() = name
+    val expression = "${attribute.hashName} = ${attribute.colonName}"
+    fun expressionValueMap(value: T) = mapOf(attribute.toExpressionNameValuePair(value))
     val expressionNameMap = mapOf(attribute.hashName to attribute.name)
 }
 
@@ -163,7 +165,12 @@ class Index2<T>(val name: String, private val attribute1: Attribute<T>, private 
         attribute2.toExpressionNameValuePair(second)
     )
 
-    val keyConditionExpression = "${attribute1.name} = ${attribute1.colonName} AND ${attribute2.name} = ${attribute2.colonName}"
+    val expressionNameMap = mapOf(
+        attribute1.hashName to attribute1.name,
+        attribute2.hashName to attribute2.name
+    )
+
+    val keyConditionExpression = "${attribute1.hashName} = ${attribute1.colonName} AND ${attribute2.hashName} = ${attribute2.colonName}"
 }
 
 fun <T> MutableMap<String, AttributeValue>.addAttr(attribute: Attribute<T>, value: T) {

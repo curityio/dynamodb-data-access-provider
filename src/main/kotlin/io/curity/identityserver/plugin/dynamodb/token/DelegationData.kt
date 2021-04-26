@@ -24,6 +24,7 @@ import se.curity.identityserver.sdk.data.authorization.ScopeClaim
 import se.curity.identityserver.sdk.service.Json
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 
+// TODO remove all the non-required nullables
 class DelegationData(
         private val id: AttributeValue?,
         private val owner: AttributeValue?,
@@ -60,9 +61,9 @@ class DelegationData(
 
     override fun getScope(): String? = scope?.s()
 
-    override fun getScopeClaims(): MutableSet<DynamoDBScopeClaim?> = jsonHandler.fromJsonArray(scopeClaims?.s()).map { item -> DynamoDBScopeClaim.fromMap(item) }.toMutableSet()
+    override fun getScopeClaims(): Set<DynamoDBScopeClaim> = scopeClaims?.let {jsonHandler.fromJsonArray(it.s()).mapNotNull { item -> DynamoDBScopeClaim.fromMap(item) }.toSet()} ?: setOf()
 
-    override fun getClaimMap(): MutableMap<String, Any> = jsonHandler.fromJson(claimMap?.s())
+    override fun getClaimMap(): Map<String, Any> = claimMap?.let { jsonHandler.fromJson(it.s()) } ?: mapOf()
 
     override fun getClientId(): String? = clientId?.s()
 
@@ -88,7 +89,7 @@ class DelegationData(
 class DynamoDBScopeClaim(private val scope: String, private val name: String, private val required: Boolean): ScopeClaim {
     override fun asMap(): MutableMap<String, Any> = mutableMapOf(
             Pair("scope", scope),
-            Pair("name", name),
+            Pair("claim", name),
             Pair("required", required)
     )
 
@@ -108,7 +109,7 @@ class DynamoDBScopeClaim(private val scope: String, private val name: String, pr
 
             return DynamoDBScopeClaim(
                 map["scope"] as String,
-                map["name"] as String,
+                map["claim"] as String,
                 map["required"] as Boolean
             )
         }

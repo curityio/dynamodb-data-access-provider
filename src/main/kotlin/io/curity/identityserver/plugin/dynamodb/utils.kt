@@ -13,6 +13,7 @@ package io.curity.identityserver.plugin.dynamodb
 
 import org.slf4j.LoggerFactory
 import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException
+import java.lang.IllegalArgumentException
 
 private val _logger = LoggerFactory.getLogger("utils")
 
@@ -64,3 +65,12 @@ fun <T> retry(name: String, tries: Int, action: () -> TransactionAttemptResult<T
         attempt += 1
     }
 }
+
+fun Long.intOrThrow(name: String) =
+    if(this > Int.MAX_VALUE || this < 0)
+    {
+        throw IllegalArgumentException("Argument $name is negative or exceeds maximum allowed value")
+    } else {
+        this.toInt()
+    }
+

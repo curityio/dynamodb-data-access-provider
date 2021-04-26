@@ -30,6 +30,7 @@ import se.curity.identityserver.sdk.data.query.ResourceQueryResult
 import se.curity.identityserver.sdk.data.update.AttributeUpdate
 import se.curity.identityserver.sdk.datasource.UserAccountDataAccessProvider
 import se.curity.identityserver.sdk.errors.ConflictException
+import se.curity.identityserver.sdk.haapi.Links
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
@@ -517,6 +518,7 @@ class DynamoDBUserAccountDataAccessProvider(
                     linkingAccountManager
                 )
             )
+            .expressionAttributeNames(LinksTable.listLinksIndex.expressionNameMap)
             .build()
 
         val response = _client.query(request)
