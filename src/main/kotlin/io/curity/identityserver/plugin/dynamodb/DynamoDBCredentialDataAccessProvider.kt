@@ -77,7 +77,7 @@ class DynamoDBCredentialDataAccessProvider(private val dynamoDBClient: DynamoDBC
         }
 
         val item = response.items()[0]
-        val active = AccountsTable.active.from(item) ?: false
+        val active = AccountsTable.active.fromOpt(item) ?: false
 
         if (!active)
         {
@@ -89,9 +89,9 @@ class DynamoDBCredentialDataAccessProvider(private val dynamoDBClient: DynamoDBC
             SubjectAttributes.of(
                 userName,
                 Attributes.of(
-                    Attribute.of("password", AccountsTable.password.from(item)),
-                    Attribute.of("accountId", AccountsTable.accountId.from(item)),
-                    Attribute.of("userName", AccountsTable.userName.from(item))
+                    Attribute.of("password", AccountsTable.password.fromOpt(item)),
+                    Attribute.of("accountId", AccountsTable.accountId.fromOpt(item)),
+                    Attribute.of("userName", AccountsTable.userName.fromOpt(item))
                 )
             ),
             ContextAttributes.empty()

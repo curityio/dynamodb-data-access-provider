@@ -11,5 +11,13 @@
 
 package io.curity.identityserver.plugin.dynamodb
 
-class SchemaErrorException(table: Table, attribute: Attribute<*>) :
-    Exception("Missing attribute '$attribute' of type '${attribute.type}' on table '$table'")
+class SchemaErrorException(msg: String) :
+    Exception(msg)
+{
+
+    constructor(table: Table, attribute: Attribute<*>)
+            : this("Missing attribute '$attribute' of type '${attribute.type}' on table '$table'")
+
+    constructor(attribute: Attribute<*>)
+            : this("Missing attribute '$attribute' of type '${attribute.type}'")
+}

@@ -39,12 +39,14 @@ interface Attribute<T>
     fun toNamePair(): Pair<String, String>
     fun toNameValuePair(value: T): Pair<String, AttributeValue>
     fun toExpressionNameValuePair(value: T): Pair<String, AttributeValue>
-    fun from(map: Map<String, AttributeValue>): T?
+    fun fromOpt(map: Map<String, AttributeValue>): T?
+    fun from(map: Map<String, AttributeValue>): T
     val hashName: String
     val colonName: String
     fun toAttrValue(value: T): AttributeValue
     fun from(attrValue: AttributeValue): T
     fun addTo(map: MutableMap<String, AttributeValue>, value: T)
+    fun addToOpt(map: MutableMap<String, AttributeValue>, value: T?)
 }
 
 // A DynamoDB attribute that must also be unique
@@ -64,9 +66,19 @@ abstract class BaseAttribute<T>(
     override fun toString() = name
     override fun toNameValuePair(value: T) = name to toAttrValue(value)
     override fun toExpressionNameValuePair(value: T) = ":${name}" to toAttrValue(value)
-    override fun from(map: Map<String, AttributeValue>): T? = map[name]?.let { from(it) }
-    override fun addTo(map: MutableMap<String, AttributeValue>, value: T) {
+    override fun fromOpt(map: Map<String, AttributeValue>): T? = map[name]?.let { from(it) }
+    override fun from(map: Map<String, AttributeValue>) = fromOpt(map) ?: throw SchemaErrorException(this)
+    override fun addTo(map: MutableMap<String, AttributeValue>, value: T)
+    {
         map[name] = toAttrValue(value)
+    }
+
+    override fun addToOpt(map: MutableMap<String, AttributeValue>, value: T?)
+    {
+        if (value != null)
+        {
+            map[name] = toAttrValue(value)
+        }
     }
 
     override val hashName = "#${name}"
@@ -80,17 +92,21 @@ class StringAttribute(name: String) : BaseAttribute<String>(name, AttributeType.
 }
 
 // An attribute that is composed by two values
-class StringCompositeAttribute2(name: String, private val template: (String, String)->String) : BaseAttribute<String>(name, AttributeType.S)
+class StringCompositeAttribute2(name: String, private val template: (String, String) -> String) :
+    BaseAttribute<String>(name, AttributeType.S)
 {
-    override fun toAttrValue(value: String): AttributeValue = throw UnsupportedOperationException("Cannot create from a single value")
+    override fun toAttrValue(value: String): AttributeValue =
+        throw UnsupportedOperationException("Cannot create from a single value")
+
     fun toAttrValue2(first: String, second: String): AttributeValue =
         AttributeValue.builder().s(template(first, second)).build()
+
     fun toNameValuePair(first: String, second: String) = name to toAttrValue2(first, second)
     override fun from(attrValue: AttributeValue): String = attrValue.s()
 }
 
-class UniqueStringAttribute(name: String, val _f: (String) -> String)
-    : BaseAttribute<String>(name, AttributeType.S), UniqueAttribute<String>
+class UniqueStringAttribute(name: String, val _f: (String) -> String) : BaseAttribute<String>(name, AttributeType.S),
+    UniqueAttribute<String>
 {
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
     override fun from(attrValue: AttributeValue): String = attrValue.s()
@@ -119,7 +135,8 @@ class BooleanAttribute(name: String) : BaseAttribute<Boolean>(name, AttributeTyp
 }
 
 class ExpressionBuilder(
-    expr: String, vararg attributes: Attribute<*>)
+    expr: String, vararg attributes: Attribute<*>
+)
 {
     val expression: String = expr
     val attributeNames = attributes
@@ -180,9 +197,11 @@ class Index2<T>(val name: String, private val attribute1: Attribute<T>, private 
         attribute2.hashName to attribute2.name
     )
 
-    val keyConditionExpression = "${attribute1.hashName} = ${attribute1.colonName} AND ${attribute2.hashName} = ${attribute2.colonName}"
+    val keyConditionExpression =
+        "${attribute1.hashName} = ${attribute1.colonName} AND ${attribute2.hashName} = ${attribute2.colonName}"
 }
 
-fun <T> MutableMap<String, AttributeValue>.addAttr(attribute: Attribute<T>, value: T) {
+fun <T> MutableMap<String, AttributeValue>.addAttr(attribute: Attribute<T>, value: T)
+{
     this[attribute.name] = attribute.toAttrValue(value)
 }

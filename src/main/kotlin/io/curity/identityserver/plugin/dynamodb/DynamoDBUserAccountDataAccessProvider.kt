@@ -30,7 +30,6 @@ import se.curity.identityserver.sdk.data.query.ResourceQueryResult
 import se.curity.identityserver.sdk.data.update.AttributeUpdate
 import se.curity.identityserver.sdk.datasource.UserAccountDataAccessProvider
 import se.curity.identityserver.sdk.errors.ConflictException
-import se.curity.identityserver.sdk.haapi.Links
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
@@ -297,12 +296,12 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val item = getItemResponse.item()
         val version =
-            AccountsTable.version.from(item) ?: throw SchemaErrorException(AccountsTable, AccountsTable.version)
+            AccountsTable.version.fromOpt(item) ?: throw SchemaErrorException(AccountsTable, AccountsTable.version)
         val userName =
-            AccountsTable.userName.from(item) ?: throw SchemaErrorException(AccountsTable, AccountsTable.userName)
+            AccountsTable.userName.fromOpt(item) ?: throw SchemaErrorException(AccountsTable, AccountsTable.userName)
         // email and phone may not exist
-        val email = AccountsTable.email.from(item)
-        val phone = AccountsTable.phone.from(item)
+        val email = AccountsTable.email.fromOpt(item)
+        val phone = AccountsTable.phone.fromOpt(item)
 
         // Create a transaction with all the items (main and secondary) deletions,
         // conditioned to the version not having changed - optimistic concurrency.
@@ -430,25 +429,25 @@ class DynamoDBUserAccountDataAccessProvider(
 
         updateBuilder.handleUniqueAttribute(
             AccountsTable.userName,
-            AccountsTable.userName.from(observedItem),
+            AccountsTable.userName.fromOpt(observedItem),
             accountAttributes.userName
         )
 
         updateBuilder.handleUniqueAttribute(
             AccountsTable.email,
-            AccountsTable.email.from(observedItem),
+            AccountsTable.email.fromOpt(observedItem),
             accountAttributes.emails.primaryOrFirst?.significantValue
         )
 
         updateBuilder.handleUniqueAttribute(
             AccountsTable.phone,
-            AccountsTable.phone.from(observedItem),
+            AccountsTable.phone.fromOpt(observedItem),
             accountAttributes.phoneNumbers.primaryOrFirst?.significantValue
         )
 
         updateBuilder.handleNonUniqueAttribute(
             AccountsTable.active,
-            AccountsTable.active.from(observedItem),
+            AccountsTable.active.fromOpt(observedItem),
             accountAttributes.isActive
         )
 
@@ -456,7 +455,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
         updateBuilder.handleNonUniqueAttribute(
             AccountsTable.attributes,
-            AccountsTable.attributes.from(observedItem),
+            AccountsTable.attributes.fromOpt(observedItem),
             attributesToPersist
         )
 
@@ -567,10 +566,10 @@ class DynamoDBUserAccountDataAccessProvider(
         return querySequence(request, _client)
             .map { item ->
                 LinkedAccount.of(
-                    LinksTable.linkedAccountDomainName.from(item),
-                    LinksTable.linkedAccountId.from(item),
+                    LinksTable.linkedAccountDomainName.fromOpt(item),
+                    LinksTable.linkedAccountId.fromOpt(item),
                     NO_LINK_DESCRIPTION,
-                    LinksTable.created.from(item).toString()
+                    LinksTable.created.fromOpt(item).toString()
                 )
             }
             .toList()
@@ -596,7 +595,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val item = response.item()
 
-        val itemAccountManager = LinksTable.linkingAccountManager.from(item)
+        val itemAccountManager = LinksTable.linkingAccountManager.fromOpt(item)
             ?: throw SchemaErrorException(LinksTable, LinksTable.linkingAccountManager)
 
         if (itemAccountManager != linkingAccountManager)
@@ -604,7 +603,7 @@ class DynamoDBUserAccountDataAccessProvider(
             return null
         }
 
-        val localAccountId = LinksTable.localAccountId.from(item)
+        val localAccountId = LinksTable.localAccountId.fromOpt(item)
             ?: throw SchemaErrorException(LinksTable, LinksTable.localAccountId)
 
         return getById(localAccountId)
@@ -768,7 +767,7 @@ class DynamoDBUserAccountDataAccessProvider(
     {
         val map = mutableMapOf<String, Any?>()
 
-        map["id"] = AccountsTable.accountId.from(this)
+        map["id"] = AccountsTable.accountId.fromOpt(this)
 
         forEach { (key, value) ->
             when (key)
@@ -784,7 +783,7 @@ class DynamoDBUserAccountDataAccessProvider(
                 {
                 } // skip, phones are in attributes
                 AccountsTable.attributes.name -> map.putAll(
-                    jsonHandler.fromJson(AccountsTable.attributes.from(this)) ?: emptyMap<String, Any>()
+                    jsonHandler.fromJson(AccountsTable.attributes.fromOpt(this)) ?: emptyMap<String, Any>()
                 )
                 AccountsTable.created.name ->
                 {
@@ -808,12 +807,12 @@ class DynamoDBUserAccountDataAccessProvider(
                 Pair(Meta.RESOURCE_TYPE, AccountAttributes.RESOURCE_TYPE),
                 Pair(
                     "created",
-                    ZonedDateTime.ofInstant(Instant.ofEpochSecond(AccountsTable.created.from(this) ?: -1L), zoneId)
+                    ZonedDateTime.ofInstant(Instant.ofEpochSecond(AccountsTable.created.fromOpt(this) ?: -1L), zoneId)
                         .toString()
                 ),
                 Pair(
                     "lastModified",
-                    ZonedDateTime.ofInstant(Instant.ofEpochSecond(AccountsTable.updated.from(this) ?: -1L), zoneId)
+                    ZonedDateTime.ofInstant(Instant.ofEpochSecond(AccountsTable.updated.fromOpt(this) ?: -1L), zoneId)
                         .toString()
                 )
             )
@@ -934,7 +933,7 @@ class DynamoDBUserAccountDataAccessProvider(
         }
 
         private fun Item.version(): Long =
-            AccountsTable.version.from(this)
+            AccountsTable.version.fromOpt(this)
                 ?: throw SchemaErrorException(
                     AccountsTable,
                     AccountsTable.version

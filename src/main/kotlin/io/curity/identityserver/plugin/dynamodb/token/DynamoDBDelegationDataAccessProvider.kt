@@ -29,7 +29,10 @@ import io.curity.identityserver.plugin.dynamodb.querySequence
 import io.curity.identityserver.plugin.dynamodb.scanSequence
 import io.curity.identityserver.plugin.dynamodb.toAttributeValue
 import org.slf4j.LoggerFactory
+import se.curity.identityserver.sdk.attribute.Attributes
+import se.curity.identityserver.sdk.attribute.AuthenticationAttributes
 import se.curity.identityserver.sdk.data.authorization.Delegation
+import se.curity.identityserver.sdk.data.authorization.DelegationConsentResult
 import se.curity.identityserver.sdk.data.authorization.DelegationStatus
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.datasource.DelegationDataAccessProvider
@@ -58,7 +61,7 @@ class DynamoDBDelegationDataAccessProvider(
 
         val response = dynamoDBClient.getItem(request)
 
-        if (!response.hasItem())
+        if (!response.hasItem() || response.item().isEmpty())
         {
             return null
         }
@@ -66,23 +69,25 @@ class DynamoDBDelegationDataAccessProvider(
 
         val status =
             DelegationStatus.valueOf(
-                DelegationTable.status.from(item)
-                    ?: throw SchemaErrorException(DelegationTable, DelegationTable.status))
+                DelegationTable.status.fromOpt(item)
+                    ?: throw SchemaErrorException(DelegationTable, DelegationTable.status)
+            )
         if (status != DelegationStatus.issued)
         {
             return null
         }
-        return toDelegation(item)
+        return item.toDelegation()
     }
 
     override fun getByAuthorizationCodeHash(authorizationCodeHash: String): Delegation?
     {
+        val index = DelegationTable.authorizationCodeIndex
         val request = QueryRequest.builder()
             .tableName(DelegationTable.name)
-            .indexName(DelegationTable.authorizationCodeIndex.name)
-            .keyConditionExpression(DelegationTable.authorizationCodeIndex.expression)
-            .expressionAttributeValues(DelegationTable.authorizationCodeIndex.expressionValueMap(authorizationCodeHash))
-            .expressionAttributeNames(DelegationTable.authorizationCodeIndex.expressionNameMap)
+            .indexName(index.name)
+            .keyConditionExpression(index.expression)
+            .expressionAttributeValues(index.expressionValueMap(authorizationCodeHash))
+            .expressionAttributeNames(index.expressionNameMap)
             .build()
 
         val response = dynamoDBClient.query(request)
@@ -93,7 +98,7 @@ class DynamoDBDelegationDataAccessProvider(
         }
 
         // If multiple entries exist, we use the first one
-        return toDelegation(response.items().first())
+        return response.items().first().toDelegation()
     }
 
     override fun create(delegation: Delegation)
@@ -119,52 +124,54 @@ class DynamoDBDelegationDataAccessProvider(
 
         val response = dynamoDBClient.updateItem(request)
 
-        return if (response.hasAttributes() && response.attributes().isNotEmpty()) {
+        return if (response.hasAttributes() && response.attributes().isNotEmpty())
+        {
             1
-        } else {
+        } else
+        {
             0
         }
-
     }
 
     override fun getByOwner(owner: String, startIndex: Long, count: Long): Collection<Delegation>
     {
         val validatedStartIndex = startIndex.intOrThrow("startIndex")
         val validatedCount = count.intOrThrow("count")
+        val index = DelegationTable.ownerStatusIndex
         val request = QueryRequest.builder()
             .tableName(DelegationTable.name)
-            .indexName(DelegationTable.ownerStatusIndex.name)
-            .keyConditionExpression(DelegationTable.ownerStatusIndex.keyConditionExpression)
+            .indexName(index.name)
+            .keyConditionExpression(index.keyConditionExpression)
             .expressionAttributeValues(
-                DelegationTable.ownerStatusIndex.expressionValueMap(owner, DelegationStatus.issued.toString())
+                index.expressionValueMap(owner, DelegationStatus.issued.toString())
             )
-            .expressionAttributeNames(DelegationTable.ownerStatusIndex.expressionNameMap)
+            .expressionAttributeNames(index.expressionNameMap)
             .limit(count.toInt())
             .build()
 
         return querySequence(request, dynamoDBClient)
             .drop(validatedStartIndex)
-            .map{ responseItem -> toDelegation(responseItem)}
+            .map { it.toDelegation() }
             .take(validatedCount)
             .toList()
     }
 
     override fun getCountByOwner(owner: String): Long
     {
+        val index = DelegationTable.ownerStatusIndex
         val request = QueryRequest.builder()
             .tableName(DelegationTable.name)
-            .indexName(DelegationTable.ownerStatusIndex.name)
-            .keyConditionExpression(DelegationTable.ownerStatusIndex.keyConditionExpression)
+            .indexName(index.name)
+            .keyConditionExpression(index.keyConditionExpression)
             .expressionAttributeValues(
-                DelegationTable.ownerStatusIndex.expressionValueMap(owner, DelegationStatus.issued.toString())
+                index.expressionValueMap(owner, DelegationStatus.issued.toString())
             )
-            .expressionAttributeNames(DelegationTable.ownerStatusIndex.expressionNameMap)
+            .expressionAttributeNames(index.expressionNameMap)
             .select(Select.COUNT)
             .build()
 
         return count(request, dynamoDBClient)
     }
-
 
     override fun getAllActive(startIndex: Long, count: Long): Collection<Delegation>
     {
@@ -178,10 +185,9 @@ class DynamoDBDelegationDataAccessProvider(
             .expressionAttributeNames(issuedStatusExpressionAttributeNameMap)
             .build()
 
-
         return scanSequence(request, dynamoDBClient)
             .drop(validatedStartIndex)
-            .map{ responseItem -> toDelegation(responseItem)}
+            .map { it.toDelegation() }
             .take(validatedCount)
             .toList()
     }
@@ -193,6 +199,7 @@ class DynamoDBDelegationDataAccessProvider(
             .filterExpression("#status = :status")
             .expressionAttributeValues(issuedStatusExpressionAttributeMap)
             .expressionAttributeNames(issuedStatusExpressionAttributeNameMap)
+            .select(Select.COUNT)
             .build()
 
         return count(request, dynamoDBClient)
@@ -204,20 +211,21 @@ class DynamoDBDelegationDataAccessProvider(
         // TODO implement pagination and possible DynamoDB pagination
 
         val requestBuilder = ScanRequest.builder()
-            .tableName(tableName)
+            .tableName(DelegationTable.name)
 
         if (!query.attributesEnumeration.isNeutral)
         {
             val attributesEnumeration = query.attributesEnumeration
 
-            // TODO stop using the attributesToGet and use projectionExpression instead
             if (attributesEnumeration is ResourceQuery.Inclusions)
             {
-                requestBuilder.attributesToGet(attributesEnumeration.attributes)
+                requestBuilder.projectionExpression(attributesEnumeration.attributes.joinToString(","))
             } else
             {
                 // must be exclusions
-                requestBuilder.attributesToGet(possibleAttributes.minus(attributesEnumeration.attributes))
+                requestBuilder.attributesToGet(
+                    DelegationTable.possibleAttributes.minus(attributesEnumeration.attributes)
+                        .joinToString(","))
             }
         }
 
@@ -247,7 +255,7 @@ class DynamoDBDelegationDataAccessProvider(
 
         if (response.hasItems() && response.items().isNotEmpty())
         {
-            response.items().forEach { item -> result.add(toDelegation(item)) }
+            response.items().forEach { item -> result.add(item.toDelegation()) }
         }
 
         return result
@@ -255,80 +263,65 @@ class DynamoDBDelegationDataAccessProvider(
 
     private fun Delegation.toItem(): Map<String, AttributeValue>
     {
-        val parameters: MutableMap<String, AttributeValue> = HashMap(12)
-        parameters["id"] = AttributeValue.builder().s(id).build()
-        parameters["owner"] = AttributeValue.builder().s(owner).build()
-        parameters["created"] = AttributeValue.builder().s(created.toString()).build()
-        parameters["expires"] = AttributeValue.builder().s(expires.toString()).build()
-        parameters["scope"] = AttributeValue.builder().s(scope).build()
-        parameters["scopeClaims"] =
-            jsonHandler.toJson(scopeClaims.map { scopeClaim -> scopeClaim.asMap() }).toAttributeValue()
-        parameters["clientId"] = AttributeValue.builder().s(clientId).build()
+        val res = mutableMapOf<String, AttributeValue>()
+        DelegationTable.version.addTo(res, "6.2")
+        DelegationTable.id.addTo(res, id)
+        DelegationTable.status.addTo(res, status.name)
+        DelegationTable.owner.addTo(res, owner)
+        DelegationTable.created.addTo(res, created)
+        DelegationTable.expires.addTo(res, expires)
+        DelegationTable.clientId.addTo(res, clientId)
+        DelegationTable.redirectUri.addToOpt(res, redirectUri)
+        DelegationTable.authorizationCodeHash.addToOpt(res, authorizationCodeHash)
+        DelegationTable.scope.addTo(res, scope)
 
-        if (!redirectUri.isNullOrEmpty())
-        {
-            parameters["redirectUri"] = AttributeValue.builder().s(redirectUri).build()
-        }
-        parameters["status"] = AttributeValue.builder().s(status.name).build()
-        parameters["claims"] = AttributeValue.builder().s(jsonHandler.toJson(claims)).build()
-        parameters["claimMap"] = AttributeValue.builder().s(jsonHandler.toJson(claimMap)).build()
-        parameters["customClaimValues"] = AttributeValue.builder().s(jsonHandler.toJson(customClaimValues)).build()
-        parameters["authenticationAttributes"] =
-            AttributeValue.builder().s(jsonHandler.toJson(authenticationAttributes.asMap())).build()
+        DelegationTable.mtlsClientCertificate.addToOpt(res, mtlsClientCertificate)
+        DelegationTable.mtlsClientCertificateDN.addToOpt(res, mtlsClientCertificateDN)
+        DelegationTable.mtlsClientCertificateX5TS256.addToOpt(res, mtlsClientCertificateX5TS256)
 
-        if (!authorizationCodeHash.isNullOrEmpty())
-        {
-            parameters["authorizationCodeHash"] = AttributeValue.builder().s(authorizationCodeHash).build()
-        }
-
-        if (!mtlsClientCertificate.isNullOrEmpty())
-        {
-            parameters["mtlsClientCertificate"] = AttributeValue.builder().s(mtlsClientCertificate).build()
-        }
-
-        if (!mtlsClientCertificateDN.isNullOrEmpty())
-        {
-            parameters["mtlsClientCertificateDN"] = AttributeValue.builder().s(mtlsClientCertificateDN).build()
-        }
-
-        if (!mtlsClientCertificateX5TS256.isNullOrEmpty())
-        {
-            parameters["mtlsClientCertificateX5TS256"] =
-                AttributeValue.builder().s(mtlsClientCertificateX5TS256).build()
-        }
-
-        if (consentResult != null)
-        {
-            parameters["consentResult"] = AttributeValue.builder().s(jsonHandler.toJson(consentResult.asMap())).build()
-        }
-
-        return parameters
+        DelegationTable.authenticationAttributes.addTo(res, jsonHandler.toJson(authenticationAttributes.asMap()))
+        DelegationTable.consentResult.addToOpt(res, consentResult?.asMap()?.let { jsonHandler.toJson(it) })
+        DelegationTable.claimMap.addTo(res, jsonHandler.toJson(claimMap))
+        DelegationTable.customClaimValues.addTo(res, jsonHandler.toJson(customClaimValues))
+        DelegationTable.claims.addTo(res, jsonHandler.toJson(claims))
+        return res
     }
 
-    private fun toDelegation(item: Map<String, AttributeValue>): Delegation = DelegationData(
-        item["id"],
-        item["owner"],
-        item["created"],
-        item["expires"],
-        item["scope"],
-        item["scopeClaims"],
-        item["clientId"],
-        item["redirectUri"],
-        item["status"],
-        item["claims"],
-        item["claimMap"],
-        item["customClaimValues"],
-        item["authenticationAttributes"],
-        item["authorizationCodeHash"],
-        item["mtlsClientCertificate"],
-        item["mtlsClientCertificateDN"],
-        item["mtlsClientCertificateX5TS256"],
-        item["consentResult"],
-        jsonHandler
-    )
+    private fun Map<String, AttributeValue>.toDelegation() =
+        DynamoDBDelegation(
+            version = DelegationTable.version.from(this),
+            id = DelegationTable.id.from(this),
+            status = DelegationStatus.valueOf(DelegationTable.status.from(this)),
+            owner = DelegationTable.owner.from(this),
+            created = DelegationTable.created.from(this),
+            expires = DelegationTable.expires.from(this),
+            clientId = DelegationTable.clientId.from(this),
+            redirectUri = DelegationTable.redirectUri.fromOpt(this),
+            authorizationCodeHash = DelegationTable.redirectUri.fromOpt(this),
+            authenticationAttributes = DelegationTable.authenticationAttributes.from(this).let {
+                AuthenticationAttributes.fromAttributes(
+                    Attributes.fromMap(
+                        jsonHandler.fromJson(it)
+                    )
+                )
+            },
+            consentResult = DelegationTable.consentResult.fromOpt(this)?.let {
+                DelegationConsentResult.fromMap(
+                    jsonHandler.fromJson(it)
+                )
+            },
+            scope = DelegationTable.scope.from(this),
+            claimMap = DelegationTable.claimMap.from(this).let { jsonHandler.fromJson(it) },
+            customClaimValues = DelegationTable.customClaimValues.from(this).let { jsonHandler.fromJson(it) },
+            claims = DelegationTable.claims.from(this).let { jsonHandler.fromJson(it) },
+            mtlsClientCertificate = DelegationTable.mtlsClientCertificate.fromOpt(this),
+            mtlsClientCertificateDN = DelegationTable.mtlsClientCertificateDN.fromOpt(this),
+            mtlsClientCertificateX5TS256 = DelegationTable.mtlsClientCertificateX5TS256.fromOpt(this)
+        )
 
     object DelegationTable : Table("curity-delegations")
     {
+        val version = StringAttribute("version")
         val id = StringAttribute("id")
         val status = StringAttribute("status")
         val owner = StringAttribute("owner")
@@ -345,7 +338,6 @@ class DynamoDBDelegationDataAccessProvider(
         val authorizationCodeHash = StringAttribute("authorizationCodeHash")
         val authenticationAttributes = StringAttribute("authenticationAttributes")
         val customClaimValues = StringAttribute("customClaimValues")
-        val enumActiveStatus = StringAttribute("enumActiveStatus")
         val mtlsClientCertificate = StringAttribute("mtlsClientCertificate")
         val mtlsClientCertificateX5TS256 = StringAttribute("mtlsClientCertificateX5TS256")
         val mtlsClientCertificateDN = StringAttribute("mtlsClientCertificateDN")
@@ -354,23 +346,24 @@ class DynamoDBDelegationDataAccessProvider(
 
         val ownerStatusIndex = Index2("owner-status-index", owner, status)
         val authorizationCodeIndex = Index("authorization-hash-index", authorizationCode)
+
+        val possibleAttributes = listOf(
+            id, status, owner, authorizationCode, created, expires, scope, scopeClaims, claimMap,
+            clientId, redirectUri, authorizationCodeHash, authenticationAttributes, customClaimValues,
+            mtlsClientCertificate, mtlsClientCertificateX5TS256, mtlsClientCertificateDN,
+            consentResult, claims
+        ).map{
+            it.name
+        }
     }
 
     companion object
     {
-        private const val tableName = "curity-delegations"
         private val logger = LoggerFactory.getLogger(DynamoDBDelegationDataAccessProvider::class.java)
-        private val possibleAttributes = listOf(
-            "id", "owner", "created", "expires", "scope", "scopeClaims", "clientId",
-            "redirectUri", "status", "claims", "claimMap", "customClaimValues", "authenticationAttributes",
-            "authorizationCodeHash", "mtlsClientCertificate", "mtlsClientCertificateDN", "mtlsClientCertificateX5TS256",
-            "consentResult"
-        )
-        private val issuedStatusKey = Pair("status", "issued".toAttributeValue())
         private val issuedStatusExpressionAttribute = Pair(":status", "issued".toAttributeValue())
         private val issuedStatusExpressionAttributeMap = mapOf(issuedStatusExpressionAttribute)
         private val issuedStatusExpressionAttributeName = Pair("#status", "status")
         private val issuedStatusExpressionAttributeNameMap = mapOf(issuedStatusExpressionAttributeName)
-        private val ownerExpressionAttributeName = Pair("#owner", "owner")
     }
 }
+
