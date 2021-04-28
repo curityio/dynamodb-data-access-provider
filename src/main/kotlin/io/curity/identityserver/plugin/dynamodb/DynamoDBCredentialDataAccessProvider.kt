@@ -46,6 +46,7 @@ class DynamoDBCredentialDataAccessProvider(private val dynamoDBClient: DynamoDBC
         val request = UpdateItemRequest.builder()
             .tableName(AccountsTable.name)
             .key(AccountsTable.key(accountAttributes.id))
+            // 'password' is not a DynamoDB reserved word
             .updateExpression("SET ${AccountsTable.password.name} = ${AccountsTable.password.colonName}")
             .expressionAttributeValues(mapOf(AccountsTable.password.toExpressionNameValuePair(newPassword)))
             .build()
@@ -60,9 +61,12 @@ class DynamoDBCredentialDataAccessProvider(private val dynamoDBClient: DynamoDBC
         val request = QueryRequest.builder()
             .tableName(AccountsTable.name)
             .indexName(AccountsTable.userNameIndex.name)
+            // 'password' is not a DynamoDB reserved word
             .keyConditionExpression("${AccountsTable.userName.name} = ${AccountsTable.userName.colonName}")
             .expressionAttributeValues(mapOf(AccountsTable.userName.toExpressionNameValuePair(userName)))
-            .projectionExpression("${AccountsTable.accountId.name}, ${AccountsTable.userName.name}, ${AccountsTable.password.name}, ${AccountsTable.active.name}")
+            .projectionExpression(
+                "${AccountsTable.accountId.name}, ${AccountsTable.userName.name}, " +
+                        "${AccountsTable.password.name}, ${AccountsTable.active.name}")
             .build()
 
         val response = dynamoDBClient.query(request)
@@ -73,12 +77,14 @@ class DynamoDBCredentialDataAccessProvider(private val dynamoDBClient: DynamoDBC
         }
 
         val item = response.items()[0]
+        val active = AccountsTable.active.from(item) ?: false
 
-        if (!item["active"]!!.bool())
+        if (!active)
         {
             return null
         }
 
+        // Password is not verified by this DAP, which is aligned with customQueryVerifiesPassword returning false
         return AuthenticationAttributes.of(
             SubjectAttributes.of(
                 userName,

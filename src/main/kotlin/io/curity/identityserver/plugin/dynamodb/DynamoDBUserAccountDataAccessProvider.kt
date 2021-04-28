@@ -43,13 +43,35 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
-// TODO consider using the ResourceQuery.AttributesEnumeration on the query/scan projection expression.
-
-private typealias Item = Map<String, AttributeValue>
-
-private fun Item.version(): Long =
-    DynamoDBUserAccountDataAccessProvider.AccountsTable.version.from(this)
-        ?: throw Exception("TODO")
+/**
+ * The users table has three additional uniqueness restrictions, other than the accountId:
+ * - The `username` must be unique.
+ * - The optional `email` must be unique.
+ * - The optional `phone` must be unique.
+ * The users table uses the following design to support these additional uniqueness constraints
+ * [https://aws.amazon.com/blogs/database/simulating-amazon-dynamodb-unique-constraints-using-transactions/]
+ *
+ * Example:
+ *
+ * | pk                    | version | accountId  | userName | email             | phone     | other attributes
+ * | ai#1234               | 12      | 1234       | alice    | alice@example.com | 123456789 | ...      // main item
+ * | un#alice              | 12      | 1234       | (absent) | (absent)          | (absent)  | (absent) // secondary item
+ * | em#alice@example.com  | 12      | 1234       | (absent) | (absent)          | (absent)  | (absent) // secondary item
+ * | pn#123456789          | 12      | 1234       | (absent) | (absent)          | (absent)  | (absent) // secondary item
+ *
+ * In the following we call "main item" to the item using the `accountId` for the partition key.
+ * This is also the item containing all the user account attributes.
+ * We call "secondary item" to the items using the `userName`, `email`, and `phone` for the partition key.
+ * These secondary items only exist to ensure uniqueness. They don't carry other relevant information.
+ *
+ * The is a version attribute to support optimistic concurrency when updating or deleting the multiple item from an user
+ * on a transaction.
+ *
+ * The `userName`, `email`, and `phone` attributes:
+ * - Are also included in the main item.
+ * - Are used as secondary global indexes, to support the `getByNnnn` methods.
+ *
+ */
 
 class DynamoDBUserAccountDataAccessProvider(
     private val _client: DynamoDBClient,
@@ -150,12 +172,14 @@ class DynamoDBUserAccountDataAccessProvider(
         val item = accountAttributes.toItem()
         val accountId = generateRandomId()
         val accountIdPk = AccountsTable.accountId.uniquenessValueFrom(accountId)
+        val userName = accountAttributes.userName
         item[AccountsTable.pk.name] = AccountsTable.pk.toAttrValue(accountIdPk)
         item[AccountsTable.accountId.name] = AccountsTable.accountId.toAttrValue(accountId)
         item[AccountsTable.version.name] = AccountsTable.version.toAttrValue(0)
 
         val transactionItems = mutableListOf<TransactWriteItem>()
 
+        // Add main item
         transactionItems.add(
             TransactWriteItem.builder()
                 .put {
@@ -166,34 +190,42 @@ class DynamoDBUserAccountDataAccessProvider(
                 .build()
         )
 
-        val userNameAttr = item[AccountsTable.userName.name] ?: throw Exception("Excepted userName")
+        val accountIdAttr = AccountsTable.accountId.toNameValuePair(accountId)
+        val versionAttr = AccountsTable.version.toNameValuePair(0)
+        val userNameAttr = AccountsTable.userName.toAttrValue(userName)
+
+        // the item put can only happen if the item does not exist
+        val writeConditionExpression = "attribute_not_exists(${AccountsTable.pk.name})"
+
+        // Add secondary item with userName
         transactionItems.add(
             TransactWriteItem.builder()
                 .put {
                     it.tableName(AccountsTable.name)
-                    it.conditionExpression("attribute_not_exists(${AccountsTable.pk})")
+                    it.conditionExpression(writeConditionExpression)
                     it.item(
                         mapOf(
                             AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, userNameAttr.s()),
-                            AccountsTable.accountId.toNameValuePair(accountId),
-                            AccountsTable.version.toNameValuePair(0)
+                            accountIdAttr,
+                            versionAttr
                         )
                     )
                 }
                 .build()
         )
 
+        // Add secondary item with email, if email is present
         item[AccountsTable.email.name]?.also { emailAttr ->
             transactionItems.add(
                 TransactWriteItem.builder()
                     .put {
                         it.tableName(AccountsTable.name)
-                        it.conditionExpression("attribute_not_exists(${AccountsTable.pk})")
+                        it.conditionExpression(writeConditionExpression)
                         it.item(
                             mapOf(
                                 AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.email, emailAttr.s()),
-                                AccountsTable.accountId.toNameValuePair(accountId),
-                                AccountsTable.version.toNameValuePair(0)
+                                accountIdAttr,
+                                versionAttr
                             )
                         )
                     }
@@ -201,17 +233,18 @@ class DynamoDBUserAccountDataAccessProvider(
             )
         }
 
+        // Add secondary item with phone, if phone is present
         item[AccountsTable.phone.name]?.also { phoneNumberAttr ->
             transactionItems.add(
                 TransactWriteItem.builder()
                     .put {
                         it.tableName(AccountsTable.name)
-                        it.conditionExpression("attribute_not_exists(${AccountsTable.pk})")
+                        it.conditionExpression(writeConditionExpression)
                         it.item(
                             mapOf(
                                 AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.phone, phoneNumberAttr.s()),
-                                AccountsTable.accountId.toNameValuePair(accountId),
-                                AccountsTable.version.toNameValuePair(0)
+                                accountIdAttr,
+                                versionAttr
                             )
                         )
                     }
@@ -231,8 +264,8 @@ class DynamoDBUserAccountDataAccessProvider(
             if (ex.isTransactionCancelledDueToConditionFailure())
             {
                 throw ConflictException(
-                    "Unable to create user with username '${accountAttributes.userName}' as uniqueness check failed")
-
+                    "Unable to create user with username '${accountAttributes.userName}' as uniqueness check failed"
+                )
             }
             throw ex
         }
@@ -246,6 +279,9 @@ class DynamoDBUserAccountDataAccessProvider(
     {
         logger.debug("Received request to delete account with accountId: {}", accountId)
 
+        // Deleting an account requires the deletion of the main item and all the secondary items.
+        // A `getItem` is needed to obtain the `userName`, `email`, and `phone` required to compute the
+        // secondary item keys.
         val getItemResponse = _client.getItem(
             GetItemRequest.builder()
                 .tableName(AccountsTable.name)
@@ -257,20 +293,28 @@ class DynamoDBUserAccountDataAccessProvider(
         {
             return TransactionAttemptResult.Success(Unit)
         }
+
         val item = getItemResponse.item()
-        val version = AccountsTable.version.from(item) ?: throw Exception("TODO")
-        val userName = AccountsTable.userName.from(item) ?: throw Exception("TODO")
+        val version =
+            AccountsTable.version.from(item) ?: throw SchemaErrorException(AccountsTable, AccountsTable.version)
+        val userName =
+            AccountsTable.userName.from(item) ?: throw SchemaErrorException(AccountsTable, AccountsTable.userName)
+        // email and phone may not exist
         val email = AccountsTable.email.from(item)
         val phone = AccountsTable.phone.from(item)
 
+        // Create a transaction with all the items (main and secondary) deletions,
+        // conditioned to the version not having changed - optimistic concurrency.
         val transactionItems = mutableListOf<TransactWriteItem>()
+
+        val conditionExpression = newConditionExpression(version, accountId)
 
         transactionItems.add(
             TransactWriteItem.builder()
                 .delete {
                     it.tableName(AccountsTable.name)
                     it.key(AccountsTable.key(accountId))
-                    it.conditionExpression(newConditionExpression(version, accountId))
+                    it.conditionExpression(conditionExpression)
                 }
                 .build()
         )
@@ -279,7 +323,7 @@ class DynamoDBUserAccountDataAccessProvider(
                 .delete {
                     it.tableName(AccountsTable.name)
                     it.key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, userName)))
-                    it.conditionExpression(newConditionExpression(version, accountId))
+                    it.conditionExpression(conditionExpression)
                 }
                 .build()
         )
@@ -290,7 +334,7 @@ class DynamoDBUserAccountDataAccessProvider(
                     .delete {
                         it.tableName(AccountsTable.name)
                         it.key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.email, email)))
-                        it.conditionExpression(newConditionExpression(version, accountId))
+                        it.conditionExpression(conditionExpression)
                     }
                     .build()
             )
@@ -302,7 +346,7 @@ class DynamoDBUserAccountDataAccessProvider(
                     .delete {
                         it.tableName(AccountsTable.name)
                         it.key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.phone, phone)))
-                        it.conditionExpression(newConditionExpression(version, accountId))
+                        it.conditionExpression(conditionExpression)
                     }
                     .build()
             )
@@ -338,7 +382,7 @@ class DynamoDBUserAccountDataAccessProvider(
         val id = accountAttributes.id
         updateAccount(id, accountAttributes)
 
-        // TODO is this really required
+        // TODO is this really required - the JDBC DAP does it
         return getById(id, attributesEnumeration)
     }
 
@@ -351,7 +395,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
         updateAccount(accountId, AccountAttributes.fromMap(map))
 
-        // TODO is this really required
+        // TODO is this really required - the JDBC DAP does it
         return getById(accountId, attributesEnumeration)
     }
 
@@ -473,7 +517,7 @@ class DynamoDBUserAccountDataAccessProvider(
             tryUpdateAccount(accountId, fromAttributes(newAttributes), observedItem)
         }
 
-        // TODO is this really required
+        // TODO is this really required - the JDBC DAP does it
         return getById(accountId, attributesEnumeration)
     }
 
@@ -504,7 +548,6 @@ class DynamoDBUserAccountDataAccessProvider(
         _client.putItem(request)
     }
 
-    // TODO support DynamoDB paging
     override fun listLinks(linkingAccountManager: String, localAccountId: String): Collection<LinkedAccount>
     {
         val request = QueryRequest.builder()
@@ -519,11 +562,8 @@ class DynamoDBUserAccountDataAccessProvider(
             )
             .build()
 
-        val response = _client.query(request)
-
-        return if (response.hasItems() && response.items().isNotEmpty())
-        {
-            response.items().map { item ->
+        return querySequence(request, _client)
+            .map { item ->
                 LinkedAccount.of(
                     LinksTable.linkedAccountDomainName.from(item),
                     LinksTable.linkedAccountId.from(item),
@@ -531,10 +571,7 @@ class DynamoDBUserAccountDataAccessProvider(
                     LinksTable.created.from(item).toString()
                 )
             }
-        } else
-        {
-            emptyList()
-        }
+            .toList()
     }
 
     override fun resolveLink(
@@ -543,7 +580,6 @@ class DynamoDBUserAccountDataAccessProvider(
         foreignAccountId: String
     ): AccountAttributes?
     {
-        // TODO consider using a QueryRequest instead of a GetItemRequest to include the linkingAccountManager condition
         val request = GetItemRequest.builder()
             .tableName(LinksTable.name)
             .key(mapOf(LinksTable.pk.toNameValuePair(foreignAccountId, foreignDomainName)))
@@ -601,7 +637,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
     override fun getAll(query: ResourceQuery): ResourceQueryResult
     {
-        //TODO should implement pagination and proper handling of DynamoDB pagination
+        //TODO IS-5851 avoid scan? should implement pagination and proper handling of DynamoDB pagination?
 
         val requestBuilder = ScanRequest.builder()
             .tableName(tableName)
@@ -642,8 +678,6 @@ class DynamoDBUserAccountDataAccessProvider(
     {
         logger.debug("Received request to get all accounts with startIndex :{} and count: {}", startIndex, count)
 
-        // TODO: should implement pagination and take into account DynamoDBs possible pagination
-
         val request = ScanRequest.builder()
             .tableName(tableName)
             // By using the userName index only main entries are considered and the secondary ones are skipped
@@ -654,13 +688,13 @@ class DynamoDBUserAccountDataAccessProvider(
         val response = _client.scan(request)
         if (response.hasLastEvaluatedKey())
         {
-            // TODO is this an acceptable behavior?
+            // TODO IS-5851 is this an acceptable behavior?
             throw UnsupportedOperationException("DynamoDB doesn't support getAll on a table that exceeds the maximum page size")
         }
 
         val results = response.items().asSequence()
             .drop(startIndex.toInt())
-            .map{ it.toAccountAttributes() }
+            .map { it.toAccountAttributes() }
             .take(count.toInt())
             .toList()
 
@@ -765,9 +799,8 @@ class DynamoDBUserAccountDataAccessProvider(
 
         if (attributesEnumeration.includeMeta())
         {
-            // TODO - should the zone be system default or UTC?
             val zoneId =
-                if (map["timezone"] != null) ZoneId.of(map["timezone"].toString()) else ZoneId.systemDefault()
+                if (map["timezone"] != null) ZoneId.of(map["timezone"].toString()) else ZoneId.of("UTC")
 
             map["meta"] = mapOf(
                 Pair(Meta.RESOURCE_TYPE, AccountAttributes.RESOURCE_TYPE),
@@ -897,7 +930,14 @@ class DynamoDBUserAccountDataAccessProvider(
             }
             return withoutLinks.removeAttribute(AccountAttributes.LINKED_ACCOUNTS)
         }
+
+        private fun Item.version(): Long =
+            AccountsTable.version.from(this)
+                ?: throw SchemaErrorException(
+                    AccountsTable,
+                    AccountsTable.version
+                )
     }
 }
 
-
+private typealias Item = Map<String, AttributeValue>

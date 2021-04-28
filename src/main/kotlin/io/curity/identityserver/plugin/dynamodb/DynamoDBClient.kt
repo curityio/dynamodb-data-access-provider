@@ -67,15 +67,15 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
     {
         val accessMethod = config.getDynamodbAccessMethod()
         /*Use Instance Profile from IAM Role applied to EC2 instance*/
-        var creds: AwsCredentialsProvider?
+        var credentials: AwsCredentialsProvider?
 
         if (accessMethod.isEC2InstanceProfile.isPresent && accessMethod.isEC2InstanceProfile.get())
         {
-            creds = InstanceProfileCredentialsProvider.builder().build()
+            credentials = InstanceProfileCredentialsProvider.builder().build()
         } else if (accessMethod.accessKeyIdAndSecret.isPresent)
         {
             val keyIdAndSecret = accessMethod.accessKeyIdAndSecret.get()
-            creds = StaticCredentialsProvider.create(
+            credentials = StaticCredentialsProvider.create(
                 AwsBasicCredentials.create(
                     keyIdAndSecret.accessKeyId.get(),
                     keyIdAndSecret.accessKeySecret.get()
@@ -85,27 +85,27 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
             /* roleARN is present, get temporary credentials through AssumeRole */
             if (keyIdAndSecret.awsRoleARN.isPresent)
             {
-                creds = getNewCredentialsFromAssumeRole(creds, keyIdAndSecret.awsRoleARN.get())
+                credentials = getNewCredentialsFromAssumeRole(credentials, keyIdAndSecret.awsRoleARN.get())
             }
         } else if (accessMethod.aWSProfile.get().awsProfileName.isPresent)
         {
             val awsProfile = accessMethod.aWSProfile.get()
-            creds = ProfileCredentialsProvider.builder()
+            credentials = ProfileCredentialsProvider.builder()
                 .profileName(awsProfile.awsProfileName.get())
                 .build()
 
             /* roleARN is present, get temporary credentials through AssumeRole */
             if (awsProfile.awsRoleARN.isPresent)
             {
-                creds = getNewCredentialsFromAssumeRole(creds, awsProfile.awsRoleARN.get())
+                credentials = getNewCredentialsFromAssumeRole(credentials, awsProfile.awsRoleARN.get())
             }
         } else
         {
-            creds = null
+            credentials = null
         }
 
         val builder = DynamoDbClient.builder()
-            .credentialsProvider(creds)
+            .credentialsProvider(credentials)
 
         if (config.getEndpointOverride().isPresent)
         {
@@ -116,11 +116,11 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
         return builder.build()
     }
 
-    private fun getNewCredentialsFromAssumeRole(creds: AwsCredentialsProvider, roleARN: String): AwsCredentialsProvider
+    private fun getNewCredentialsFromAssumeRole(credentials: AwsCredentialsProvider, roleARN: String): AwsCredentialsProvider
     {
         val stsClient: StsClient = StsClient.builder()
             .region(_awsRegion)
-            .credentialsProvider(creds)
+            .credentialsProvider(credentials)
             .build()
         val assumeRoleRequest: AssumeRoleRequest = AssumeRoleRequest.builder()
             .durationSeconds(3600)
@@ -137,7 +137,7 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
                     "AssumeRole Request sent but was not successful: {}",
                     assumeRoleResult.sdkHttpResponse().statusText().get()
                 )
-                creds //Returning the original credentials
+                credentials //Returning the original credentials
             } else
             {
                 val credentials: Credentials = assumeRoleResult.credentials()

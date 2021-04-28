@@ -15,8 +15,6 @@
  */
 package io.curity.identityserver.plugin.dynamodb
 
-import org.slf4j.Logger
-import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.attribute.AttributeTableView
 import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.datasource.AttributeDataAccessProvider
@@ -34,15 +32,13 @@ class DynamoDBAttributeDataAccessProvider(private val dynamoDBClient: DynamoDBCl
             .build()
 
         val accountQueryResult = dynamoDBClient.query(accountQuery)
-        if (!accountQueryResult.hasItems())
+        if (!accountQueryResult.hasItems() || accountQueryResult.items().isEmpty())
         {
             return AttributeTableView.empty()
         }
         val accountQueryItem = accountQueryResult.items()[0]
         val accountId = AccountsTable.accountId.from(accountQueryItem)
             ?: throw SchemaErrorException(AccountsTable, AccountsTable.accountId)
-
-        // TODO support paging
 
         val linksQueryRequest = QueryRequest.builder()
             .tableName(LinksTable.name)
@@ -51,16 +47,15 @@ class DynamoDBAttributeDataAccessProvider(private val dynamoDBClient: DynamoDBCl
             .expressionAttributeValues(mapOf(LinksTable.localAccountId.toExpressionNameValuePair(accountId)))
             .build()
 
-        val linksQueryResponse = dynamoDBClient.query(linksQueryRequest)
+        val items = querySequence(linksQueryRequest, dynamoDBClient).toList()
 
-        if (!linksQueryResponse.hasItems() || linksQueryResponse.items().isEmpty())
+        if (items.isEmpty())
         {
             return AttributeTableView.empty()
         }
 
-        // TODO make this clearer
         return AttributeTableView.ofAttributes(
-            linksQueryResponse.items()
+            items
                 .map { item ->
                     Attributes.fromMap(
                         item
@@ -75,7 +70,8 @@ class DynamoDBAttributeDataAccessProvider(private val dynamoDBClient: DynamoDBCl
     {
         private val AccountsTable = DynamoDBUserAccountDataAccessProvider.AccountsTable
         private val LinksTable = DynamoDBUserAccountDataAccessProvider.LinksTable
-        private val logger: Logger = LoggerFactory.getLogger(DynamoDBAttributeDataAccessProvider::class.java)
+
+        // Maps the internal DynamoDB column names to the canonical (JDBC) names
         private val dynamoNamesToJdbcNames = mapOf(
             LinksTable.localAccountId.name to "account_id",
             LinksTable.linkingAccountManager.name to "linking_account_manager",
