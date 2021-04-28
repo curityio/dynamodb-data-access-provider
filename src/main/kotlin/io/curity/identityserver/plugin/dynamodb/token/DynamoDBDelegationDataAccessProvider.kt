@@ -39,7 +39,6 @@ import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ReturnValue
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
-import software.amazon.awssdk.services.dynamodb.model.ScanResponse
 import software.amazon.awssdk.services.dynamodb.model.Select
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 
@@ -167,7 +166,7 @@ class DynamoDBDelegationDataAccessProvider(
     }
 
 
-    override fun getAllActive(startIndex: Long, count: Long): Collection<out Delegation>
+    override fun getAllActive(startIndex: Long, count: Long): Collection<Delegation>
     {
         val validatedStartIndex = startIndex.intOrThrow("startIndex")
         val validatedCount = count.intOrThrow("count")

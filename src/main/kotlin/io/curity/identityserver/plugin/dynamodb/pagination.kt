@@ -14,9 +14,10 @@ package io.curity.identityserver.plugin.dynamodb
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 
+// Returns a sequence with the items produced by a query, handling pagination if needed
 fun querySequence(request: QueryRequest, client: DynamoDBClient) = sequence {
     var response = client.query(request)
-    if (response.hasItems() && response.items().isNotEmpty())
+    if (response.hasItems())
     {
         response.items().forEach {
             yield(it)
@@ -25,16 +26,20 @@ fun querySequence(request: QueryRequest, client: DynamoDBClient) = sequence {
         {
             val newRequest = request.toBuilder().exclusiveStartKey(response.lastEvaluatedKey()).build()
             response = client.query(newRequest)
-            response.items().forEach {
-                yield(it)
+            if(response.hasItems())
+            {
+                response.items().forEach {
+                    yield(it)
+                }
             }
         }
     }
 }
 
+// Returns a sequence with the items produced by a query, handling pagination if needed
 fun scanSequence(request: ScanRequest, client: DynamoDBClient) = sequence {
     var response = client.scan(request)
-    if (response.hasItems() && response.items().isNotEmpty())
+    if (response.hasItems())
     {
         response.items().forEach {
             yield(it)
@@ -43,12 +48,16 @@ fun scanSequence(request: ScanRequest, client: DynamoDBClient) = sequence {
         {
             val newRequest = request.toBuilder().exclusiveStartKey(response.lastEvaluatedKey()).build()
             response = client.scan(newRequest)
-            response.items().forEach {
-                yield(it)
+            if(response.hasItems())
+            {
+                response.items().forEach {
+                    yield(it)
+                }
             }
         }
     }
 }
+
 
 fun count(request: QueryRequest, client: DynamoDBClient): Long {
     var response = client.query(request)
@@ -81,3 +90,4 @@ fun count(request: ScanRequest, client: DynamoDBClient): Long {
     }
     return counter
 }
+
