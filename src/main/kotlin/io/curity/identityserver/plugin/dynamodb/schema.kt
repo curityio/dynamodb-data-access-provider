@@ -29,7 +29,8 @@ typealias DynamoDBItem = Map<String, AttributeValue>
 enum class AttributeType(val typeName: String)
 {
     S("S"),
-    N("N")
+    N("N"),
+    L("L")
 }
 
 // A DynamoDB table
@@ -96,6 +97,16 @@ class StringAttribute(name: String) : BaseAttribute<String>(name, AttributeType.
 {
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
     override fun from(attrValue: AttributeValue): String = attrValue.s()
+}
+
+class ListStringAttribute(name: String) : BaseAttribute<Collection<String>>(name, AttributeType.L)
+{
+    override fun toAttrValue(value: Collection<String>): AttributeValue = AttributeValue.builder()
+        .l(value.map {AttributeValue.builder().s(it).build()})
+        .build()
+
+    override fun from(attrValue: AttributeValue): Collection<String> = attrValue.l()
+        .map { it.s() }
 }
 
 // An attribute that is composed by two values
