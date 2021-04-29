@@ -16,6 +16,7 @@
 package io.curity.identityserver.plugin.dynamodb.token
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
+import io.curity.identityserver.plugin.dynamodb.DynamoDBItem
 import io.curity.identityserver.plugin.dynamodb.Index
 import io.curity.identityserver.plugin.dynamodb.Index2
 import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
@@ -27,7 +28,6 @@ import io.curity.identityserver.plugin.dynamodb.count
 import io.curity.identityserver.plugin.dynamodb.intOrThrow
 import io.curity.identityserver.plugin.dynamodb.querySequence
 import io.curity.identityserver.plugin.dynamodb.scanSequence
-import io.curity.identityserver.plugin.dynamodb.toAttributeValue
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.AuthenticationAttributes
@@ -50,7 +50,113 @@ class DynamoDBDelegationDataAccessProvider(
     configuration: DynamoDBDataAccessProviderConfiguration
 ) : DelegationDataAccessProvider
 {
-    private val jsonHandler = configuration.getJsonHandler()
+    private val _jsonHandler = configuration.getJsonHandler()
+
+    /*
+     * There is one attribute for each property in the Delegation interface:
+     * - There is an extra version attribute in the table that doesn't exist in the Delegation interface
+     * - The "scopeClaims" property is not stored, since it is deprecated and this DAP doesn't need to support legacy
+     * delegation formats.
+     */
+    object DelegationTable : Table("curity-delegations")
+    {
+        val version = StringAttribute("version")
+        val id = StringAttribute("id")
+        val status = StringAttribute("status")
+        val owner = StringAttribute("owner")
+        val authorizationCode = StringAttribute("authorizationCodeHash")
+
+        val created = NumberLongAttribute("created")
+        val expires = NumberLongAttribute("expires")
+
+        val scope = StringAttribute("scope")
+        val claimMap = StringAttribute("claimMap")
+        val clientId = StringAttribute("clientId")
+        val redirectUri = StringAttribute("redirectUri")
+        val authorizationCodeHash = StringAttribute("authorizationCodeHash")
+        val authenticationAttributes = StringAttribute("authenticationAttributes")
+        val customClaimValues = StringAttribute("customClaimValues")
+        val mtlsClientCertificate = StringAttribute("mtlsClientCertificate")
+        val mtlsClientCertificateX5TS256 = StringAttribute("mtlsClientCertificateX5TS256")
+        val mtlsClientCertificateDN = StringAttribute("mtlsClientCertificateDN")
+        val consentResult = StringAttribute("consentResult")
+        val claims = StringAttribute("claims")
+
+        val ownerStatusIndex = Index2("owner-status-index", owner, status)
+        val authorizationCodeIndex = Index("authorization-hash-index", authorizationCode)
+
+        val possibleAttributes = listOf(
+            id, status, owner, authorizationCode, created, expires, scope, claimMap,
+            clientId, redirectUri, authorizationCodeHash, authenticationAttributes, customClaimValues,
+            mtlsClientCertificate, mtlsClientCertificateX5TS256, mtlsClientCertificateDN,
+            consentResult, claims
+        ).map{
+            it.name
+        }
+    }
+
+    /*
+     * Serializes a Delegation into an Item
+     */
+    private fun Delegation.toItem(): DynamoDBItem
+    {
+        val res = mutableMapOf<String, AttributeValue>()
+        DelegationTable.version.addTo(res, "6.2")
+        DelegationTable.id.addTo(res, id)
+        DelegationTable.status.addTo(res, status.name)
+        DelegationTable.owner.addTo(res, owner)
+        DelegationTable.created.addTo(res, created)
+        DelegationTable.expires.addTo(res, expires)
+        DelegationTable.clientId.addTo(res, clientId)
+        DelegationTable.redirectUri.addToOpt(res, redirectUri)
+        DelegationTable.authorizationCodeHash.addToOpt(res, authorizationCodeHash)
+        DelegationTable.scope.addTo(res, scope)
+
+        DelegationTable.mtlsClientCertificate.addToOpt(res, mtlsClientCertificate)
+        DelegationTable.mtlsClientCertificateDN.addToOpt(res, mtlsClientCertificateDN)
+        DelegationTable.mtlsClientCertificateX5TS256.addToOpt(res, mtlsClientCertificateX5TS256)
+
+        DelegationTable.authenticationAttributes.addTo(res, _jsonHandler.toJson(authenticationAttributes.asMap()))
+        DelegationTable.consentResult.addToOpt(res, consentResult?.asMap()?.let { _jsonHandler.toJson(it) })
+        DelegationTable.claimMap.addTo(res, _jsonHandler.toJson(claimMap))
+        DelegationTable.customClaimValues.addTo(res, _jsonHandler.toJson(customClaimValues))
+        DelegationTable.claims.addTo(res, _jsonHandler.toJson(claims))
+        return res
+    }
+
+    /*
+     * Deserializes an item into a Delegation implementation
+     */
+    private fun Map<String, AttributeValue>.toDelegation() = DynamoDBDelegation(
+            version = DelegationTable.version.from(this),
+            id = DelegationTable.id.from(this),
+            status = DelegationStatus.valueOf(DelegationTable.status.from(this)),
+            owner = DelegationTable.owner.from(this),
+            created = DelegationTable.created.from(this),
+            expires = DelegationTable.expires.from(this),
+            clientId = DelegationTable.clientId.from(this),
+            redirectUri = DelegationTable.redirectUri.fromOpt(this),
+            authorizationCodeHash = DelegationTable.redirectUri.fromOpt(this),
+            authenticationAttributes = DelegationTable.authenticationAttributes.from(this).let {
+                AuthenticationAttributes.fromAttributes(
+                    Attributes.fromMap(
+                        _jsonHandler.fromJson(it)
+                    )
+                )
+            },
+            consentResult = DelegationTable.consentResult.fromOpt(this)?.let {
+                DelegationConsentResult.fromMap(
+                    _jsonHandler.fromJson(it)
+                )
+            },
+            scope = DelegationTable.scope.from(this),
+            claimMap = DelegationTable.claimMap.from(this).let { _jsonHandler.fromJson(it) },
+            customClaimValues = DelegationTable.customClaimValues.from(this).let { _jsonHandler.fromJson(it) },
+            claims = DelegationTable.claims.from(this).let { _jsonHandler.fromJson(it) },
+            mtlsClientCertificate = DelegationTable.mtlsClientCertificate.fromOpt(this),
+            mtlsClientCertificateDN = DelegationTable.mtlsClientCertificateDN.fromOpt(this),
+            mtlsClientCertificateX5TS256 = DelegationTable.mtlsClientCertificateX5TS256.fromOpt(this)
+        )
 
     override fun getById(id: String): Delegation?
     {
@@ -180,7 +286,7 @@ class DynamoDBDelegationDataAccessProvider(
 
         val request = ScanRequest.builder()
             .tableName(DelegationTable.name)
-            .filterExpression("#status = :status")
+            .filterExpression("${DelegationTable.status.hashName} = ${DelegationTable.status.colonName}")
             .expressionAttributeValues(issuedStatusExpressionAttributeMap)
             .expressionAttributeNames(issuedStatusExpressionAttributeNameMap)
             .build()
@@ -196,7 +302,7 @@ class DynamoDBDelegationDataAccessProvider(
     {
         val request = ScanRequest.builder()
             .tableName(DelegationTable.name)
-            .filterExpression("#status = :status")
+            .filterExpression("${DelegationTable.status.hashName} = ${DelegationTable.status.colonName}")
             .expressionAttributeValues(issuedStatusExpressionAttributeMap)
             .expressionAttributeNames(issuedStatusExpressionAttributeNameMap)
             .select(Select.COUNT)
@@ -207,8 +313,7 @@ class DynamoDBDelegationDataAccessProvider(
 
     override fun getAll(query: ResourceQuery): MutableCollection<out Delegation>
     {
-        // TODO implement sorting - can be tricky
-        // TODO implement pagination and possible DynamoDB pagination
+        // TODO proper support for querying - IS-5862
 
         val requestBuilder = ScanRequest.builder()
             .tableName(DelegationTable.name)
@@ -261,108 +366,12 @@ class DynamoDBDelegationDataAccessProvider(
         return result
     }
 
-    private fun Delegation.toItem(): Map<String, AttributeValue>
-    {
-        val res = mutableMapOf<String, AttributeValue>()
-        DelegationTable.version.addTo(res, "6.2")
-        DelegationTable.id.addTo(res, id)
-        DelegationTable.status.addTo(res, status.name)
-        DelegationTable.owner.addTo(res, owner)
-        DelegationTable.created.addTo(res, created)
-        DelegationTable.expires.addTo(res, expires)
-        DelegationTable.clientId.addTo(res, clientId)
-        DelegationTable.redirectUri.addToOpt(res, redirectUri)
-        DelegationTable.authorizationCodeHash.addToOpt(res, authorizationCodeHash)
-        DelegationTable.scope.addTo(res, scope)
-
-        DelegationTable.mtlsClientCertificate.addToOpt(res, mtlsClientCertificate)
-        DelegationTable.mtlsClientCertificateDN.addToOpt(res, mtlsClientCertificateDN)
-        DelegationTable.mtlsClientCertificateX5TS256.addToOpt(res, mtlsClientCertificateX5TS256)
-
-        DelegationTable.authenticationAttributes.addTo(res, jsonHandler.toJson(authenticationAttributes.asMap()))
-        DelegationTable.consentResult.addToOpt(res, consentResult?.asMap()?.let { jsonHandler.toJson(it) })
-        DelegationTable.claimMap.addTo(res, jsonHandler.toJson(claimMap))
-        DelegationTable.customClaimValues.addTo(res, jsonHandler.toJson(customClaimValues))
-        DelegationTable.claims.addTo(res, jsonHandler.toJson(claims))
-        return res
-    }
-
-    private fun Map<String, AttributeValue>.toDelegation() =
-        DynamoDBDelegation(
-            version = DelegationTable.version.from(this),
-            id = DelegationTable.id.from(this),
-            status = DelegationStatus.valueOf(DelegationTable.status.from(this)),
-            owner = DelegationTable.owner.from(this),
-            created = DelegationTable.created.from(this),
-            expires = DelegationTable.expires.from(this),
-            clientId = DelegationTable.clientId.from(this),
-            redirectUri = DelegationTable.redirectUri.fromOpt(this),
-            authorizationCodeHash = DelegationTable.redirectUri.fromOpt(this),
-            authenticationAttributes = DelegationTable.authenticationAttributes.from(this).let {
-                AuthenticationAttributes.fromAttributes(
-                    Attributes.fromMap(
-                        jsonHandler.fromJson(it)
-                    )
-                )
-            },
-            consentResult = DelegationTable.consentResult.fromOpt(this)?.let {
-                DelegationConsentResult.fromMap(
-                    jsonHandler.fromJson(it)
-                )
-            },
-            scope = DelegationTable.scope.from(this),
-            claimMap = DelegationTable.claimMap.from(this).let { jsonHandler.fromJson(it) },
-            customClaimValues = DelegationTable.customClaimValues.from(this).let { jsonHandler.fromJson(it) },
-            claims = DelegationTable.claims.from(this).let { jsonHandler.fromJson(it) },
-            mtlsClientCertificate = DelegationTable.mtlsClientCertificate.fromOpt(this),
-            mtlsClientCertificateDN = DelegationTable.mtlsClientCertificateDN.fromOpt(this),
-            mtlsClientCertificateX5TS256 = DelegationTable.mtlsClientCertificateX5TS256.fromOpt(this)
-        )
-
-    object DelegationTable : Table("curity-delegations")
-    {
-        val version = StringAttribute("version")
-        val id = StringAttribute("id")
-        val status = StringAttribute("status")
-        val owner = StringAttribute("owner")
-        val authorizationCode = StringAttribute("authorizationCodeHash")
-
-        val created = NumberLongAttribute("created")
-        val expires = NumberLongAttribute("expires")
-
-        val scope = StringAttribute("scope")
-        val scopeClaims = StringAttribute("scopeClaims")
-        val claimMap = StringAttribute("claimMap")
-        val clientId = StringAttribute("clientId")
-        val redirectUri = StringAttribute("redirectUri")
-        val authorizationCodeHash = StringAttribute("authorizationCodeHash")
-        val authenticationAttributes = StringAttribute("authenticationAttributes")
-        val customClaimValues = StringAttribute("customClaimValues")
-        val mtlsClientCertificate = StringAttribute("mtlsClientCertificate")
-        val mtlsClientCertificateX5TS256 = StringAttribute("mtlsClientCertificateX5TS256")
-        val mtlsClientCertificateDN = StringAttribute("mtlsClientCertificateDN")
-        val consentResult = StringAttribute("consentResult")
-        val claims = StringAttribute("claims")
-
-        val ownerStatusIndex = Index2("owner-status-index", owner, status)
-        val authorizationCodeIndex = Index("authorization-hash-index", authorizationCode)
-
-        val possibleAttributes = listOf(
-            id, status, owner, authorizationCode, created, expires, scope, scopeClaims, claimMap,
-            clientId, redirectUri, authorizationCodeHash, authenticationAttributes, customClaimValues,
-            mtlsClientCertificate, mtlsClientCertificateX5TS256, mtlsClientCertificateDN,
-            consentResult, claims
-        ).map{
-            it.name
-        }
-    }
-
     companion object
     {
         private val logger = LoggerFactory.getLogger(DynamoDBDelegationDataAccessProvider::class.java)
-        private val issuedStatusExpressionAttribute = Pair(":status", "issued".toAttributeValue())
+        private val issuedStatusExpressionAttribute = DelegationTable.status.toExpressionNameValuePair(DelegationStatus.issued.name)
         private val issuedStatusExpressionAttributeMap = mapOf(issuedStatusExpressionAttribute)
-        private val issuedStatusExpressionAttributeName = Pair("#status", "status")
+        private val issuedStatusExpressionAttributeName = DelegationTable.status.toNamePair()
         private val issuedStatusExpressionAttributeNameMap = mapOf(issuedStatusExpressionAttributeName)
     }
 }

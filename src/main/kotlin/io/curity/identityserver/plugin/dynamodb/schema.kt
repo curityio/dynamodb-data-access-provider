@@ -16,6 +16,13 @@ import software.amazon.awssdk.services.dynamodb.model.Delete
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 
 /*
+ * A DynamoDB item (i.e. a table row) is represented by a Map
+ * - from attribute name string
+ * - to attribute value
+ */
+typealias DynamoDBItem = Map<String, AttributeValue>
+
+/*
  * Set of types and functions to represent and work with tables and table attributes
  */
 

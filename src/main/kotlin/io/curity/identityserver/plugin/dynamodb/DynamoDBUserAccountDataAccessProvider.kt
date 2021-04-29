@@ -405,7 +405,7 @@ class DynamoDBUserAccountDataAccessProvider(
             tryUpdateAccount(accountId, accountAttributes, observedItem)
         }
 
-    private fun tryUpdateAccount(accountId: String, accountAttributes: AccountAttributes, observedItem: Item)
+    private fun tryUpdateAccount(accountId: String, accountAttributes: AccountAttributes, observedItem: DynamoDBItem)
             : TransactionAttemptResult<Unit>
     {
         val key = AccountsTable.key(accountId)
@@ -521,7 +521,7 @@ class DynamoDBUserAccountDataAccessProvider(
         return getById(accountId, attributesEnumeration)
     }
 
-    private fun getItemByAccountId(accountId: String): Item?
+    private fun getItemByAccountId(accountId: String): DynamoDBItem?
     {
         val requestBuilder = GetItemRequest.builder()
             .tableName(AccountsTable.name)
@@ -932,7 +932,7 @@ class DynamoDBUserAccountDataAccessProvider(
             return withoutLinks.removeAttribute(AccountAttributes.LINKED_ACCOUNTS)
         }
 
-        private fun Item.version(): Long =
+        private fun DynamoDBItem.version(): Long =
             AccountsTable.version.fromOpt(this)
                 ?: throw SchemaErrorException(
                     AccountsTable,
@@ -940,5 +940,3 @@ class DynamoDBUserAccountDataAccessProvider(
                 )
     }
 }
-
-private typealias Item = Map<String, AttributeValue>

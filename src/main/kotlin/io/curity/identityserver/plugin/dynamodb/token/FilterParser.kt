@@ -22,19 +22,21 @@ import se.curity.identityserver.sdk.data.query.Filter
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import java.util.EnumMap
 
-class DelegationsFilterParser(filter: Filter): FilterParser(filter, filterDelegationAttributeNamesToDynamoAttributesMap) {
-    companion object {
+class DelegationsFilterParser(filter: Filter): FilterParser(filter, filterDelegationAttributeNamesToDynamoAttributesMap)
+{
+    companion object
+    {
         private val filterDelegationAttributeNamesToDynamoAttributesMap = mapOf(
-                Pair(AccountAttributes.USER_NAME, "owner"),
-                Pair(Delegation.KEY_OWNER, "owner"),
-                Pair(Delegation.KEY_SCOPE, "scope"),
-                Pair(Delegation.KEY_CLIENT_ID, "clientId"),
-                Pair("client_id", "clientId"),
-                Pair(Delegation.KEY_REDIRECT_URI, "redirectUri"),
-                Pair("redirect_uri", "redirectUri"),
-                Pair(Delegation.KEY_STATUS, "status"),
-                Pair("expires", "expires"),
-                Pair("externalId", "id")
+            Pair(AccountAttributes.USER_NAME, "owner"),
+            Pair(Delegation.KEY_OWNER, "owner"),
+            Pair(Delegation.KEY_SCOPE, "scope"),
+            Pair(Delegation.KEY_CLIENT_ID, "clientId"),
+            Pair("client_id", "clientId"),
+            Pair(Delegation.KEY_REDIRECT_URI, "redirectUri"),
+            Pair("redirect_uri", "redirectUri"),
+            Pair(Delegation.KEY_STATUS, "status"),
+            Pair("expires", "expires"),
+            Pair("externalId", "id")
         )
     }
 }
