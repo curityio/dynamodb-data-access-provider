@@ -21,6 +21,7 @@ import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
  * - to attribute value
  */
 typealias DynamoDBItem = Map<String, AttributeValue>
+typealias MutableDynamoDBItem = MutableMap<String, AttributeValue>
 
 /*
  * Set of types and functions to represent and work with tables and table attributes
@@ -40,7 +41,7 @@ abstract class Table(val name: String)
 }
 
 // A DynamoDB attribute
-interface Attribute<T>
+interface DynamoDBAttribute<T>
 {
     val name: String
     val type: AttributeType
@@ -55,11 +56,13 @@ interface Attribute<T>
     fun from(attrValue: AttributeValue): T
     fun addTo(map: MutableMap<String, AttributeValue>, value: T)
     fun addToOpt(map: MutableMap<String, AttributeValue>, value: T?)
+    fun addToAny(map: MutableMap<String, AttributeValue>, value: Any)
+    fun cast(value: Any): T?
 }
 
 // A DynamoDB attribute that must also be unique
 // See [https://aws.amazon.com/blogs/database/simulating-amazon-dynamodb-unique-constraints-using-transactions/]
-interface UniqueAttribute<T> : Attribute<T>
+interface UniqueAttribute<T> : DynamoDBAttribute<T>
 {
     // The value to use on the partition key
     fun uniquenessValueFrom(value: T): String
@@ -68,7 +71,7 @@ interface UniqueAttribute<T> : Attribute<T>
 abstract class BaseAttribute<T>(
     final override val name: String,
     override val type: AttributeType
-) : Attribute<T>
+) : DynamoDBAttribute<T>
 {
     override fun toNamePair() = "#${name}" to name
     override fun toString() = name
@@ -89,6 +92,15 @@ abstract class BaseAttribute<T>(
         }
     }
 
+    override fun addToAny(map: MutableMap<String, AttributeValue>, value: Any) {
+        val castedValue = cast(value)
+        if(castedValue != null) {
+            addTo(map, castedValue)
+        } else {
+            throw Exception("TODO")
+        }
+    }
+
     override val hashName = "#${name}"
     override val colonName = ":${name}"
 }
@@ -97,16 +109,25 @@ class StringAttribute(name: String) : BaseAttribute<String>(name, AttributeType.
 {
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
     override fun from(attrValue: AttributeValue): String = attrValue.s()
+    override fun cast(value: Any) = value as? String
 }
 
 class ListStringAttribute(name: String) : BaseAttribute<Collection<String>>(name, AttributeType.L)
 {
     override fun toAttrValue(value: Collection<String>): AttributeValue = AttributeValue.builder()
-        .l(value.map {AttributeValue.builder().s(it).build()})
+        .l(value.map { AttributeValue.builder().s(it).build() })
         .build()
 
     override fun from(attrValue: AttributeValue): Collection<String> = attrValue.l()
         .map { it.s() }
+
+    override fun cast(value: Any) = if (value is Collection<*> && value.all { it is String })
+    {
+        value.map { it as String }
+    } else
+    {
+        null
+    }
 }
 
 // An attribute that is composed by two values
@@ -121,6 +142,8 @@ class StringCompositeAttribute2(name: String, private val template: (String, Str
 
     fun toNameValuePair(first: String, second: String) = name to toAttrValue2(first, second)
     override fun from(attrValue: AttributeValue): String = attrValue.s()
+
+    override fun cast(value: Any) = value as? String
 }
 
 class UniqueStringAttribute(name: String, val _f: (String) -> String) : BaseAttribute<String>(name, AttributeType.S),
@@ -129,6 +152,7 @@ class UniqueStringAttribute(name: String, val _f: (String) -> String) : BaseAttr
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
     override fun from(attrValue: AttributeValue): String = attrValue.s()
     override fun uniquenessValueFrom(value: String) = _f(value)
+    override fun cast(value: Any) = value as? String
 }
 
 class KeyStringAttribute(name: String) : BaseAttribute<String>(name, AttributeType.S)
@@ -138,22 +162,26 @@ class KeyStringAttribute(name: String) : BaseAttribute<String>(name, AttributeTy
 
     fun <T> uniqueKeyEntryFor(uniqueAttribute: UniqueAttribute<T>, value: T) =
         toNameValuePair(uniqueAttribute.uniquenessValueFrom(value))
+
+    override fun cast(value: Any) = value as? String
 }
 
 class NumberLongAttribute(name: String) : BaseAttribute<Long>(name, AttributeType.N)
 {
     override fun toAttrValue(value: Long): AttributeValue = AttributeValue.builder().n(value.toString()).build()
     override fun from(attrValue: AttributeValue): Long = attrValue.n().toLong()
+    override fun cast(value: Any) = value as? Long
 }
 
 class BooleanAttribute(name: String) : BaseAttribute<Boolean>(name, AttributeType.N)
 {
     override fun toAttrValue(value: Boolean): AttributeValue = AttributeValue.builder().bool(value).build()
     override fun from(attrValue: AttributeValue): Boolean = attrValue.bool()
+    override fun cast(value: Any) = value as? Boolean
 }
 
 class ExpressionBuilder(
-    expr: String, vararg attributes: Attribute<*>
+    expr: String, vararg attributes: DynamoDBAttribute<*>
 )
 {
     val expression: String = expr
@@ -193,7 +221,7 @@ fun Delete.Builder.conditionExpression(expression: Expression)
 }
 
 // A DynamoDB index composed by a single column (partition key)
-class Index<T>(val name: String, val attribute: Attribute<T>)
+class Index<T>(val name: String, val attribute: DynamoDBAttribute<T>)
 {
     override fun toString() = name
     val expression = "${attribute.hashName} = ${attribute.colonName}"
@@ -202,7 +230,7 @@ class Index<T>(val name: String, val attribute: Attribute<T>)
 }
 
 // A DynamoDB index composed by two columns (partition key + sort key)
-class Index2<T>(val name: String, private val attribute1: Attribute<T>, private val attribute2: Attribute<T>)
+class Index2<T>(val name: String, private val attribute1: DynamoDBAttribute<T>, private val attribute2: DynamoDBAttribute<T>)
 {
     override fun toString() = name
     fun expressionValueMap(first: T, second: T) = mapOf(
@@ -219,7 +247,7 @@ class Index2<T>(val name: String, private val attribute1: Attribute<T>, private 
         "${attribute1.hashName} = ${attribute1.colonName} AND ${attribute2.hashName} = ${attribute2.colonName}"
 }
 
-fun <T> MutableMap<String, AttributeValue>.addAttr(attribute: Attribute<T>, value: T)
+fun <T> MutableMap<String, AttributeValue>.addAttr(attribute: DynamoDBAttribute<T>, value: T)
 {
     this[attribute.name] = attribute.toAttrValue(value)
 }

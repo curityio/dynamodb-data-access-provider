@@ -178,7 +178,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
     {
         logger.debug("Received request to UPDATE dynamic client for client : {}", dynamicallyRegisteredClientAttributes.clientId)
 
-        val builder = SimpleUpdateBuilder()
+        val builder = UpdateExpressionsBuilder()
         dynamicallyRegisteredClientAttributes.apply {
             builder.update(DcrTable.clientSecret, clientSecret)
             builder.update(DcrTable.updated, now().epochSecond)

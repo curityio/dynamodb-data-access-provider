@@ -413,7 +413,7 @@ class DynamoDBUserAccountDataAccessProvider(
         val newVersion = observedVersion + 1
         val now = Instant.now().epochSecond
 
-        val updateBuilder = UpdateBuilder(
+        val updateBuilder = UpdateBuilderWithMultipleUniquenessConstraints(
             AccountsTable,
             key,
             AccountsTable.pk,

@@ -22,13 +22,13 @@ import software.amazon.awssdk.services.dynamodb.model.Update
  *
  * See comments on [DynamoDBUserAccountDataAccessProvider] to see how multiple uniqueness requirements are handled.
  */
-class UpdateBuilder(
+class UpdateBuilderWithMultipleUniquenessConstraints(
     private val _table: Table,
     private val _key: Map<String, AttributeValue>,
-    private val _keyAttribute: Attribute<String>,
+    private val _keyAttribute: DynamoDBAttribute<String>,
     private val _conditionExpression: Expression,
     private val _newVersion: Long,
-    private val _versionAttribute: Attribute<Long>,
+    private val _versionAttribute: DynamoDBAttribute<Long>,
     private val _uniquenessItemAttributes: Array<Pair<String, AttributeValue>>
 )
 {
@@ -38,7 +38,7 @@ class UpdateBuilder(
     private val _transactionItems = mutableListOf<TransactWriteItem>()
 
     // Handles the update of a non-unique attribute
-    fun <T> handleNonUniqueAttribute(attribute: Attribute<T>, before: T?, after: T?)
+    fun <T> handleNonUniqueAttribute(attribute: DynamoDBAttribute<T>, before: T?, after: T?)
     {
         if (before == after)
         {

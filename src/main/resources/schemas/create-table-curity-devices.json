@@ -2,7 +2,7 @@
   "TableName": "curity-devices",
   "AttributeDefinitions": [
     {
-      "AttributeName": "id",
+      "AttributeName": "pk",
       "AttributeType": "S"
     },
     {
@@ -16,7 +16,7 @@
   ],
   "KeySchema": [
     {
-      "AttributeName": "id",
+      "AttributeName": "pk",
       "KeyType": "HASH"
     }
   ],
@@ -47,4 +47,3 @@
     "ReadCapacityUnits": 10
   }
 }
-

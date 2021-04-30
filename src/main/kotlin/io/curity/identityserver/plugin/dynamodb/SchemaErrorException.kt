@@ -15,9 +15,9 @@ class SchemaErrorException(msg: String) :
     Exception(msg)
 {
 
-    constructor(table: Table, attribute: Attribute<*>)
+    constructor(table: Table, attribute: DynamoDBAttribute<*>)
             : this("Missing attribute '$attribute' of type '${attribute.type}' on table '$table'")
 
-    constructor(attribute: Attribute<*>)
+    constructor(attribute: DynamoDBAttribute<*>)
             : this("Missing attribute '$attribute' of type '${attribute.type}'")
 }
