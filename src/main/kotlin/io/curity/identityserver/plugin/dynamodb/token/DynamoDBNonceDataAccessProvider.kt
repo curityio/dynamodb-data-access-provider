@@ -16,57 +16,79 @@
 package io.curity.identityserver.plugin.dynamodb.token
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
+import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
+import io.curity.identityserver.plugin.dynamodb.StringAttribute
+import io.curity.identityserver.plugin.dynamodb.Table
 import se.curity.identityserver.sdk.datasource.NonceDataAccessProvider
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
+import java.lang.IllegalArgumentException
 import java.time.Instant
 
-class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient): NonceDataAccessProvider
+class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient) : NonceDataAccessProvider
 {
+    object NonceTable : Table("curity-nonces")
+    {
+        val nonce = StringAttribute("nonce")
+        val nonceStatus = StringAttribute("nonceStatus")
+        val createAt = NumberLongAttribute("createdAt")
+        val nonceTtl = NumberLongAttribute("nonceTtl")
+        val nonceValue = StringAttribute("nonceValue")
+        val consumedAt = NumberLongAttribute("consumedAt")
+
+        fun key(nonce: String) = mapOf(this.nonce.toNameValuePair(nonce))
+    }
+
     override fun get(nonce: String): String?
     {
         val request = GetItemRequest.builder()
-                .tableName(tableName)
-                .key(getKey(nonce))
-                .build()
+            .tableName(NonceTable.name)
+            .key(NonceTable.key(nonce))
+            .build()
 
         val response = dynamoDBClient.getItem(request)
 
-        if (!response.hasItem() || response.item().isEmpty()) {
+        if (!response.hasItem() || response.item().isEmpty())
+        {
+            return null
+        }
+        val item = response.item()
+
+        val status = NonceStatus.valueOf(NonceTable.nonceStatus.from(item))
+        if (status != NonceStatus.ISSUED)
+        {
             return null
         }
 
-        val item = response.item()
-        val createAt = item["createdAt"]?.s()?.toLong() ?: -1L
-        val ttl = item["nonceTtl"]?.s()?.toLong() ?: 0L
+        val createdAt = NonceTable.createAt.from(item)
+        val ttl = NonceTable.nonceTtl.from(item)
         val now = Instant.now().epochSecond
 
-        if (item["nonceStatus"]?.s() != NonceStatus.ISSUED.value) {
-            return null
-        }
-
-        if (createAt + ttl < now) {
+        if (createdAt + ttl < now)
+        {
             expireNonce(nonce)
             return null
         }
 
-        return item["nonceValue"]?.s()
+        return NonceTable.nonceValue.from(item)
     }
 
     override fun save(nonce: String, value: String, createdAt: Long, ttl: Long)
     {
         val request = PutItemRequest.builder()
-                .tableName(tableName)
-                .item(mapOf(
-                        Pair("nonce", AttributeValue.builder().s(nonce).build()),
-                        Pair("nonceValue", AttributeValue.builder().s(value).build()),
-                        Pair("createdAt", AttributeValue.builder().s(createdAt.toString()).build()),
-                        Pair("nonceTtl", AttributeValue.builder().s(ttl.toString()).build()),
-                        Pair("nonceStatus", AttributeValue.builder().s(NonceStatus.ISSUED.value).build())
-                ))
-                .build()
+            .tableName(NonceTable.name)
+            .item(
+                mapOf(
+                    NonceTable.nonce.toNameValuePair(nonce),
+                    NonceTable.nonceValue.toNameValuePair(value),
+                    NonceTable.createAt.toNameValuePair(createdAt),
+                    NonceTable.nonceTtl.toNameValuePair(ttl),
+                    NonceTable.nonceStatus.toNameValuePair(NonceStatus.ISSUED.value)
+                )
+            )
+            .build()
 
         dynamoDBClient.putItem(request)
     }
@@ -79,35 +101,42 @@ class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient
     private fun consumeNonce(nonce: String, consumedAt: Long) = changeStatus(nonce, NonceStatus.CONSUMED, consumedAt)
     private fun expireNonce(nonce: String) = changeStatus(nonce, NonceStatus.EXPIRED, null)
 
-    private fun changeStatus(nonce: String, status: NonceStatus, consumedAt: Long?) {
+    private fun changeStatus(nonce: String, status: NonceStatus, maybeConsumedAt: Long?)
+    {
         val requestBuilder = UpdateItemRequest.builder()
-                .tableName(tableName)
-                .key(getKey(nonce))
+            .tableName(NonceTable.name)
+            .key(NonceTable.key(nonce))
 
-        if (status == NonceStatus.CONSUMED) {
+        if (status == NonceStatus.CONSUMED)
+        {
+            val consumedAt = maybeConsumedAt ?: throw IllegalArgumentException("consumedAt cannot be null")
             requestBuilder
-                    .updateExpression("SET nonceStatus = :status, consumedAt = :consumedAt")
-                    .expressionAttributeValues(mapOf(
-                            Pair(":status", AttributeValue.builder().s(status.value).build()),
-                            Pair(":consumedAt", AttributeValue.builder().s(consumedAt!!.toString()).build())
-                    ))
-        } else {
+                .updateExpression(
+                    "SET ${NonceTable.nonceStatus.name} = ${NonceTable.nonceStatus.colonName}, " +
+                            "${NonceTable.consumedAt.name} = ${NonceTable.consumedAt.colonName}"
+                )
+                .expressionAttributeValues(
+                    mapOf(
+                        NonceTable.nonceStatus.toExpressionNameValuePair(status.value),
+                        NonceTable.consumedAt.toExpressionNameValuePair(consumedAt)
+                    )
+                )
+        } else
+        {
             requestBuilder
-                    .updateExpression("SET nonceStatus = :status")
-                    .expressionAttributeValues(mapOf(Pair(":status", AttributeValue.builder().s(status.value).build())))
+                .updateExpression("SET ${NonceTable.nonceStatus.name} = ${NonceTable.nonceStatus.colonName}")
+                .expressionAttributeValues(
+                    mapOf(
+                        NonceTable.nonceStatus.toExpressionNameValuePair(status.value)
+                    )
+                )
         }
 
         dynamoDBClient.updateItem(requestBuilder.build())
     }
 
-    private fun getKey(nonce: String): Map<String, AttributeValue> =
-            mapOf(Pair("nonce", AttributeValue.builder().s(nonce).build()))
-
-    companion object {
-        private const val tableName = "curity-nonces"
-    }
-
-    enum class NonceStatus(val value: String) {
+    enum class NonceStatus(val value: String)
+    {
         ISSUED("issued"), CONSUMED("consumed"), EXPIRED("expired")
     }
 }

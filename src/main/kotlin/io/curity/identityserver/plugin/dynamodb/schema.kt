@@ -13,6 +13,7 @@ package io.curity.identityserver.plugin.dynamodb
 
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.Delete
+import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 
 /*
@@ -227,6 +228,14 @@ class Index<T>(val name: String, val attribute: DynamoDBAttribute<T>)
     val expression = "${attribute.hashName} = ${attribute.colonName}"
     fun expressionValueMap(value: T) = mapOf(attribute.toExpressionNameValuePair(value))
     val expressionNameMap = mapOf(attribute.hashName to attribute.name)
+}
+
+fun <T> QueryRequest.Builder.useIndexAndKey(index: Index<T>, value: T): QueryRequest.Builder{
+    this.indexName(index.name)
+    this.keyConditionExpression(index.expression)
+    this.expressionAttributeNames(index.expressionNameMap)
+    this.expressionAttributeValues(index.expressionValueMap(value))
+    return this
 }
 
 // A DynamoDB index composed by two columns (partition key + sort key)

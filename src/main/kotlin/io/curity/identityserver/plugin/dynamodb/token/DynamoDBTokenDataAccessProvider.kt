@@ -16,68 +16,155 @@
 package io.curity.identityserver.plugin.dynamodb.token
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
+import io.curity.identityserver.plugin.dynamodb.DynamoDBItem
+import io.curity.identityserver.plugin.dynamodb.Index
+import io.curity.identityserver.plugin.dynamodb.ListStringAttribute
+import io.curity.identityserver.plugin.dynamodb.MutableDynamoDBItem
+import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
+import io.curity.identityserver.plugin.dynamodb.StringAttribute
+import io.curity.identityserver.plugin.dynamodb.Table
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
+import io.curity.identityserver.plugin.dynamodb.useIndexAndKey
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.data.authorization.Token
 import se.curity.identityserver.sdk.data.authorization.TokenStatus
+import se.curity.identityserver.sdk.data.tokens.DefaultStringOrArray
 import se.curity.identityserver.sdk.datasource.TokenDataAccessProvider
 import se.curity.identityserver.sdk.service.Json
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ReturnValue
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 
-class DynamoDBTokenDataAccessProvider(configuration: DynamoDBDataAccessProviderConfiguration, private val dynamoDBClient: DynamoDBClient): TokenDataAccessProvider
+class DynamoDBTokenDataAccessProvider(
+    configuration: DynamoDBDataAccessProviderConfiguration,
+    private val _dynamoDBClient: DynamoDBClient
+) : TokenDataAccessProvider
 {
-    private val jsonHandler = configuration.getJsonHandler()
+    private val _jsonHandler = configuration.getJsonHandler()
+
+    object TokenTable : Table("curity-tokens")
+    {
+        val tokenHash = StringAttribute("tokenHash")
+
+        val id = StringAttribute("id")
+        val scope = StringAttribute("scope")
+
+        val delegationsId = StringAttribute("delegationsId")
+        val purpose = StringAttribute("purpose")
+        val usage = StringAttribute("usage")
+        val format = StringAttribute("format")
+        val status = StringAttribute("status")
+        val issuer = StringAttribute("issuer")
+        val subject = StringAttribute("subject")
+
+        val audience = ListStringAttribute("audience")
+        val tokenData = StringAttribute("tokenData")
+
+        val created = NumberLongAttribute("created")
+        val expires = NumberLongAttribute("expires")
+        val notBefore = NumberLongAttribute("notBefore")
+
+        fun keyFromHash(hash: String) = mapOf(
+            tokenHash.toNameValuePair(hash)
+        )
+
+        val idIndex = Index("id-index", id)
+    }
+
+    private fun Token.toItem() = mutableMapOf<String, AttributeValue>().also { item ->
+        TokenTable.tokenHash.addTo(item, tokenHash)
+
+        TokenTable.id.addToOpt(item, id)
+        TokenTable.scope.addToOpt(item, scope)
+
+        TokenTable.delegationsId.addTo(item, delegationsId)
+        TokenTable.purpose.addTo(item, purpose)
+        TokenTable.usage.addTo(item, usage)
+        TokenTable.format.addTo(item, format)
+        TokenTable.status.addTo(item, status.name)
+        TokenTable.issuer.addTo(item, issuer)
+        TokenTable.subject.addTo(item, subject)
+
+        TokenTable.audience.addTo(item, audience.values)
+        TokenTable.tokenData.addTo(item, _jsonHandler.toJson(data))
+
+        TokenTable.created.addTo(item, created)
+        TokenTable.expires.addTo(item, expires)
+        TokenTable.notBefore.addTo(item, notBefore)
+    }
+
+    private fun DynamoDBItem.toToken(): Token
+    {
+        val item = this
+        return TokenTable.run {
+
+            DynamoDBToken(
+                tokenHash = tokenHash.from(item),
+                id = id.fromOpt(item),
+                scope = scope.fromOpt(item),
+                delegationsId = delegationsId.from(item),
+                purpose = delegationsId.from(item),
+                usage = usage.from(item),
+                format = format.from(item),
+                status = TokenStatus.valueOf(status.from(item)),
+                issuer = issuer.from(item),
+                subject = subject.from(item),
+                created = created.from(item),
+                expires = expires.from(item),
+                notBefore = expires.from(item),
+                audience = DefaultStringOrArray.of(audience.from(item)),
+                data = _jsonHandler.fromJson(TokenTable.tokenData.from(item))
+            )
+        }
+    }
 
     override fun getByHash(hash: String): Token?
     {
         val request = GetItemRequest.builder()
-                .tableName(tableName)
-                .key(getKey(hash))
-                .build()
+            .tableName(TokenTable.name)
+            .key(TokenTable.keyFromHash(hash))
+            .build()
 
-        val response = dynamoDBClient.getItem(request)
+        val response = _dynamoDBClient.getItem(request)
 
-        if (!response.hasItem() || response.item().isEmpty()) {
+        if (!response.hasItem() || response.item().isEmpty())
+        {
             return null
         }
 
-        return getToken(response.item())
+        return response.item().toToken()
     }
 
     override fun getById(id: String): Token?
     {
         val request = QueryRequest.builder()
-                .tableName(tableName)
-                .indexName("id-index")
-                .keyConditionExpression("id = :id")
-                .expressionAttributeValues(mapOf(Pair(":id", AttributeValue.builder().s(id).build())))
-                .limit(1)
-                .build()
+            .tableName(TokenTable.name)
+            .useIndexAndKey(TokenTable.idIndex, id)
+            .limit(1)
+            .build()
 
-        val response = dynamoDBClient.query(request)
+        val response = _dynamoDBClient.query(request)
 
-        if (!response.hasItems() || response.items().isEmpty()) {
+        if (!response.hasItems() || response.items().isEmpty())
+        {
             return null
         }
 
-        val responseItem = response.items().first()
-
-        return getToken(responseItem)
+        return response.items().first().toToken()
     }
 
     override fun create(token: Token)
     {
         val request = PutItemRequest.builder()
-                .tableName(tableName)
-                .item(token.toParametersMap(jsonHandler))
-                .build()
+            .tableName(TokenTable.name)
+            .item(token.toItem())
+            .build()
 
-        dynamoDBClient.putItem(request)
+        _dynamoDBClient.putItem(request)
     }
 
     override fun getStatus(tokenHash: String): String?
@@ -90,20 +177,29 @@ class DynamoDBTokenDataAccessProvider(configuration: DynamoDBDataAccessProviderC
     override fun setStatusByTokenHash(tokenHash: String, newStatus: TokenStatus): Long
     {
         val request = UpdateItemRequest.builder()
-                .tableName(tableName)
-                .key(getKey(tokenHash))
-                .expressionAttributeValues(mapOf<String, AttributeValue>(Pair(":status", AttributeValue.builder().s(newStatus.name).build())))
-                .updateExpression("SET #status = :status")
-                .expressionAttributeNames(mapOf(Pair("#status", "status")))
-                .returnValues(ReturnValue.UPDATED_NEW)
-                .build()
+            .tableName(TokenTable.name)
+            .key(TokenTable.keyFromHash(tokenHash))
+            .conditionExpression("attribute_exists(${TokenTable.tokenHash})")
+            .updateExpression("SET ${TokenTable.status.hashName} = ${TokenTable.status.colonName}")
+            .expressionAttributeNames(mapOf(TokenTable.status.toNamePair()))
+            .expressionAttributeValues(mapOf(TokenTable.status.toExpressionNameValuePair(newStatus.name)))
+            .returnValues(ReturnValue.UPDATED_NEW)
+            .build()
 
-        val response = dynamoDBClient.updateItem(request)
-
-        return if (response.hasAttributes() && response.attributes().isNotEmpty()) {
-            1
-        } else {
-            0
+        try
+        {
+            val response = _dynamoDBClient.updateItem(request)
+            return if (response.hasAttributes() && response.attributes().isNotEmpty())
+            {
+                1
+            } else
+            {
+                0
+            }
+        } catch (_: ConditionalCheckFailedException)
+        {
+            // this exceptions means the entry does not exists, which isn't an error
+            return 0
         }
     }
 
@@ -112,74 +208,5 @@ class DynamoDBTokenDataAccessProvider(configuration: DynamoDBDataAccessProviderC
         val token = getById(tokenId) ?: return 0L
 
         return setStatusByTokenHash(token.tokenHash, newStatus)
-    }
-
-    private fun Token.toParametersMap(jsonHandler: Json): Map<String, AttributeValue>
-    {
-//        logger.warn("Token data, tokenHash: {}", tokenHash)
-//        logger.warn("Token data, delegationsId: {}", delegationsId)
-//        logger.warn("Token data, purpose: {}", purpose)
-//        logger.warn("Token data, usage: {}", usage)
-//        logger.warn("Token data, format: {}", format)
-//        logger.warn("Token data, created: {}", created)
-//        logger.warn("Token data, expires: {}", expires)
-//        logger.warn("Token data, scope: {}", scope)
-//        logger.warn("Token data, status.name: {}", status.name)
-//        logger.warn("Token data, issuer: {}", issuer)
-//        logger.warn("Token data, subject: {}", subject)
-//        logger.warn("Token data, serAudience: {}", jsonHandler.toJson(audience.values))
-//        logger.warn("Token data, notBefore: {}", notBefore)
-//        logger.warn("Token data, data: {}", jsonHandler.toJson(data))
-
-        val parameters: MutableMap<String, AttributeValue> = HashMap(15)
-        parameters["tokenHash"] = AttributeValue.builder().s(tokenHash).build()
-
-        if (!id.isNullOrEmpty()) {
-            parameters["id"] = AttributeValue.builder().s(id).build()
-        }
-
-        parameters["delegationsId"] = AttributeValue.builder().s(delegationsId).build()
-        parameters["purpose"] = AttributeValue.builder().s(purpose).build()
-        parameters["usage"] = AttributeValue.builder().s(usage).build()
-        parameters["format"] = AttributeValue.builder().s(format).build()
-        parameters["created"] = AttributeValue.builder().s(created.toString()).build()
-        parameters["expires"] = AttributeValue.builder().s(expires.toString()).build()
-        parameters["scope"] = AttributeValue.builder().s(scope).build()
-        parameters["status"] = AttributeValue.builder().s(status.name).build()
-        parameters["issuer"] = AttributeValue.builder().s(issuer).build()
-        parameters["subject"] = AttributeValue.builder().s(subject).build()
-        parameters["serializedAudience"] = AttributeValue.builder().s(jsonHandler.toJson(audience.values)).build()
-        parameters["notBefore"] = AttributeValue.builder().s(notBefore.toString()).build()
-        parameters["serializedTokenData"] = AttributeValue.builder().s(jsonHandler.toJson(data)).build()
-
-        return parameters
-    }
-
-    private fun getToken(tokenMap: Map<String, AttributeValue>): Token =
-        TokenData(
-            tokenMap["tokenHash"],
-            tokenMap["id"],
-            tokenMap["delegationsId"],
-            tokenMap["purpose"],
-            tokenMap["usage"],
-            tokenMap["format"],
-            tokenMap["created"],
-            tokenMap["expires"],
-            tokenMap["scope"],
-            tokenMap["status"],
-            tokenMap["issuer"],
-            tokenMap["subject"],
-            tokenMap["serializedAudience"],
-            tokenMap["notBefore"],
-            tokenMap["serializedTokenData"],
-            jsonHandler
-        )
-
-    private fun getKey(hash: String): Map<String, AttributeValue> =
-            mapOf(Pair("tokenHash", AttributeValue.builder().s(hash).build()))
-
-    companion object {
-        private const val tableName = "curity-tokens"
-        private val logger = LoggerFactory.getLogger(DynamoDBTokenDataAccessProvider::class.java)
     }
 }

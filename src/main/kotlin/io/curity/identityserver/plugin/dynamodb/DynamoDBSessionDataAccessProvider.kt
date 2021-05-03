@@ -15,50 +15,63 @@
  */
 package io.curity.identityserver.plugin.dynamodb
 
+import io.curity.identityserver.plugin.dynamodb.token.DynamoDBTokenDataAccessProvider
+import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.data.Session
 import se.curity.identityserver.sdk.datasource.SessionDataAccessProvider
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 import java.time.Instant
 
-class DynamoDBSessionDataAccessProvider(private val dynamoDBClient: DynamoDBClient): SessionDataAccessProvider
+class DynamoDBSessionDataAccessProvider(private val dynamoDBClient: DynamoDBClient) : SessionDataAccessProvider
 {
+    object SessionTable : Table("curity-sessions")
+    {
+        val id = StringAttribute("id")
+        val data = StringAttribute("sessionData")
+        val expiresAt = NumberLongAttribute("expiresAt")
+
+        fun key(id: String) = mapOf(this.id.toNameValuePair(id))
+    }
+
     override fun getSessionById(id: String): Session?
     {
         val request = GetItemRequest.builder()
-                .tableName(tableName)
-                .key(id.toKey("id"))
-                .build()
+            .tableName(SessionTable.name)
+            .key(SessionTable.key(id))
+            .build()
 
         val response = dynamoDBClient.getItem(request)
 
-        if (!response.hasItem() || response.item().isEmpty()) {
+        if (!response.hasItem() || response.item().isEmpty())
+        {
             return null
         }
 
         val item = response.item()
 
         return Session(
-                item["id"]!!.s(),
-                Instant.ofEpochSecond(item["expiresAt"]!!.s().toLong()),
-                item["sessionData"]!!.s()
+            SessionTable.id.from(item),
+            Instant.ofEpochSecond(SessionTable.expiresAt.from(item)),
+            SessionTable.data.from(item)
         )
     }
 
     override fun insertSession(session: Session)
     {
         val item = mapOf(
-                Pair("id", session.id.toAttributeValue()),
-                Pair("expiresAt", session.expiresAt.epochSecond.toString().toAttributeValue()),
-                Pair("sessionData", session.data.toAttributeValue())
+            SessionTable.id.toNameValuePair(session.id),
+            SessionTable.expiresAt.toNameValuePair(session.expiresAt.epochSecond),
+            SessionTable.data.toNameValuePair(session.data)
         )
 
         val request = PutItemRequest.builder()
-                .tableName(tableName)
-                .item(item)
-                .build()
+            .tableName(SessionTable.name)
+            .item(item)
+            .build()
 
         dynamoDBClient.putItem(request)
     }
@@ -66,43 +79,67 @@ class DynamoDBSessionDataAccessProvider(private val dynamoDBClient: DynamoDBClie
     override fun updateSession(updatedSession: Session)
     {
         val request = UpdateItemRequest.builder()
-                .tableName(tableName)
-                .key(updatedSession.id.toKey("id"))
-                .updateExpression("SET sessionData = :data, expiresAt = :expiresAt")
-                .expressionAttributeValues(
-                        mapOf(Pair(":data", updatedSession.data.toAttributeValue()),
-                        Pair(":expiresAt", updatedSession.expiresAt.epochSecond.toString().toAttributeValue()))
+            .tableName(SessionTable.name)
+            .key(SessionTable.key(updatedSession.id))
+            .conditionExpression("attribute_exists(${SessionTable.id})")
+            .updateExpression(
+                "SET ${SessionTable.data} = ${SessionTable.data.colonName}," +
+                        " ${SessionTable.expiresAt} = ${SessionTable.expiresAt.colonName}"
+            )
+            .expressionAttributeValues(
+                mapOf(
+                    SessionTable.expiresAt.toExpressionNameValuePair(updatedSession.expiresAt.epochSecond),
+                    SessionTable.data.toExpressionNameValuePair(updatedSession.data)
                 )
-                .build()
+            )
+            .build()
 
-        dynamoDBClient.updateItem(request)
+        try
+        {
+            dynamoDBClient.updateItem(request)
+        } catch (_: ConditionalCheckFailedException)
+        {
+            // this exceptions means the entry does not exists, which isn't an error
+            _logger.debug("updateSession on a nonexistent session")
+        }
     }
 
     override fun updateSessionExpiration(id: String, expiresAt: Instant)
     {
         val request = UpdateItemRequest.builder()
-                .tableName(tableName)
-                .key(id.toKey("id"))
-                .updateExpression("SET expiresAt = :expiresAt")
-                .expressionAttributeValues(
-                        mapOf(Pair(":expiresAt", expiresAt.epochSecond.toString().toAttributeValue()))
+            .tableName(SessionTable.name)
+            .key(SessionTable.key(id))
+            .conditionExpression("attribute_exists(${SessionTable.id})")
+            .updateExpression("SET ${SessionTable.expiresAt} = ${SessionTable.expiresAt.colonName}")
+            .expressionAttributeValues(
+                mapOf(
+                    SessionTable.expiresAt.toExpressionNameValuePair(expiresAt.epochSecond)
                 )
-                .build()
+            )
+            .build()
 
-        dynamoDBClient.updateItem(request)
+        try
+        {
+            dynamoDBClient.updateItem(request)
+        } catch (_: ConditionalCheckFailedException)
+        {
+            // this exceptions means the entry does not exists, which isn't an error
+            _logger.debug("updateSessionExpiration on a nonexistent session")
+        }
     }
 
     override fun deleteSessionState(id: String)
     {
         val request = DeleteItemRequest.builder()
-                .tableName(tableName)
-                .key(id.toKey("id"))
-                .build()
+            .tableName(SessionTable.name)
+            .key(SessionTable.key(id))
+            .build()
 
         dynamoDBClient.deleteItem(request)
     }
 
-    companion object {
-        private const val tableName = "curity-sessions"
+    companion object
+    {
+        val _logger = LoggerFactory.getLogger(DynamoDBSessionDataAccessProvider.javaClass)
     }
 }
