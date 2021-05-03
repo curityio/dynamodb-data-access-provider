@@ -72,7 +72,6 @@ import java.time.ZonedDateTime
  * - Are used as secondary global indexes, to support the `getByNnnn` methods.
  *
  */
-
 class DynamoDBUserAccountDataAccessProvider(
     private val _client: DynamoDBClient,
     configuration: DynamoDBDataAccessProviderConfiguration
