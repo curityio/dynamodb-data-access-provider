@@ -22,7 +22,6 @@ import io.curity.identityserver.plugin.dynamodb.Table
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.datasource.NonceDataAccessProvider
 import se.curity.identityserver.sdk.errors.ConflictException
-import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
@@ -49,6 +48,7 @@ class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient
         val request = GetItemRequest.builder()
             .tableName(NonceTable.name)
             .key(NonceTable.key(nonce))
+            .consistentRead(true)
             .build()
 
         val response = dynamoDBClient.getItem(request)
@@ -60,7 +60,7 @@ class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient
         val item = response.item()
 
         val status = NonceStatus.valueOf(NonceTable.nonceStatus.from(item))
-        if (status != NonceStatus.ISSUED)
+        if (status != NonceStatus.issued)
         {
             return null
         }
@@ -88,7 +88,7 @@ class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient
                     NonceTable.nonceValue.toNameValuePair(value),
                     NonceTable.createAt.toNameValuePair(createdAt),
                     NonceTable.nonceTtl.toNameValuePair(ttl),
-                    NonceTable.nonceStatus.toNameValuePair(NonceStatus.ISSUED.value)
+                    NonceTable.nonceStatus.toNameValuePair(NonceStatus.issued.name)
                 )
             )
             .conditionExpression("attribute_not_exists(${NonceTable.nonce})")
@@ -108,8 +108,8 @@ class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient
         consumeNonce(nonce, consumedAt)
     }
 
-    private fun consumeNonce(nonce: String, consumedAt: Long) = changeStatus(nonce, NonceStatus.CONSUMED, consumedAt)
-    private fun expireNonce(nonce: String) = changeStatus(nonce, NonceStatus.EXPIRED, null)
+    private fun consumeNonce(nonce: String, consumedAt: Long) = changeStatus(nonce, NonceStatus.consumed, consumedAt)
+    private fun expireNonce(nonce: String) = changeStatus(nonce, NonceStatus.expired, null)
 
     private fun changeStatus(nonce: String, status: NonceStatus, maybeConsumedAt: Long?)
     {
@@ -118,7 +118,7 @@ class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient
             .conditionExpression("attribute_exists(${NonceTable.nonce.name})")
             .key(NonceTable.key(nonce))
 
-        if (status == NonceStatus.CONSUMED)
+        if (status == NonceStatus.consumed)
         {
             val consumedAt = maybeConsumedAt ?: throw IllegalArgumentException("consumedAt cannot be null")
             requestBuilder
@@ -128,7 +128,7 @@ class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient
                 )
                 .expressionAttributeValues(
                     mapOf(
-                        NonceTable.nonceStatus.toExpressionNameValuePair(status.value),
+                        NonceTable.nonceStatus.toExpressionNameValuePair(status.name),
                         NonceTable.consumedAt.toExpressionNameValuePair(consumedAt)
                     )
                 )
@@ -138,7 +138,7 @@ class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient
                 .updateExpression("SET ${NonceTable.nonceStatus.name} = ${NonceTable.nonceStatus.colonName}")
                 .expressionAttributeValues(
                     mapOf(
-                        NonceTable.nonceStatus.toExpressionNameValuePair(status.value)
+                        NonceTable.nonceStatus.toExpressionNameValuePair(status.name)
                     )
                 )
         }
@@ -152,12 +152,14 @@ class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient
         }
     }
 
-    enum class NonceStatus(val value: String)
+    private enum class NonceStatus
     {
-        ISSUED("issued"), CONSUMED("consumed"), EXPIRED("expired")
+        // The string entries in the DB needs to be lowercase
+        // there are integration tests that depend on that
+        issued, consumed, expired
     }
 
     companion object {
-        val _logger = LoggerFactory.getLogger(DynamoDBNonceDataAccessProvider.javaClass)
+        val _logger = LoggerFactory.getLogger(DynamoDBNonceDataAccessProvider::class.java)
     }
 }
