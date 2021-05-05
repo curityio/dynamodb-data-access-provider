@@ -37,6 +37,7 @@ import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegi
 import se.curity.identityserver.sdk.datasource.DynamicallyRegisteredClientDataAccessProvider
 import se.curity.identityserver.sdk.errors.ConflictException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
 import software.amazon.awssdk.services.dynamodb.model.DynamoDbException
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
@@ -47,11 +48,13 @@ import java.time.Instant.ofEpochSecond
 
 class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
     configuration: DynamoDBDataAccessProviderConfiguration,
-    private val _dynamoDBClient: DynamoDBClient): DynamicallyRegisteredClientDataAccessProvider
+    private val _dynamoDBClient: DynamoDBClient
+) : DynamicallyRegisteredClientDataAccessProvider
 {
     private val _jsonHandler = configuration.getJsonHandler()
 
-    private object DcrTable : Table("curity-dynamic-clients") {
+    private object DcrTable : Table("curity-dynamic-clients")
+    {
         val clientId = StringAttribute("clientId")
         val clientSecret = StringAttribute("clientSecret")
         val instanceOfClient = StringAttribute("instanceOfClient")
@@ -68,7 +71,8 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         fun key(value: String) = mapOf(clientId.toNameValuePair(value))
     }
 
-    private fun DynamoDBItem.toAttributes(): DynamicallyRegisteredClientAttributes {
+    private fun DynamoDBItem.toAttributes(): DynamicallyRegisteredClientAttributes
+    {
 
         val result = mutableListOf<Attribute>()
         val item = this
@@ -76,10 +80,14 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         result.apply {
             // Non-nullable
             add(CLIENT_ID, DcrTable.clientId.from(item))
-            add(Attribute.of(META,
-                Meta.of(DynamicallyRegisteredClientAttributes.RESOURCE_TYPE)
-                    .withCreated(ofEpochSecond(DcrTable.created.from(item)))
-                    .withLastModified(ofEpochSecond(DcrTable.updated.from(item)))))
+            add(
+                Attribute.of(
+                    META,
+                    Meta.of(DynamicallyRegisteredClientAttributes.RESOURCE_TYPE)
+                        .withCreated(ofEpochSecond(DcrTable.created.from(item)))
+                        .withLastModified(ofEpochSecond(DcrTable.updated.from(item)))
+                )
+            )
             add(Attribute.of(STATUS, DynamicallyRegisteredClientAttributes.Status.valueOf(DcrTable.status.from(item))))
             add(ATTRIBUTES, MapAttributeValue.of(_jsonHandler.toAttributes(DcrTable.attributes.from(item))))
 
@@ -94,10 +102,10 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         }
 
         return DynamicallyRegisteredClientAttributes.of(Attributes.of(result))
-
     }
 
-    private fun DynamicallyRegisteredClientAttributes.toItem() : DynamoDBItem {
+    private fun DynamicallyRegisteredClientAttributes.toItem(): DynamoDBItem
+    {
         val now = now()
         val created = meta?.created ?: now
 
@@ -123,15 +131,15 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         return item
     }
 
-    private fun MutableList<Attribute>.add(name: String, value: String?) = value ?. let {
+    private fun MutableList<Attribute>.add(name: String, value: String?) = value?.let {
         this.add(Attribute.of(name, it))
     }
 
-    private fun MutableList<Attribute>.add(name: String, value: Collection<String>?) = value ?. let {
+    private fun MutableList<Attribute>.add(name: String, value: Collection<String>?) = value?.let {
         this.add(Attribute.of(name, it))
     }
 
-    private fun MutableList<Attribute>.add(name: String, value: MapAttributeValue?) = value ?. let {
+    private fun MutableList<Attribute>.add(name: String, value: MapAttributeValue?) = value?.let {
         this.add(Attribute.of(name, it))
     }
 
@@ -140,13 +148,14 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         logger.debug("Getting dynamic client with id: {}", clientId)
 
         val request = GetItemRequest.builder()
-                .tableName(DcrTable.name)
-                .key(DcrTable.key(clientId))
-                .build()
-    
+            .tableName(DcrTable.name)
+            .key(DcrTable.key(clientId))
+            .build()
+
         val response = _dynamoDBClient.getItem(request)
 
-        if (!response.hasItem() || response.item().isEmpty()) {
+        if (!response.hasItem() || response.item().isEmpty())
+        {
             return null
         }
 
@@ -155,28 +164,38 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
 
     override fun create(dynamicallyRegisteredClientAttributes: DynamicallyRegisteredClientAttributes)
     {
-        logger.debug("Received request to CREATE dynamic client with id: {}", dynamicallyRegisteredClientAttributes.clientId)
+        logger.debug(
+            "Received request to CREATE dynamic client with id: {}",
+            dynamicallyRegisteredClientAttributes.clientId
+        )
 
         val request = PutItemRequest.builder()
-                .tableName(DcrTable.name)
-                .item(dynamicallyRegisteredClientAttributes.toItem())
-                .build()
+            .tableName(DcrTable.name)
+            .conditionExpression("attribute_not_exists(${DcrTable.clientId.name})")
+            .item(dynamicallyRegisteredClientAttributes.toItem())
+            .build()
 
-        try {
+        try
+        {
             _dynamoDBClient.putItem(request)
-        } catch (exception: DynamoDbException) {
-            if (exception.awsErrorDetails().errorCode() == "ConditionalCheckFailedException") {
-                val newException = ConflictException("Client ${dynamicallyRegisteredClientAttributes.clientId} is already registered")
-                logger.trace("Client ${dynamicallyRegisteredClientAttributes.clientId} is already registered", newException)
-                throw newException
-            }
-            logger.trace("Creating dynamic client threw an exception", exception)
+        } catch (exception: ConditionalCheckFailedException)
+        {
+            val newException =
+                ConflictException("Client ${dynamicallyRegisteredClientAttributes.clientId} is already registered")
+            logger.trace(
+                "Client ${dynamicallyRegisteredClientAttributes.clientId} is already registered",
+                newException
+            )
+            throw newException
         }
     }
 
     override fun update(dynamicallyRegisteredClientAttributes: DynamicallyRegisteredClientAttributes)
     {
-        logger.debug("Received request to UPDATE dynamic client for client : {}", dynamicallyRegisteredClientAttributes.clientId)
+        logger.debug(
+            "Received request to UPDATE dynamic client for client : {}",
+            dynamicallyRegisteredClientAttributes.clientId
+        )
 
         val builder = UpdateExpressionsBuilder()
         dynamicallyRegisteredClientAttributes.apply {
@@ -186,13 +205,16 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             builder.update(DcrTable.scope, scope)
             builder.update(DcrTable.redirectUris, redirectUris)
             builder.update(DcrTable.grantTypes, grantTypes)
-            builder.update(DcrTable.attributes, _jsonHandler.fromAttributes(Attributes.of(dynamicallyRegisteredClientAttributes.attributes)))
+            builder.update(
+                DcrTable.attributes,
+                _jsonHandler.fromAttributes(Attributes.of(dynamicallyRegisteredClientAttributes.attributes))
+            )
         }
 
         val requestBuilder = UpdateItemRequest.builder()
-                .tableName(DcrTable.name)
-                .key(DcrTable.key(dynamicallyRegisteredClientAttributes.clientId))
-                .apply { builder.applyTo(this) }
+            .tableName(DcrTable.name)
+            .key(DcrTable.key(dynamicallyRegisteredClientAttributes.clientId))
+            .apply { builder.applyTo(this) }
 
         _dynamoDBClient.updateItem(requestBuilder.build())
     }
@@ -202,9 +224,9 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         logger.debug("Received request to DELETE dynamic client : {}", clientId)
 
         val request = DeleteItemRequest.builder()
-                .tableName(DcrTable.name)
-                .key(DcrTable.key(clientId))
-                .build()
+            .tableName(DcrTable.name)
+            .key(DcrTable.key(clientId))
+            .build()
 
         _dynamoDBClient.deleteItem(request)
     }
