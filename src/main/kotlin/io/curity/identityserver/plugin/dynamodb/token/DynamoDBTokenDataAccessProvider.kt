@@ -109,7 +109,7 @@ class DynamoDBTokenDataAccessProvider(
                 id = id.fromOpt(item),
                 scope = scope.fromOpt(item),
                 delegationsId = delegationsId.from(item),
-                purpose = delegationsId.from(item),
+                purpose = purpose.from(item),
                 usage = usage.from(item),
                 format = format.from(item),
                 status = TokenStatus.valueOf(status.from(item)),
@@ -117,9 +117,9 @@ class DynamoDBTokenDataAccessProvider(
                 subject = subject.from(item),
                 created = created.from(item),
                 expires = expires.from(item),
-                notBefore = expires.from(item),
+                notBefore = notBefore.from(item),
                 audience = DefaultStringOrArray.of(audience.from(item)),
-                data = _jsonHandler.fromJson(TokenTable.tokenData.from(item))
+                data = _jsonHandler.fromJson(tokenData.from(item))
             )
         }
     }
