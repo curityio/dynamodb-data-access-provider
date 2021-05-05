@@ -199,7 +199,11 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
 
         val builder = UpdateExpressionsBuilder()
         dynamicallyRegisteredClientAttributes.apply {
-            builder.update(DcrTable.clientSecret, clientSecret)
+            // The client secret is only updated if not null
+            if (!clientSecret.isNullOrEmpty())
+            {
+                builder.update(DcrTable.clientSecret, clientSecret)
+            }
             builder.update(DcrTable.updated, now().epochSecond)
             builder.update(DcrTable.status, status.name)
             builder.update(DcrTable.scope, scope)
