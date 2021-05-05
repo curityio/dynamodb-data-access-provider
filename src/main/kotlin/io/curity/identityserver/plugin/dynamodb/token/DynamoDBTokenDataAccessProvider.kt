@@ -16,6 +16,7 @@
 package io.curity.identityserver.plugin.dynamodb.token
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
+import io.curity.identityserver.plugin.dynamodb.DynamoDBDynamicallyRegisteredClientDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBItem
 import io.curity.identityserver.plugin.dynamodb.Index
 import io.curity.identityserver.plugin.dynamodb.ListStringAttribute
@@ -30,6 +31,7 @@ import se.curity.identityserver.sdk.data.authorization.Token
 import se.curity.identityserver.sdk.data.authorization.TokenStatus
 import se.curity.identityserver.sdk.data.tokens.DefaultStringOrArray
 import se.curity.identityserver.sdk.datasource.TokenDataAccessProvider
+import se.curity.identityserver.sdk.errors.ConflictException
 import se.curity.identityserver.sdk.service.Json
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
@@ -161,10 +163,17 @@ class DynamoDBTokenDataAccessProvider(
     {
         val request = PutItemRequest.builder()
             .tableName(TokenTable.name)
+            .conditionExpression("attribute_not_exists(${TokenTable.tokenHash.name})")
             .item(token.toItem())
             .build()
 
-        _dynamoDBClient.putItem(request)
+        try
+        {
+            _dynamoDBClient.putItem(request)
+        } catch (_: ConditionalCheckFailedException)
+        {
+            throw ConflictException("Token with same hash already exists")
+        }
     }
 
     override fun getStatus(tokenHash: String): String?

@@ -19,8 +19,11 @@ import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import io.curity.identityserver.plugin.dynamodb.Table
+import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.datasource.NonceDataAccessProvider
+import se.curity.identityserver.sdk.errors.ConflictException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
@@ -88,9 +91,16 @@ class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient
                     NonceTable.nonceStatus.toNameValuePair(NonceStatus.ISSUED.value)
                 )
             )
+            .conditionExpression("attribute_not_exists(${NonceTable.nonce})")
             .build()
 
-        dynamoDBClient.putItem(request)
+        try
+        {
+            dynamoDBClient.putItem(request)
+        } catch (_: ConditionalCheckFailedException)
+        {
+            throw ConflictException("Nonce already exists")
+        }
     }
 
     override fun consume(nonce: String, consumedAt: Long)
@@ -105,6 +115,7 @@ class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient
     {
         val requestBuilder = UpdateItemRequest.builder()
             .tableName(NonceTable.name)
+            .conditionExpression("attribute_exists(${NonceTable.nonce.name})")
             .key(NonceTable.key(nonce))
 
         if (status == NonceStatus.CONSUMED)
@@ -132,11 +143,21 @@ class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient
                 )
         }
 
-        dynamoDBClient.updateItem(requestBuilder.build())
+        try
+        {
+            dynamoDBClient.updateItem(requestBuilder.build())
+        } catch (_: ConditionalCheckFailedException)
+        {
+            _logger.trace("Trying to update a nonexistent nonce")
+        }
     }
 
     enum class NonceStatus(val value: String)
     {
         ISSUED("issued"), CONSUMED("consumed"), EXPIRED("expired")
+    }
+
+    companion object {
+        val _logger = LoggerFactory.getLogger(DynamoDBNonceDataAccessProvider.javaClass)
     }
 }

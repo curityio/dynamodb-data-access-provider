@@ -19,6 +19,7 @@ import io.curity.identityserver.plugin.dynamodb.token.DynamoDBTokenDataAccessPro
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.data.Session
 import se.curity.identityserver.sdk.datasource.SessionDataAccessProvider
+import se.curity.identityserver.sdk.errors.ConflictException
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
@@ -71,9 +72,15 @@ class DynamoDBSessionDataAccessProvider(private val dynamoDBClient: DynamoDBClie
         val request = PutItemRequest.builder()
             .tableName(SessionTable.name)
             .item(item)
+            .conditionExpression("attribute_not_exists(${SessionTable.id})")
             .build()
-
-        dynamoDBClient.putItem(request)
+        try
+        {
+            dynamoDBClient.putItem(request)
+        } catch (_: ConditionalCheckFailedException)
+        {
+           throw ConflictException("There is already a session with the same id.")
+        }
     }
 
     override fun updateSession(updatedSession: Session)
@@ -81,7 +88,6 @@ class DynamoDBSessionDataAccessProvider(private val dynamoDBClient: DynamoDBClie
         val request = UpdateItemRequest.builder()
             .tableName(SessionTable.name)
             .key(SessionTable.key(updatedSession.id))
-            .conditionExpression("attribute_exists(${SessionTable.id})")
             .updateExpression(
                 "SET ${SessionTable.data} = ${SessionTable.data.colonName}," +
                         " ${SessionTable.expiresAt} = ${SessionTable.expiresAt.colonName}"
@@ -94,14 +100,7 @@ class DynamoDBSessionDataAccessProvider(private val dynamoDBClient: DynamoDBClie
             )
             .build()
 
-        try
-        {
-            dynamoDBClient.updateItem(request)
-        } catch (_: ConditionalCheckFailedException)
-        {
-            // this exceptions means the entry does not exists, which isn't an error
-            _logger.debug("updateSession on a nonexistent session")
-        }
+        dynamoDBClient.updateItem(request)
     }
 
     override fun updateSessionExpiration(id: String, expiresAt: Instant)
