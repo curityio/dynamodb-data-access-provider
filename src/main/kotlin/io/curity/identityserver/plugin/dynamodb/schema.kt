@@ -59,6 +59,7 @@ interface DynamoDBAttribute<T>
     fun addToOpt(map: MutableMap<String, AttributeValue>, value: T?)
     fun addToAny(map: MutableMap<String, AttributeValue>, value: Any)
     fun cast(value: Any): T?
+    fun isValueCompatible(value: Any): Boolean
 }
 
 // A DynamoDB attribute that must also be unique
@@ -104,6 +105,9 @@ abstract class BaseAttribute<T>(
 
     override val hashName = "#${name}"
     override val colonName = ":${name}"
+
+    // TODO improve
+    override fun isValueCompatible(value: Any) = cast(value) != null
 }
 
 class StringAttribute(name: String) : BaseAttribute<String>(name, AttributeType.S)

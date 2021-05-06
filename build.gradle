@@ -21,4 +21,6 @@ dependencies {
     compile libraries.amazonaws_dynamodb
     compile libraries.amazonaws_sts
     runtime libraries.reactive_streams
+
+    testCompile 'junit:junit.4.13.2'
 }
