@@ -16,23 +16,19 @@
 package io.curity.identityserver.plugin.dynamodb.token
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
-import io.curity.identityserver.plugin.dynamodb.DynamoDBDynamicallyRegisteredClientDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBItem
-import io.curity.identityserver.plugin.dynamodb.Index
+import io.curity.identityserver.plugin.dynamodb.PartitionOnlyIndex
 import io.curity.identityserver.plugin.dynamodb.ListStringAttribute
-import io.curity.identityserver.plugin.dynamodb.MutableDynamoDBItem
 import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import io.curity.identityserver.plugin.dynamodb.Table
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import io.curity.identityserver.plugin.dynamodb.useIndexAndKey
-import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.data.authorization.Token
 import se.curity.identityserver.sdk.data.authorization.TokenStatus
 import se.curity.identityserver.sdk.data.tokens.DefaultStringOrArray
 import se.curity.identityserver.sdk.datasource.TokenDataAccessProvider
 import se.curity.identityserver.sdk.errors.ConflictException
-import se.curity.identityserver.sdk.service.Json
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
@@ -74,7 +70,7 @@ class DynamoDBTokenDataAccessProvider(
             tokenHash.toNameValuePair(hash)
         )
 
-        val idIndex = Index("id-index", id)
+        val idIndex = PartitionOnlyIndex("id-index", id)
     }
 
     private fun Token.toItem() = mutableMapOf<String, AttributeValue>().also { item ->

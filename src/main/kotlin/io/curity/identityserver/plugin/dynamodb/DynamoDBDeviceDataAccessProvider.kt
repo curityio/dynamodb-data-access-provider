@@ -22,7 +22,6 @@ import se.curity.identityserver.sdk.attribute.Attribute
 import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
-import se.curity.identityserver.sdk.attribute.scim.v2.extensions.Device
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.EXPIRES_AT
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.META
@@ -84,10 +83,10 @@ class DynamoDBDeviceDataAccessProvider(
 
         // These two fields refer to the same index, which can be used in two different ways...
         // - Just with the partition key, to obtain all the devices associated to an `accountId`.
-        val accountIdIndex = Index("accountId-deviceId-index", accountId)
+        val accountIdIndex = PartitionOnlyIndex("accountId-deviceId-index", accountId)
 
         // - With both partition key and sort key, to obtain a specific device.
-        val accountIdDeviceIdIndex = Index2("accountId-deviceId-index", accountId, deviceId)
+        val accountIdDeviceIdIndex = PartitionAndSortIndex("accountId-deviceId-index", accountId, deviceId)
     }
 
     /**
@@ -477,8 +476,8 @@ class DynamoDBDeviceDataAccessProvider(
     {
         _logger.debug("Received request to get all devices with startIndex: {} and count: {}", startIndex, count)
 
-        val validatedStartIndex = startIndex.intOrThrow("startIndex")
-        val validatedCount = count.intOrThrow("count")
+        val validatedStartIndex = startIndex.toIntOrThrow("startIndex")
+        val validatedCount = count.toIntOrThrow("count")
 
         val request = ScanRequest.builder()
             .tableName(DeviceTable.name)

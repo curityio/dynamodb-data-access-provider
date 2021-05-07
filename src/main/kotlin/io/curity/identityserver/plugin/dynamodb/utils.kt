@@ -68,7 +68,7 @@ fun <T> retry(name: String, tries: Int, action: () -> TransactionAttemptResult<T
     }
 }
 
-fun Long.intOrThrow(name: String) =
+fun Long.toIntOrThrow(name: String) =
     if(this > Int.MAX_VALUE || this < 0)
     {
         throw IllegalArgumentException("Argument $name is negative or exceeds maximum allowed value")

@@ -34,7 +34,7 @@ class ExpressionBuilder(
 
         )
         is Filter.NotExpression -> Expression.Negation(from(filter.filter))
-        else -> throw UnsupportedFilterException.UnsupportedFilterType(filter)
+        else -> throw UnsupportedQueryException.UnsupportedFilterType(filter)
     }
 
     private fun validateValue(attribute: DynamoDBAttribute<*>, value: Any) =
@@ -43,11 +43,11 @@ class ExpressionBuilder(
             value
         } else
         {
-            throw UnsupportedFilterException.InvalidValue(attribute.name, value)
+            throw UnsupportedQueryException.InvalidValue(attribute.name, value)
         }
 
     private fun lookupAttribute(name: String): DynamoDBAttribute<*> =
-        attributeMap[name] ?: throw UnsupportedFilterException.UnknownAttribute(name)
+        attributeMap[name] ?: throw UnsupportedQueryException.UnknownAttribute(name)
 }
 
 

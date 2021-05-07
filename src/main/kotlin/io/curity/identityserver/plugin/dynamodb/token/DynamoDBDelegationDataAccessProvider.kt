@@ -17,18 +17,27 @@ package io.curity.identityserver.plugin.dynamodb.token
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.DynamoDBItem
-import io.curity.identityserver.plugin.dynamodb.Index
-import io.curity.identityserver.plugin.dynamodb.Index2
+import io.curity.identityserver.plugin.dynamodb.EnumAttribute
 import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
+import io.curity.identityserver.plugin.dynamodb.PartitionAndSortIndex
+import io.curity.identityserver.plugin.dynamodb.PartitionOnlyIndex
+import io.curity.identityserver.plugin.dynamodb.PrimaryKey
 import io.curity.identityserver.plugin.dynamodb.SchemaErrorException
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import io.curity.identityserver.plugin.dynamodb.Table
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
+import io.curity.identityserver.plugin.dynamodb.configureWith
 import io.curity.identityserver.plugin.dynamodb.count
-import io.curity.identityserver.plugin.dynamodb.intOrThrow
+import io.curity.identityserver.plugin.dynamodb.toIntOrThrow
+import io.curity.identityserver.plugin.dynamodb.query.DynamoDBQueryBuilder
+import io.curity.identityserver.plugin.dynamodb.query.Index
+import io.curity.identityserver.plugin.dynamodb.query.QueryPlan
+import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
+import io.curity.identityserver.plugin.dynamodb.query.UnsupportedQueryException
 import io.curity.identityserver.plugin.dynamodb.querySequence
 import io.curity.identityserver.plugin.dynamodb.scanSequence
 import org.slf4j.LoggerFactory
+import se.curity.identityserver.sdk.attribute.AccountAttributes
 import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.AuthenticationAttributes
 import se.curity.identityserver.sdk.data.authorization.Delegation
@@ -46,11 +55,11 @@ import software.amazon.awssdk.services.dynamodb.model.Select
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 
 class DynamoDBDelegationDataAccessProvider(
-    private val dynamoDBClient: DynamoDBClient,
-    configuration: DynamoDBDataAccessProviderConfiguration
+    private val _dynamoDBClient: DynamoDBClient,
+    private val _configuration: DynamoDBDataAccessProviderConfiguration
 ) : DelegationDataAccessProvider
 {
-    private val _jsonHandler = configuration.getJsonHandler()
+    private val _jsonHandler = _configuration.getJsonHandler()
 
     /*
      * There is one attribute for each property in the Delegation interface:
@@ -62,9 +71,8 @@ class DynamoDBDelegationDataAccessProvider(
     {
         val version = StringAttribute("version")
         val id = StringAttribute("id")
-        val status = StringAttribute("status")
+        val status = EnumAttribute.of<DelegationStatus>("status")
         val owner = StringAttribute("owner")
-        val authorizationCode = StringAttribute("authorizationCodeHash")
 
         val created = NumberLongAttribute("created")
         val expires = NumberLongAttribute("expires")
@@ -82,17 +90,31 @@ class DynamoDBDelegationDataAccessProvider(
         val consentResult = StringAttribute("consentResult")
         val claims = StringAttribute("claims")
 
-        val ownerStatusIndex = Index2("owner-status-index", owner, status)
-        val authorizationCodeIndex = Index("authorization-hash-index", authorizationCode)
+        val primaryKey = PrimaryKey(id)
+        val ownerStatusIndex = PartitionAndSortIndex("owner-status-index", owner, status)
+        val authorizationCodeIndex = PartitionOnlyIndex("authorization-hash-index", authorizationCodeHash)
+        val clientStatusIndex = PartitionAndSortIndex("clientId-status-index", clientId, status)
 
-        val possibleAttributes = listOf(
-            id, status, owner, authorizationCode, created, expires, scope, claimMap,
-            clientId, redirectUri, authorizationCodeHash, authenticationAttributes, customClaimValues,
-            mtlsClientCertificate, mtlsClientCertificateX5TS256, mtlsClientCertificateDN,
-            consentResult, claims
-        ).map{
-            it.name
-        }
+        val queryCapabilities = TableQueryCapabilities(
+            indexes = listOf(
+                Index.from(primaryKey),
+                Index.from(ownerStatusIndex),
+                Index.from(authorizationCodeIndex),
+                Index.from(clientStatusIndex)
+            ),
+            attributeMap = mapOf(
+                AccountAttributes.USER_NAME to owner,
+                Delegation.KEY_OWNER to owner,
+                Delegation.KEY_SCOPE to scope,
+                Delegation.KEY_CLIENT_ID to clientId,
+                "client_id" to clientId,
+                Delegation.KEY_REDIRECT_URI to redirectUri,
+                "redirect_uri" to redirectUri,
+                Delegation.KEY_STATUS to status,
+                "expires" to expires,
+                "externalId" to id
+            )
+        )
     }
 
     /*
@@ -103,7 +125,7 @@ class DynamoDBDelegationDataAccessProvider(
         val res = mutableMapOf<String, AttributeValue>()
         DelegationTable.version.addTo(res, "6.2")
         DelegationTable.id.addTo(res, id)
-        DelegationTable.status.addTo(res, status.name)
+        DelegationTable.status.addTo(res, status)
         DelegationTable.owner.addTo(res, owner)
         DelegationTable.created.addTo(res, created)
         DelegationTable.expires.addTo(res, expires)
@@ -128,35 +150,35 @@ class DynamoDBDelegationDataAccessProvider(
      * Deserializes an item into a Delegation implementation
      */
     private fun Map<String, AttributeValue>.toDelegation() = DynamoDBDelegation(
-            version = DelegationTable.version.from(this),
-            id = DelegationTable.id.from(this),
-            status = DelegationStatus.valueOf(DelegationTable.status.from(this)),
-            owner = DelegationTable.owner.from(this),
-            created = DelegationTable.created.from(this),
-            expires = DelegationTable.expires.from(this),
-            clientId = DelegationTable.clientId.from(this),
-            redirectUri = DelegationTable.redirectUri.fromOpt(this),
-            authorizationCodeHash = DelegationTable.redirectUri.fromOpt(this),
-            authenticationAttributes = DelegationTable.authenticationAttributes.from(this).let {
-                AuthenticationAttributes.fromAttributes(
-                    Attributes.fromMap(
-                        _jsonHandler.fromJson(it)
-                    )
-                )
-            },
-            consentResult = DelegationTable.consentResult.fromOpt(this)?.let {
-                DelegationConsentResult.fromMap(
+        version = DelegationTable.version.from(this),
+        id = DelegationTable.id.from(this),
+        status = DelegationTable.status.from(this),
+        owner = DelegationTable.owner.from(this),
+        created = DelegationTable.created.from(this),
+        expires = DelegationTable.expires.from(this),
+        clientId = DelegationTable.clientId.from(this),
+        redirectUri = DelegationTable.redirectUri.fromOpt(this),
+        authorizationCodeHash = DelegationTable.redirectUri.fromOpt(this),
+        authenticationAttributes = DelegationTable.authenticationAttributes.from(this).let {
+            AuthenticationAttributes.fromAttributes(
+                Attributes.fromMap(
                     _jsonHandler.fromJson(it)
                 )
-            },
-            scope = DelegationTable.scope.from(this),
-            claimMap = DelegationTable.claimMap.from(this).let { _jsonHandler.fromJson(it) },
-            customClaimValues = DelegationTable.customClaimValues.from(this).let { _jsonHandler.fromJson(it) },
-            claims = DelegationTable.claims.from(this).let { _jsonHandler.fromJson(it) },
-            mtlsClientCertificate = DelegationTable.mtlsClientCertificate.fromOpt(this),
-            mtlsClientCertificateDN = DelegationTable.mtlsClientCertificateDN.fromOpt(this),
-            mtlsClientCertificateX5TS256 = DelegationTable.mtlsClientCertificateX5TS256.fromOpt(this)
-        )
+            )
+        },
+        consentResult = DelegationTable.consentResult.fromOpt(this)?.let {
+            DelegationConsentResult.fromMap(
+                _jsonHandler.fromJson(it)
+            )
+        },
+        scope = DelegationTable.scope.from(this),
+        claimMap = DelegationTable.claimMap.from(this).let { _jsonHandler.fromJson(it) },
+        customClaimValues = DelegationTable.customClaimValues.from(this).let { _jsonHandler.fromJson(it) },
+        claims = DelegationTable.claims.from(this).let { _jsonHandler.fromJson(it) },
+        mtlsClientCertificate = DelegationTable.mtlsClientCertificate.fromOpt(this),
+        mtlsClientCertificateDN = DelegationTable.mtlsClientCertificateDN.fromOpt(this),
+        mtlsClientCertificateX5TS256 = DelegationTable.mtlsClientCertificateX5TS256.fromOpt(this)
+    )
 
     override fun getById(id: String): Delegation?
     {
@@ -165,7 +187,7 @@ class DynamoDBDelegationDataAccessProvider(
             .key(mapOf(DelegationTable.id.toNameValuePair(id)))
             .build()
 
-        val response = dynamoDBClient.getItem(request)
+        val response = _dynamoDBClient.getItem(request)
 
         if (!response.hasItem() || response.item().isEmpty())
         {
@@ -174,10 +196,9 @@ class DynamoDBDelegationDataAccessProvider(
         val item = response.item()
 
         val status =
-            DelegationStatus.valueOf(
-                DelegationTable.status.fromOpt(item)
-                    ?: throw SchemaErrorException(DelegationTable, DelegationTable.status)
-            )
+            DelegationTable.status.fromOpt(item)
+                ?: throw SchemaErrorException(DelegationTable, DelegationTable.status)
+
         if (status != DelegationStatus.issued)
         {
             return null
@@ -196,7 +217,7 @@ class DynamoDBDelegationDataAccessProvider(
             .expressionAttributeNames(index.expressionNameMap)
             .build()
 
-        val response = dynamoDBClient.query(request)
+        val response = _dynamoDBClient.query(request)
 
         if (!response.hasItems() || response.items().isEmpty())
         {
@@ -214,7 +235,7 @@ class DynamoDBDelegationDataAccessProvider(
             .item(delegation.toItem())
             .build()
 
-        dynamoDBClient.putItem(request)
+        _dynamoDBClient.putItem(request)
     }
 
     override fun setStatus(id: String, newStatus: DelegationStatus): Long
@@ -223,12 +244,12 @@ class DynamoDBDelegationDataAccessProvider(
             .tableName(DelegationTable.name)
             .key(mapOf(DelegationTable.id.toNameValuePair(id)))
             .updateExpression("SET ${DelegationTable.status.hashName} = ${DelegationTable.status.colonName}")
-            .expressionAttributeValues(mapOf(DelegationTable.status.toExpressionNameValuePair(newStatus.toString())))
+            .expressionAttributeValues(mapOf(DelegationTable.status.toExpressionNameValuePair(newStatus)))
             .expressionAttributeNames(mapOf(DelegationTable.status.toNamePair()))
             .returnValues(ReturnValue.UPDATED_NEW)
             .build()
 
-        val response = dynamoDBClient.updateItem(request)
+        val response = _dynamoDBClient.updateItem(request)
 
         return if (response.hasAttributes() && response.attributes().isNotEmpty())
         {
@@ -241,21 +262,21 @@ class DynamoDBDelegationDataAccessProvider(
 
     override fun getByOwner(owner: String, startIndex: Long, count: Long): Collection<Delegation>
     {
-        val validatedStartIndex = startIndex.intOrThrow("startIndex")
-        val validatedCount = count.intOrThrow("count")
+        val validatedStartIndex = startIndex.toIntOrThrow("startIndex")
+        val validatedCount = count.toIntOrThrow("count")
         val index = DelegationTable.ownerStatusIndex
         val request = QueryRequest.builder()
             .tableName(DelegationTable.name)
             .indexName(index.name)
             .keyConditionExpression(index.keyConditionExpression)
             .expressionAttributeValues(
-                index.expressionValueMap(owner, DelegationStatus.issued.toString())
+                index.expressionValueMap(owner, DelegationStatus.issued)
             )
             .expressionAttributeNames(index.expressionNameMap)
             .limit(count.toInt())
             .build()
 
-        return querySequence(request, dynamoDBClient)
+        return querySequence(request, _dynamoDBClient)
             .drop(validatedStartIndex)
             .map { it.toDelegation() }
             .take(validatedCount)
@@ -270,19 +291,19 @@ class DynamoDBDelegationDataAccessProvider(
             .indexName(index.name)
             .keyConditionExpression(index.keyConditionExpression)
             .expressionAttributeValues(
-                index.expressionValueMap(owner, DelegationStatus.issued.toString())
+                index.expressionValueMap(owner, DelegationStatus.issued)
             )
             .expressionAttributeNames(index.expressionNameMap)
             .select(Select.COUNT)
             .build()
 
-        return count(request, dynamoDBClient)
+        return count(request, _dynamoDBClient)
     }
 
     override fun getAllActive(startIndex: Long, count: Long): Collection<Delegation>
     {
-        val validatedStartIndex = startIndex.intOrThrow("startIndex")
-        val validatedCount = count.intOrThrow("count")
+        val validatedStartIndex = startIndex.toIntOrThrow("startIndex")
+        val validatedCount = count.toIntOrThrow("count")
 
         val request = ScanRequest.builder()
             .tableName(DelegationTable.name)
@@ -291,7 +312,7 @@ class DynamoDBDelegationDataAccessProvider(
             .expressionAttributeNames(issuedStatusExpressionAttributeNameMap)
             .build()
 
-        return scanSequence(request, dynamoDBClient)
+        return scanSequence(request, _dynamoDBClient)
             .drop(validatedStartIndex)
             .map { it.toDelegation() }
             .take(validatedCount)
@@ -308,68 +329,93 @@ class DynamoDBDelegationDataAccessProvider(
             .select(Select.COUNT)
             .build()
 
-        return count(request, dynamoDBClient)
+        return count(request, _dynamoDBClient)
     }
 
-    override fun getAll(query: ResourceQuery): MutableCollection<out Delegation>
+    override fun getAll(resourceQuery: ResourceQuery): Collection<DynamoDBDelegation> = try
     {
-        // TODO proper support for querying - IS-5862
+        // A null filter implies a table scan
+        val resourceQueryFilter = resourceQuery.filter ?: throw UnsupportedQueryException.QueryRequiresTableScan()
 
-        val requestBuilder = ScanRequest.builder()
-            .tableName(DelegationTable.name)
+        val comparator = getComparatorFor(resourceQuery)
 
-        if (!query.attributesEnumeration.isNeutral)
+        val queryPlan = QueryPlan.build(
+            resourceQueryFilter,
+            DelegationTable.queryCapabilities
+        )
+
+        if (queryPlan.scan != null)
         {
-            val attributesEnumeration = query.attributesEnumeration
+            throw throw UnsupportedQueryException.QueryRequiresTableScan()
+        }
 
-            if (attributesEnumeration is ResourceQuery.Inclusions)
-            {
-                requestBuilder.projectionExpression(attributesEnumeration.attributes.joinToString(","))
-            } else
-            {
-                // must be exclusions
-                requestBuilder.attributesToGet(
-                    DelegationTable.possibleAttributes.minus(attributesEnumeration.attributes)
-                        .joinToString(","))
+        // TODO there isn't yet a limit on the number of DynamoDB queries performed
+        val result = linkedMapOf<String, Map<String, AttributeValue>>()
+        queryPlan.queries.forEach { query ->
+            val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(query.key, query.value)
+
+            val queryRequest = QueryRequest.builder()
+                .tableName(DelegationTable.name)
+                .configureWith(dynamoDBQuery)
+                .build()
+
+            querySequence(queryRequest, _dynamoDBClient).forEach {
+                result[DelegationTable.id.from(it)] = it
             }
         }
 
-        if (query.filter != null)
+        val values = result.values.asSequence()
+        val sortedValues = if (comparator != null)
         {
-            val filterParser = DelegationsFilterParser(query.filter)
-
-            logger.warn(
-                "Calling getAll with filter: {}, values set: {}. Values: {}",
-                filterParser.parsedFilter,
-                filterParser.attributeValues.count(),
-                filterParser.attributeValues.map { value -> value.value.s() }.joinToString(", ")
+            values.sortedWith(
+                if (resourceQuery.sorting.sortOrder == ResourceQuery.Sorting.SortOrder.ASCENDING)
+                {
+                    comparator
+                } else
+                {
+                    comparator.reversed()
+                }
             )
-
-            requestBuilder.filterExpression(filterParser.parsedFilter)
-            requestBuilder.expressionAttributeValues(filterParser.attributeValues)
-
-            if (filterParser.attributesNamesMap.isNotEmpty())
-            {
-                requestBuilder.expressionAttributeNames(filterParser.attributesNamesMap)
-            }
-        }
-
-        val response = dynamoDBClient.scan(requestBuilder.build())
-
-        val result = mutableListOf<Delegation>()
-
-        if (response.hasItems() && response.items().isNotEmpty())
+        } else
         {
-            response.items().forEach { item -> result.add(item.toDelegation()) }
+            values
         }
 
-        return result
+        val validatedStartIndex = resourceQuery.pagination.startIndex.toIntOrThrow("pagination.startIndex")
+        val validatedCount = resourceQuery.pagination.count.toIntOrThrow("pagination.count")
+
+        sortedValues
+            .drop(validatedStartIndex)
+            .take(validatedCount)
+            .map { it.toDelegation() }
+            .toList()
+    } catch (e: UnsupportedQueryException)
+    {
+        _logger.debug("Unable to process query. Reason is '{}', query = '{}", e.message, resourceQuery)
+        throw _configuration.getExceptionFactory().externalServiceException(e.message)
+    }
+
+    private fun getComparatorFor(resourceQuery: ResourceQuery): Comparator<Map<String, AttributeValue>>?
+    {
+        return if (resourceQuery.sorting != null && resourceQuery.sorting.sortBy != null)
+        {
+            DelegationTable.queryCapabilities.attributeMap[resourceQuery.sorting.sortBy]
+                ?.let { attribute ->
+                    attribute.comparator()
+                        ?: throw UnsupportedQueryException.UnsupportedSortAttribute(resourceQuery.sorting.sortBy)
+                }
+                ?: throw UnsupportedQueryException.UnknownSortAttribute(resourceQuery.sorting.sortBy)
+        } else
+        {
+            null
+        }
     }
 
     companion object
     {
-        private val logger = LoggerFactory.getLogger(DynamoDBDelegationDataAccessProvider::class.java)
-        private val issuedStatusExpressionAttribute = DelegationTable.status.toExpressionNameValuePair(DelegationStatus.issued.name)
+        private val _logger = LoggerFactory.getLogger(DynamoDBDelegationDataAccessProvider::class.java)
+        private val issuedStatusExpressionAttribute =
+            DelegationTable.status.toExpressionNameValuePair(DelegationStatus.issued)
         private val issuedStatusExpressionAttributeMap = mapOf(issuedStatusExpressionAttribute)
         private val issuedStatusExpressionAttributeName = DelegationTable.status.toNamePair()
         private val issuedStatusExpressionAttributeNameMap = mapOf(issuedStatusExpressionAttributeName)

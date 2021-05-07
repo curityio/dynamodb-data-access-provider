@@ -27,7 +27,7 @@ class QueryPlanTests(
     @Test
     fun testQueryPlan()
     {
-        assertEquals(expectedQueryPlan, QueryPlan.tryBuild(indexes, normalize(inputExpression)))
+        assertEquals(expectedQueryPlan, QueryPlan.build(indexes, normalize(inputExpression)))
     }
 
     companion object

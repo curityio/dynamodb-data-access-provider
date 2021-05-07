@@ -47,7 +47,7 @@ class DynamoDBQueryBuilder
             partitionExpression
         } else
         {
-            "$partitionExpression AND (${toDynamoExpression(keyCondition.sortCondition)})"
+            "$partitionExpression AND ${toDynamoExpression(keyCondition.sortCondition)}"
         }
     }
 
@@ -65,21 +65,21 @@ class DynamoDBQueryBuilder
     }
 
     private fun toDynamoExpression(products: List<Product>) =
-        products.joinToString(" OR ") { "(${toDynamoExpression(it)})" }
+        products.joinToString(" OR ") { toDynamoExpression(it) }
 
     private fun toDynamoExpression(product: Product): String =
-        product.terms.joinToString(" AND ") { "(${toDynamoExpression(it)})" }
+        product.terms.joinToString(" AND ") { toDynamoExpression(it) }
 
     private fun toDynamoExpression(it: Expression.Attribute): String
     {
         val hashName = hashNameFor(it.attribute)
         val colonName = colonNameFor(it.attribute, it.value)
-        return "(${it.operator.toDynamoOperator(hashName, colonName)})"
+        return it.operator.toDynamoOperator(hashName, colonName)
     }
 
     private fun hashNameFor(attribute: DynamoDBAttribute<*>): String
     {
-        nameMap[attribute.name] = attribute.hashName
+        nameMap[attribute.hashName] = attribute.name
         return attribute.hashName
     }
 
@@ -87,11 +87,9 @@ class DynamoDBQueryBuilder
     {
         val counter = valueAliasCounter.merge(attribute.name, 1) { old, new -> old + new } ?: 1
         val colonName = colonName(attribute.name, counter)
-        // FIXME
-        valueMap[colonName] = AttributeValue.builder().s(value.toString()).build()
+        valueMap[colonName] = attribute.toAttrValueWithCast(value)
         return colonName
     }
 
-    private fun hashName(name: String) = "#$name"
     private fun colonName(name: String, counter: Int) = ":${name}_$counter"
 }

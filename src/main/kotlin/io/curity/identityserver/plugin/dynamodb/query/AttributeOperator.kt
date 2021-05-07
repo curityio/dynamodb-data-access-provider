@@ -112,16 +112,21 @@ sealed class AttributeOperator
             Filter.AttributeOperator.NE -> Ne
             Filter.AttributeOperator.CO -> Co
             Filter.AttributeOperator.SW -> Sw
-            Filter.AttributeOperator.EW -> throw UnsupportedFilterException.UnsupportedOperator(Filter.AttributeOperator.EW)
+            Filter.AttributeOperator.EW -> throw UnsupportedQueryException.UnsupportedOperator(Filter.AttributeOperator.EW)
             Filter.AttributeOperator.PR -> Pr
             Filter.AttributeOperator.GT -> Gt
             Filter.AttributeOperator.GE -> Ge
             Filter.AttributeOperator.LT -> Lt
             Filter.AttributeOperator.LE -> Le
         }
-
-        private val sortOperators = setOf(
-            Eq, Gt, Ge, Lt, Le, Sw
-        )
     }
 }
+
+private val sortOperators = setOf(
+    AttributeOperator.Eq,
+    AttributeOperator.Gt,
+    AttributeOperator.Ge,
+    AttributeOperator.Lt,
+    AttributeOperator.Le,
+    AttributeOperator.Sw
+)

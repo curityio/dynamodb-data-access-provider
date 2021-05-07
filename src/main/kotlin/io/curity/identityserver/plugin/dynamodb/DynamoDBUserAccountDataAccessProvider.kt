@@ -138,7 +138,7 @@ class DynamoDBUserAccountDataAccessProvider(
     }
 
     private fun retrieveByIndexQuery(
-        index: Index<String>,
+        index: PartitionOnlyIndex<String>,
         keyValue: String,
         attributesEnumeration: ResourceQuery.AttributesEnumeration?
     ): ResourceAttributes<*>?
@@ -852,11 +852,11 @@ class DynamoDBUserAccountDataAccessProvider(
             pk.name to pk.toAttrValue(accountId.uniquenessValueFrom(accountIdValue))
         )
 
-        val userNameIndex = Index("userName-index", userName)
+        val userNameIndex = PartitionOnlyIndex("userName-index", userName)
 
-        val emailIndex = Index("email-index", email)
+        val emailIndex = PartitionOnlyIndex("email-index", email)
 
-        val phoneIndex = Index("phone-index", phone)
+        val phoneIndex = PartitionOnlyIndex("phone-index", phone)
     }
 
     object LinksTable : Table("curity-links")
@@ -869,7 +869,7 @@ class DynamoDBUserAccountDataAccessProvider(
         val linkingAccountManager = StringAttribute("linkingAccountManager")
         val created = NumberLongAttribute("created")
 
-        val listLinksIndex = Index2("list-links-index", localAccountId, linkingAccountManager)
+        val listLinksIndex = PartitionAndSortIndex("list-links-index", localAccountId, linkingAccountManager)
 
         fun createItem(
             linkingAccountManagerValue: String,

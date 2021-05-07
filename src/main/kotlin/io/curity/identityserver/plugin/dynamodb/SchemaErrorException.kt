@@ -20,4 +20,7 @@ class SchemaErrorException(msg: String) :
 
     constructor(attribute: DynamoDBAttribute<*>)
             : this("Missing attribute '$attribute' of type '${attribute.type}'")
+
+    constructor(attribute: DynamoDBAttribute<*>, value: Any)
+            : this("Invalid value '$value$ for attribute ${attribute.name}'")
 }

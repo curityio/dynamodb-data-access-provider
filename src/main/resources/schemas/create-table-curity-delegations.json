@@ -14,6 +14,10 @@
       "AttributeType": "S"
     },
     {
+      "AttributeName": "clientId",
+      "AttributeType": "S"
+    },
+    {
       "AttributeName": "authorizationCodeHash",
       "AttributeType": "S"
     }
@@ -58,6 +62,26 @@
         {
           "KeyType": "HASH",
           "AttributeName": "owner"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "status"
+        }
+      ]
+    },
+    {
+      "IndexName": "clientId-status-index",
+      "Projection": {
+        "ProjectionType": "ALL"
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName": "clientId"
         },
         {
           "KeyType": "RANGE",

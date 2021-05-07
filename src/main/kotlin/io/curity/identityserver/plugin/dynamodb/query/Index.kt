@@ -12,62 +12,101 @@
 package io.curity.identityserver.plugin.dynamodb.query
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBAttribute
+import io.curity.identityserver.plugin.dynamodb.PartitionAndSortIndex
+import io.curity.identityserver.plugin.dynamodb.PartitionOnlyIndex
+import io.curity.identityserver.plugin.dynamodb.PrimaryKey
 
 data class Index(
-    val name: String,
+    val name: String?,
     val partitionAttribute: DynamoDBAttribute<*>,
     val sortAttribute: DynamoDBAttribute<*>? = null
 )
 {
-    fun tryGetKeyCondition(product: Product): KeyCondition?
+    companion object
+    {
+        fun <T> from(index: PartitionOnlyIndex<T>) = Index(index.name, index.attribute)
+        fun <T1, T2> from(index: PartitionAndSortIndex<T1, T2>) =
+            Index(index.name, index.partitionAttribute, index.sortAttribute)
+
+        fun <T> from(primaryKey: PrimaryKey<T>) = Index(null, primaryKey.attribute)
+    }
+
+    fun getKeyConditions(product: Product): List<KeyCondition>
     {
         val partitionKeyExpressions = product.terms
             .filter { term -> term.attribute == partitionAttribute }
         if (partitionKeyExpressions.isEmpty())
         {
-            return null
+            return NO_KEY_CONDITION
         }
         if (partitionKeyExpressions.size > 1)
         {
-            return null
+            return NO_KEY_CONDITION
         }
         val partitionKeyExpression = partitionKeyExpressions.single()
         if (partitionKeyExpression.operator != AttributeOperator.Eq)
         {
-            return null
+            return NO_KEY_CONDITION
         }
         if (sortAttribute == null)
         {
-            return KeyCondition(this, partitionKeyExpression)
+            return listOf(KeyCondition(this, partitionKeyExpression))
         }
         val sortKeyExpressions = product.terms
-            .filter { term -> term.attribute == partitionAttribute }
+            .filter { term -> term.attribute == sortAttribute }
         if (sortKeyExpressions.isEmpty())
         {
-            return KeyCondition(this, partitionKeyExpression)
+            return listOf(KeyCondition(this, partitionKeyExpression))
         }
         if (sortKeyExpressions.size > 2)
         {
-            return null
+            return NO_KEY_CONDITION
         }
-        val sortKeyExpression = tryGetSortKeyExpression(sortAttribute, sortKeyExpressions) ?: return null
-        return KeyCondition(this, partitionKeyExpression, sortKeyExpression)
+        val rangeExpressions = getRangeExpressions(sortAttribute, sortKeyExpressions)
+        return rangeExpressions.map {
+            KeyCondition(this, partitionKeyExpression, it)
+        }
     }
 
-    private fun tryGetSortKeyExpression(
+    private fun getRangeExpressions(
         sortAttribute: DynamoDBAttribute<*>,
-        sortKeyExpressions: List<Expression.Attribute>):
-            RangeExpression? =
+        sortKeyExpressions: List<Expression.Attribute>
+    ):
+            List<RangeExpression> =
 
         if (sortKeyExpressions.size == 1)
         {
             val sortKeyExpression = sortKeyExpressions.single()
-            if (AttributeOperator.isUsableOnSortIndex(sortKeyExpression.operator))
+            when
             {
-                RangeExpression.Binary(sortKeyExpression)
-            } else
-            {
-                null
+                AttributeOperator.isUsableOnSortIndex(sortKeyExpression.operator) ->
+                {
+                    listOf(RangeExpression.Binary(sortKeyExpression))
+                }
+                // Special case for NE, that will result in two queries
+                sortKeyExpression.operator == AttributeOperator.Ne ->
+                {
+                    listOf(
+                        RangeExpression.Binary(
+                            Expression.Attribute(
+                                sortKeyExpression.attribute,
+                                AttributeOperator.Lt,
+                                sortKeyExpression.value
+                            )
+                        ),
+                        RangeExpression.Binary(
+                            Expression.Attribute(
+                                sortKeyExpression.attribute,
+                                AttributeOperator.Gt,
+                                sortKeyExpression.value
+                            )
+                        )
+                    )
+                }
+                else ->
+                {
+                    NO_RANGE_EXPRESSION
+                }
             }
         } else if (sortKeyExpressions.size == 2)
         {
@@ -75,14 +114,14 @@ data class Index(
             val geExpression = sortKeyExpressions.singleOrNull { it.operator == AttributeOperator.Ge }
             if (leExpression != null && geExpression != null)
             {
-                RangeExpression.Between(sortAttribute, geExpression.value, leExpression.value)
+                listOf(RangeExpression.Between(sortAttribute, geExpression.value, leExpression.value))
             } else
             {
-                null
+                NO_RANGE_EXPRESSION
             }
         } else
         {
-            null
+            NO_RANGE_EXPRESSION
         }
 
     fun filterKeys(product: Product): Product =
@@ -94,5 +133,8 @@ data class Index(
                 }.toSet()
         )
 }
+
+private val NO_KEY_CONDITION = listOf<KeyCondition>()
+private val NO_RANGE_EXPRESSION = listOf<RangeExpression>()
 
 

@@ -14,20 +14,33 @@ package io.curity.identityserver.plugin.dynamodb
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 
-class DynamoDBQuery(
-    val indexName: String,
+data class DynamoDBQuery(
+    val indexName: String?,
     val keyExpression: String,
     val filterExpression: String,
     val valueMap: Map<String, AttributeValue>,
     val nameMap: Map<String, String>
 )
 
-fun QueryRequest.Builder.configureWith(query: DynamoDBQuery)
+fun QueryRequest.Builder.configureWith(query: DynamoDBQuery): QueryRequest.Builder
 {
-    indexName(query.indexName)
+    if (query.indexName != null)
+    {
+        indexName(query.indexName)
+    }
     keyConditionExpression(query.keyExpression)
-    filterExpression(query.filterExpression)
-    expressionAttributeNames(query.nameMap)
-    expressionAttributeValues(query.valueMap)
+    if (query.filterExpression.isNotBlank())
+    {
+        filterExpression(query.filterExpression)
+    }
+    if (query.nameMap.isNotEmpty())
+    {
+        expressionAttributeNames(query.nameMap)
+    }
+    if (query.valueMap.isNotEmpty())
+    {
+        expressionAttributeValues(query.valueMap)
+    }
+    return this
 }
 

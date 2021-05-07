@@ -60,6 +60,9 @@ interface DynamoDBAttribute<T>
     fun addToAny(map: MutableMap<String, AttributeValue>, value: Any)
     fun cast(value: Any): T?
     fun isValueCompatible(value: Any): Boolean
+    fun toNameAttributePair(): Pair<String, DynamoDBAttribute<T>>
+    fun toAttrValueWithCast(value: Any): AttributeValue
+    fun comparator(): Comparator<Map<String, AttributeValue>>?
 }
 
 // A DynamoDB attribute that must also be unique
@@ -94,12 +97,15 @@ abstract class BaseAttribute<T>(
         }
     }
 
-    override fun addToAny(map: MutableMap<String, AttributeValue>, value: Any) {
+    override fun addToAny(map: MutableMap<String, AttributeValue>, value: Any)
+    {
         val castedValue = cast(value)
-        if(castedValue != null) {
+        if (castedValue != null)
+        {
             addTo(map, castedValue)
-        } else {
-            throw Exception("TODO")
+        } else
+        {
+            throw RuntimeException("Unable to convert '$value' to '$name' attribute value")
         }
     }
 
@@ -108,13 +114,64 @@ abstract class BaseAttribute<T>(
 
     // TODO improve
     override fun isValueCompatible(value: Any) = cast(value) != null
+
+    override fun toNameAttributePair() = name to this
+
+    override fun toAttrValueWithCast(value: Any) =
+        toAttrValue(cast(value) ?: throw RuntimeException("Unable to convert '$value' to '$name' attribute value"))
 }
+
+private fun <T : Comparable<T>> compare(a: T?, b: T?) =
+    if (a == null && b == null)
+    {
+        0
+    } else if (a == null)
+    {
+        -1
+    } else if (b == null)
+    {
+        1
+    } else
+    {
+        a.compareTo(b)
+    }
 
 class StringAttribute(name: String) : BaseAttribute<String>(name, AttributeType.S)
 {
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
     override fun from(attrValue: AttributeValue): String = attrValue.s()
     override fun cast(value: Any) = value as? String
+    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(fromOpt(a), fromOpt(b)) }
+}
+
+class EnumAttribute<T : Enum<T>>(
+    name: String,
+    private val enumClass: Class<T>,
+    private val valuesMap: Map<String, T>
+) : BaseAttribute<T>(name, AttributeType.S)
+{
+    override fun toAttrValue(value: T): AttributeValue = AttributeValue.builder().s(value.name).build()
+    override fun from(attrValue: AttributeValue): T = valuesMap[attrValue.s()]
+        ?: throw SchemaErrorException(this, attrValue.s())
+
+    override fun cast(value: Any) = if (enumClass.isInstance(value))
+    {
+        enumClass.cast(value)
+    } else
+    {
+        null
+    }
+
+    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(fromOpt(a), fromOpt(b)) }
+
+    companion object
+    {
+        inline fun <reified T : Enum<T>> of(name: String) = EnumAttribute<T>(
+            name,
+            T::class.java,
+            enumValues<T>().map { it.name to it }.toMap()
+        )
+    }
 }
 
 class ListStringAttribute(name: String) : BaseAttribute<Collection<String>>(name, AttributeType.L)
@@ -133,6 +190,9 @@ class ListStringAttribute(name: String) : BaseAttribute<Collection<String>>(name
     {
         null
     }
+
+    // Lists are not comparable
+    override fun comparator() = null
 }
 
 // An attribute that is composed by two values
@@ -149,6 +209,8 @@ class StringCompositeAttribute2(name: String, private val template: (String, Str
     override fun from(attrValue: AttributeValue): String = attrValue.s()
 
     override fun cast(value: Any) = value as? String
+
+    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(fromOpt(a), fromOpt(b)) }
 }
 
 class UniqueStringAttribute(name: String, val _f: (String) -> String) : BaseAttribute<String>(name, AttributeType.S),
@@ -158,6 +220,7 @@ class UniqueStringAttribute(name: String, val _f: (String) -> String) : BaseAttr
     override fun from(attrValue: AttributeValue): String = attrValue.s()
     override fun uniquenessValueFrom(value: String) = _f(value)
     override fun cast(value: Any) = value as? String
+    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(fromOpt(a), fromOpt(b)) }
 }
 
 class KeyStringAttribute(name: String) : BaseAttribute<String>(name, AttributeType.S)
@@ -169,13 +232,16 @@ class KeyStringAttribute(name: String) : BaseAttribute<String>(name, AttributeTy
         toNameValuePair(uniqueAttribute.uniquenessValueFrom(value))
 
     override fun cast(value: Any) = value as? String
+
+    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(fromOpt(a), fromOpt(b)) }
 }
 
 class NumberLongAttribute(name: String) : BaseAttribute<Long>(name, AttributeType.N)
 {
     override fun toAttrValue(value: Long): AttributeValue = AttributeValue.builder().n(value.toString()).build()
     override fun from(attrValue: AttributeValue): Long = attrValue.n().toLong()
-    override fun cast(value: Any) = value as? Long
+    override fun cast(value: Any) = value as? Long ?: (value as? Int)?.toLong()
+    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(fromOpt(a), fromOpt(b)) }
 }
 
 class BooleanAttribute(name: String) : BaseAttribute<Boolean>(name, AttributeType.N)
@@ -183,6 +249,7 @@ class BooleanAttribute(name: String) : BaseAttribute<Boolean>(name, AttributeTyp
     override fun toAttrValue(value: Boolean): AttributeValue = AttributeValue.builder().bool(value).build()
     override fun from(attrValue: AttributeValue): Boolean = attrValue.bool()
     override fun cast(value: Any) = value as? Boolean
+    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(fromOpt(a), fromOpt(b)) }
 }
 
 class ExpressionBuilder(
@@ -225,8 +292,15 @@ fun Delete.Builder.conditionExpression(expression: Expression)
     return this
 }
 
+class PrimaryKey<T>(
+    val attribute: DynamoDBAttribute<T>
+)
+
 // A DynamoDB index composed by a single column (partition key)
-class Index<T>(val name: String, val attribute: DynamoDBAttribute<T>)
+class PartitionOnlyIndex<T>(
+    val name: String,
+    val attribute: DynamoDBAttribute<T>
+)
 {
     override fun toString() = name
     val expression = "${attribute.hashName} = ${attribute.colonName}"
@@ -234,7 +308,8 @@ class Index<T>(val name: String, val attribute: DynamoDBAttribute<T>)
     val expressionNameMap = mapOf(attribute.hashName to attribute.name)
 }
 
-fun <T> QueryRequest.Builder.useIndexAndKey(index: Index<T>, value: T): QueryRequest.Builder{
+fun <T> QueryRequest.Builder.useIndexAndKey(index: PartitionOnlyIndex<T>, value: T): QueryRequest.Builder
+{
     this.indexName(index.name)
     this.keyConditionExpression(index.expression)
     this.expressionAttributeNames(index.expressionNameMap)
@@ -243,21 +318,25 @@ fun <T> QueryRequest.Builder.useIndexAndKey(index: Index<T>, value: T): QueryReq
 }
 
 // A DynamoDB index composed by two columns (partition key + sort key)
-class Index2<T>(val name: String, private val attribute1: DynamoDBAttribute<T>, private val attribute2: DynamoDBAttribute<T>)
+class PartitionAndSortIndex<T1, T2>(
+    val name: String,
+    val partitionAttribute: DynamoDBAttribute<T1>,
+    val sortAttribute: DynamoDBAttribute<T2>
+)
 {
     override fun toString() = name
-    fun expressionValueMap(first: T, second: T) = mapOf(
-        attribute1.toExpressionNameValuePair(first),
-        attribute2.toExpressionNameValuePair(second)
+    fun expressionValueMap(first: T1, second: T2) = mapOf(
+        partitionAttribute.toExpressionNameValuePair(first),
+        sortAttribute.toExpressionNameValuePair(second)
     )
 
     val expressionNameMap = mapOf(
-        attribute1.hashName to attribute1.name,
-        attribute2.hashName to attribute2.name
+        partitionAttribute.hashName to partitionAttribute.name,
+        sortAttribute.hashName to sortAttribute.name
     )
 
     val keyConditionExpression =
-        "${attribute1.hashName} = ${attribute1.colonName} AND ${attribute2.hashName} = ${attribute2.colonName}"
+        "${partitionAttribute.hashName} = ${partitionAttribute.colonName} AND ${sortAttribute.hashName} = ${sortAttribute.colonName}"
 }
 
 fun <T> MutableMap<String, AttributeValue>.addAttr(attribute: DynamoDBAttribute<T>, value: T)
