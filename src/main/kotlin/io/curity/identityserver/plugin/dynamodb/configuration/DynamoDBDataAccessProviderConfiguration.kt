@@ -62,7 +62,7 @@ interface DynamoDBDataAccessProviderConfiguration: Configuration
     }
 
     @Description("Allow use of table scans to fulfill resource queries")
-    fun getAllowTableScans(): Boolean
+    fun getAllowTableScans(): Optional<Boolean>
 
     fun getExceptionFactory(): ExceptionFactory
 

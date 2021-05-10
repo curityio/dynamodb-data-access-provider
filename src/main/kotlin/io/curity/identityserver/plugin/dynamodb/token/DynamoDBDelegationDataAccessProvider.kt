@@ -344,7 +344,7 @@ class DynamoDBDelegationDataAccessProvider(
 
         val queryPlan = queryPlanner.build(resourceQueryFilter)
 
-        if (queryPlan is QueryPlan.UsingScan && !_configuration.getAllowTableScans())
+        if (queryPlan is QueryPlan.UsingScan && !_configuration.getAllowTableScans().orElse(false))
         {
             throw throw UnsupportedQueryException.QueryRequiresTableScan()
         }
@@ -387,6 +387,11 @@ class DynamoDBDelegationDataAccessProvider(
 
     private fun query(queryPlan: QueryPlan.UsingQueries): Sequence<DynamoDBItem>
     {
+        val nOfQueries = queryPlan.queries.entries.size
+        if (nOfQueries > MAX_QUERIES)
+        {
+            throw UnsupportedQueryException.QueryRequiresTooManyOperations(nOfQueries, MAX_QUERIES)
+        }
         val result = linkedMapOf<String, Map<String, AttributeValue>>()
         queryPlan.queries.forEach { query ->
             val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(query.key, query.value)
@@ -439,6 +444,8 @@ class DynamoDBDelegationDataAccessProvider(
         private val issuedStatusExpressionAttributeMap = mapOf(issuedStatusExpressionAttribute)
         private val issuedStatusExpressionAttributeName = DelegationTable.status.toNamePair()
         private val issuedStatusExpressionAttributeNameMap = mapOf(issuedStatusExpressionAttributeName)
+
+        private const val MAX_QUERIES = 8
     }
 }
 

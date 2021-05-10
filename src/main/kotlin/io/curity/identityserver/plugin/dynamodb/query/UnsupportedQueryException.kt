@@ -33,6 +33,9 @@ sealed class UnsupportedQueryException(msg: String) : Exception(msg)
     class UnsupportedSortAttribute(val name: String)
         : UnsupportedQueryException("Attribute '$name' does not support sorting")
 
-    class QueryRequiresTableScan()
+    class QueryRequiresTableScan
         : UnsupportedQueryException("Query requires table scan, which is not allowed")
+
+    class QueryRequiresTooManyOperations(val queries: Int, val maxQueries: Int)
+        : UnsupportedQueryException("Query requires $queries table queries and the allowed maximum is $maxQueries")
 }
