@@ -16,6 +16,9 @@ import io.curity.identityserver.plugin.dynamodb.PartitionAndSortIndex
 import io.curity.identityserver.plugin.dynamodb.PartitionOnlyIndex
 import io.curity.identityserver.plugin.dynamodb.PrimaryKey
 
+/**
+ * Represents a queryable DynamoDB index
+ */
 data class Index(
     val name: String?,
     val partitionAttribute: DynamoDBAttribute<*>,
@@ -31,99 +34,11 @@ data class Index(
         fun <T> from(primaryKey: PrimaryKey<T>) = Index(null, primaryKey.attribute)
     }
 
-    fun getKeyConditions(product: Product): List<KeyCondition>
-    {
-        val partitionKeyExpressions = product.terms
-            .filter { term -> term.attribute == partitionAttribute }
-        if (partitionKeyExpressions.isEmpty())
-        {
-            return NO_KEY_CONDITION
-        }
-        if (partitionKeyExpressions.size > 1)
-        {
-            return NO_KEY_CONDITION
-        }
-        val partitionKeyExpression = partitionKeyExpressions.single()
-        if (partitionKeyExpression.operator != AttributeOperator.Eq)
-        {
-            return NO_KEY_CONDITION
-        }
-        if (sortAttribute == null)
-        {
-            return listOf(KeyCondition(this, partitionKeyExpression))
-        }
-        val sortKeyExpressions = product.terms
-            .filter { term -> term.attribute == sortAttribute }
-        if (sortKeyExpressions.isEmpty())
-        {
-            return listOf(KeyCondition(this, partitionKeyExpression))
-        }
-        if (sortKeyExpressions.size > 2)
-        {
-            return NO_KEY_CONDITION
-        }
-        val rangeExpressions = getRangeExpressions(sortAttribute, sortKeyExpressions)
-        return rangeExpressions.map {
-            KeyCondition(this, partitionKeyExpression, it)
-        }
-    }
+    val indexName = name ?: "implicit"
 
-    private fun getRangeExpressions(
-        sortAttribute: DynamoDBAttribute<*>,
-        sortKeyExpressions: List<Expression.Attribute>
-    ):
-            List<RangeExpression> =
-
-        if (sortKeyExpressions.size == 1)
-        {
-            val sortKeyExpression = sortKeyExpressions.single()
-            when
-            {
-                AttributeOperator.isUsableOnSortIndex(sortKeyExpression.operator) ->
-                {
-                    listOf(RangeExpression.Binary(sortKeyExpression))
-                }
-                // Special case for NE, that will result in two queries
-                sortKeyExpression.operator == AttributeOperator.Ne ->
-                {
-                    listOf(
-                        RangeExpression.Binary(
-                            Expression.Attribute(
-                                sortKeyExpression.attribute,
-                                AttributeOperator.Lt,
-                                sortKeyExpression.value
-                            )
-                        ),
-                        RangeExpression.Binary(
-                            Expression.Attribute(
-                                sortKeyExpression.attribute,
-                                AttributeOperator.Gt,
-                                sortKeyExpression.value
-                            )
-                        )
-                    )
-                }
-                else ->
-                {
-                    NO_RANGE_EXPRESSION
-                }
-            }
-        } else if (sortKeyExpressions.size == 2)
-        {
-            val leExpression = sortKeyExpressions.singleOrNull { it.operator == AttributeOperator.Le }
-            val geExpression = sortKeyExpressions.singleOrNull { it.operator == AttributeOperator.Ge }
-            if (leExpression != null && geExpression != null)
-            {
-                listOf(RangeExpression.Between(sortAttribute, geExpression.value, leExpression.value))
-            } else
-            {
-                NO_RANGE_EXPRESSION
-            }
-        } else
-        {
-            NO_RANGE_EXPRESSION
-        }
-
+    /**
+     * Given a [Product], returns that product without the terms where the key attributes appear
+     */
     fun filterKeys(product: Product): Product =
         Product(
             product.terms
@@ -132,9 +47,7 @@ data class Index(
                             (sortAttribute == null || it.attribute != sortAttribute)
                 }.toSet()
         )
-}
 
-private val NO_KEY_CONDITION = listOf<KeyCondition>()
-private val NO_RANGE_EXPRESSION = listOf<RangeExpression>()
+}
 
 

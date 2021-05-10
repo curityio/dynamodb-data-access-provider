@@ -9,7 +9,7 @@ class DynamoDBQueryBuilder
 {
     companion object
     {
-        fun buildQuery(keyCondition: KeyCondition, products: List<Product>): DynamoDBQuery
+        fun buildQuery(keyCondition: QueryPlan.KeyCondition, products: List<Product>): DynamoDBQuery
         {
             val builder = DynamoDBQueryBuilder()
             val filterExpression = builder.toDynamoExpression(products)
@@ -23,10 +23,10 @@ class DynamoDBQueryBuilder
             )
         }
 
-        fun buildScan(products: List<Product>): DynamoDBScan
+        fun buildScan(expression: DisjunctiveNormalForm): DynamoDBScan
         {
             val builder = DynamoDBQueryBuilder()
-            val filterExpression = builder.toDynamoExpression(products)
+            val filterExpression = builder.toDynamoExpression(expression.products)
             return DynamoDBScan(
                 filterExpression,
                 builder.valueMap,
@@ -39,7 +39,7 @@ class DynamoDBQueryBuilder
     private val nameMap = mutableMapOf<String, String>()
     private val valueAliasCounter = mutableMapOf<String, Int>()
 
-    private fun toDynamoExpression(keyCondition: KeyCondition): String
+    private fun toDynamoExpression(keyCondition: QueryPlan.KeyCondition): String
     {
         val partitionExpression = toDynamoExpression(keyCondition.partitionCondition)
         return if (keyCondition.sortCondition == null)
@@ -51,10 +51,10 @@ class DynamoDBQueryBuilder
         }
     }
 
-    private fun toDynamoExpression(rangeExpression: RangeExpression) = when (rangeExpression)
+    private fun toDynamoExpression(rangeExpression: QueryPlan.RangeCondition) = when (rangeExpression)
     {
-        is RangeExpression.Binary -> toDynamoExpression(rangeExpression.attributeExpression)
-        is RangeExpression.Between ->
+        is QueryPlan.RangeCondition.Binary -> toDynamoExpression(rangeExpression.attributeExpression)
+        is QueryPlan.RangeCondition.Between ->
         {
             val hashName = hashNameFor(rangeExpression.attribute)
             val colonNameLower = colonNameFor(rangeExpression.attribute, rangeExpression.lower)
@@ -64,13 +64,13 @@ class DynamoDBQueryBuilder
         }
     }
 
-    private fun toDynamoExpression(products: List<Product>) =
+    private fun toDynamoExpression(products: Iterable<Product>) =
         products.joinToString(" OR ") { toDynamoExpression(it) }
 
     private fun toDynamoExpression(product: Product): String =
         product.terms.joinToString(" AND ") { toDynamoExpression(it) }
 
-    private fun toDynamoExpression(it: Expression.Attribute): String
+    private fun toDynamoExpression(it: AttributeExpression): String
     {
         val hashName = hashNameFor(it.attribute)
         val colonName = colonNameFor(it.attribute, it.value)

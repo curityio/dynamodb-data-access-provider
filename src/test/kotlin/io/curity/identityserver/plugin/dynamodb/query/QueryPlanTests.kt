@@ -27,7 +27,8 @@ class QueryPlanTests(
     @Test
     fun testQueryPlan()
     {
-        assertEquals(expectedQueryPlan, QueryPlan.build(indexes, normalize(inputExpression)))
+        val queryPlanner = QueryPlanner(TableQueryCapabilities(indexes, mapOf()))
+        assertEquals(expectedQueryPlan, queryPlanner.build(inputExpression))
     }
 
     companion object
@@ -43,20 +44,19 @@ class QueryPlanTests(
                 listOf(emailIndex, userNameIndex),
                 and(
                     or(
-                        Expression.Attribute(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
-                        Expression.Attribute(USER_NAME, AttributeOperator.Eq, "alice")
+                        AttributeExpression(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
+                        AttributeExpression(USER_NAME, AttributeOperator.Eq, "alice")
                     ),
-                    Expression.Attribute(STATUS, AttributeOperator.Eq, "valid")
+                    AttributeExpression(STATUS, AttributeOperator.Eq, "valid")
                 ),
-                QueryPlan(
+                QueryPlan.UsingQueries(
                     mapOf(
-                        KeyCondition(emailIndex, Expression.Attribute(EMAIL, AttributeOperator.Eq, "alice@gmail.com"))
-                                to listOf(productOf(Expression.Attribute(STATUS, AttributeOperator.Eq, "valid"))),
-                        KeyCondition(userNameIndex, Expression.Attribute(USER_NAME, AttributeOperator.Eq, "alice"))
-                                to listOf(productOf(Expression.Attribute(STATUS, AttributeOperator.Eq, "valid")))
+                        QueryPlan.KeyCondition(emailIndex, AttributeExpression(EMAIL, AttributeOperator.Eq, "alice@gmail.com"))
+                                to listOf(Product.of(AttributeExpression(STATUS, AttributeOperator.Eq, "valid"))),
+                        QueryPlan.KeyCondition(userNameIndex, AttributeExpression(USER_NAME, AttributeOperator.Eq, "alice"))
+                                to listOf(Product.of(AttributeExpression(STATUS, AttributeOperator.Eq, "valid")))
 
-                    ),
-                    null
+                    )
                 )
             ),
             arrayOf(
@@ -64,29 +64,28 @@ class QueryPlanTests(
                 listOf(emailIndex, userNameIndex),
                 and(
                     or(
-                        Expression.Attribute(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
-                        Expression.Attribute(USER_NAME, AttributeOperator.Eq, "alice")
+                        AttributeExpression(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
+                        AttributeExpression(USER_NAME, AttributeOperator.Eq, "alice")
                     ),
                     or(
-                        Expression.Attribute(STATUS, AttributeOperator.Eq, "expired"),
-                        Expression.Attribute(STATUS, AttributeOperator.Eq, "revoked")
+                        AttributeExpression(STATUS, AttributeOperator.Eq, "expired"),
+                        AttributeExpression(STATUS, AttributeOperator.Eq, "revoked")
                     )
                 ),
-                QueryPlan(
+                QueryPlan.UsingQueries(
                     mapOf(
-                        KeyCondition(emailIndex, Expression.Attribute(EMAIL, AttributeOperator.Eq, "alice@gmail.com"))
+                        QueryPlan.KeyCondition(emailIndex, AttributeExpression(EMAIL, AttributeOperator.Eq, "alice@gmail.com"))
                                 to listOf(
-                            productOf(Expression.Attribute(STATUS, AttributeOperator.Eq, "expired")),
-                            productOf(Expression.Attribute(STATUS, AttributeOperator.Eq, "revoked"))
+                            Product.of(AttributeExpression(STATUS, AttributeOperator.Eq, "expired")),
+                            Product.of(AttributeExpression(STATUS, AttributeOperator.Eq, "revoked"))
                         ),
-                        KeyCondition(userNameIndex, Expression.Attribute(USER_NAME, AttributeOperator.Eq, "alice"))
+                        QueryPlan.KeyCondition(userNameIndex, AttributeExpression(USER_NAME, AttributeOperator.Eq, "alice"))
                                 to listOf(
-                            productOf(Expression.Attribute(STATUS, AttributeOperator.Eq, "expired")),
-                            productOf(Expression.Attribute(STATUS, AttributeOperator.Eq, "revoked"))
+                            Product.of(AttributeExpression(STATUS, AttributeOperator.Eq, "expired")),
+                            Product.of(AttributeExpression(STATUS, AttributeOperator.Eq, "revoked"))
                         )
 
-                    ),
-                    null
+                    )
                 )
             )
         )

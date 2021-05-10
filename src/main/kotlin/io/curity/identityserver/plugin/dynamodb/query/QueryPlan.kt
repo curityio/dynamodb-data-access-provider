@@ -11,53 +11,29 @@
 
 package io.curity.identityserver.plugin.dynamodb.query
 
-import se.curity.identityserver.sdk.data.query.Filter
+import io.curity.identityserver.plugin.dynamodb.DynamoDBAttribute
 
-data class QueryPlan(
-    val queries: Map<KeyCondition, List<Product>>,
-    val scan: Normal?
-)
+sealed class QueryPlan
 {
-    companion object
-    {
-        fun build(filterExpression: Filter, tableQueryCapabilities: TableQueryCapabilities): QueryPlan
-        {
-            val expressionBuilder = ExpressionBuilder(tableQueryCapabilities.attributeMap)
-            val expression = expressionBuilder.from(filterExpression)
-            val normalized = normalize(expression)
-            return build(tableQueryCapabilities.indexes, normalized)
-        }
+    data class UsingQueries(
+        val queries: Map<KeyCondition, List<Product>>
+    ): QueryPlan()
 
-        fun build(indexes: List<Index>, normal: Normal): QueryPlan
-        {
-            val queries = mutableMapOf<KeyCondition, MutableList<Product>>()
-            val scanProducts = mutableListOf<Product>()
-            normal.products.forEach { product ->
-                val keyConditions = indexes
-                    .map { it.getKeyConditions(product) }
-                    .firstOrNull { it.isNotEmpty() }
-                if (keyConditions != null)
-                {
-                    keyConditions.forEach { keyCondition ->
-                        queries.computeIfAbsent(keyCondition) { mutableListOf() }
-                            .add(keyCondition.index.filterKeys(product))
-                    }
-                } else
-                {
-                    scanProducts.add(product)
-                }
-            }
-            return QueryPlan(
-                queries,
-                if (scanProducts.isNotEmpty())
-                {
-                    Normal(scanProducts.toSet())
-                } else
-                {
-                    null
-                }
-            )
-        }
+    data class UsingScan(
+        val expression: DisjunctiveNormalForm
+    ): QueryPlan()
+
+    // Auxiliary types
+
+    data class KeyCondition(
+        val index: Index,
+        val partitionCondition: AttributeExpression,
+        val sortCondition: RangeCondition? = null
+    )
+
+    sealed class RangeCondition
+    {
+        data class Binary(val attributeExpression: AttributeExpression) : RangeCondition()
+        data class Between(val attribute: DynamoDBAttribute<*>, val lower: Any, val higher: Any) : RangeCondition()
     }
 }
-

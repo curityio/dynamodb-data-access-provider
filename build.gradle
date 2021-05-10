@@ -23,4 +23,5 @@ dependencies {
     runtime libraries.reactive_streams
 
     testCompile 'junit:junit:4.13.2'
+    testRuntime 'org.slf4j:slf4j-simple:1.7.30'
 }

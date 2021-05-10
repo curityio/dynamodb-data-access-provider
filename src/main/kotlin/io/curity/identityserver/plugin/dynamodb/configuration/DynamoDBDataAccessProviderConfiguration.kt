@@ -61,6 +61,9 @@ interface DynamoDBDataAccessProviderConfiguration: Configuration
         val isEC2InstanceProfile: Optional<Boolean>
     }
 
+    @Description("Allow use of table scans to fulfill resource queries")
+    fun getAllowTableScans(): Boolean
+
     fun getExceptionFactory(): ExceptionFactory
 
     fun getJsonHandler(): Json

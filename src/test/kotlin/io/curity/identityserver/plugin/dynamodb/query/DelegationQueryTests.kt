@@ -15,7 +15,7 @@ import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import io.curity.identityserver.plugin.dynamodb.token.DynamoDBDelegationDataAccessProvider
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.fail
 import org.junit.Test
 import se.curity.identityserver.sdk.data.authorization.DelegationStatus
 import se.curity.identityserver.sdk.data.query.Filter
@@ -23,7 +23,8 @@ import se.curity.identityserver.sdk.data.query.Filter
 class DelegationQueryTests
 {
     @Test
-    fun testActiveByClient() {
+    fun testActiveByClient()
+    {
 
         val filterExpression = Filter.LogicalExpression(
             Filter.LogicalOperator.AND,
@@ -44,33 +45,47 @@ class DelegationQueryTests
             )
         )
 
-        val queryPlan = QueryPlan.build(
-            filterExpression,
-            DynamoDBDelegationDataAccessProvider.DelegationTable.queryCapabilities)
+        val queryPlanner = QueryPlanner(DynamoDBDelegationDataAccessProvider.DelegationTable.queryCapabilities)
 
-        assertNull("scan must be null", queryPlan.scan)
-        val query = queryPlan.queries.entries.single()
+        val queryPlan = queryPlanner.build(filterExpression)
+
+        if (queryPlan is QueryPlan.UsingScan)
+        {
+            fail("Query plan cannot be a scan")
+            return
+        }
+
+        val query = (queryPlan as QueryPlan.UsingQueries).queries.entries.single()
         assertEquals(
             Index.from(DynamoDBDelegationDataAccessProvider.DelegationTable.clientStatusIndex),
-            query.key.index)
+            query.key.index
+        )
         assertEquals(
-            Expression.Attribute(
+            AttributeExpression(
                 DynamoDBDelegationDataAccessProvider.DelegationTable.clientId,
                 AttributeOperator.Eq,
-                "client-one"),
-            query.key.partitionCondition)
+                "client-one"
+            ),
+            query.key.partitionCondition
+        )
         assertEquals(
-            RangeExpression.Binary(Expression.Attribute(
-                DynamoDBDelegationDataAccessProvider.DelegationTable.status,
-                AttributeOperator.Eq,
-                DelegationStatus.issued)),
-            query.key.sortCondition)
+            QueryPlan.RangeCondition.Binary(
+                AttributeExpression(
+                    DynamoDBDelegationDataAccessProvider.DelegationTable.status,
+                    AttributeOperator.Eq,
+                    DelegationStatus.issued
+                )
+            ),
+            query.key.sortCondition
+        )
         assertEquals(
-            Expression.Attribute(
+            AttributeExpression(
                 DynamoDBDelegationDataAccessProvider.DelegationTable.expires,
                 AttributeOperator.Gt,
-                1234),
-            query.value.single().terms.single())
+                1234
+            ),
+            query.value.single().terms.single()
+        )
 
         val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(query.key, query.value)
 
@@ -83,18 +98,21 @@ class DelegationQueryTests
                 ":clientId_1" to StringAttribute("").toAttrValue("client-one"),
                 ":status_1" to StringAttribute("").toAttrValue("issued")
             ),
-            dynamoDBQuery.valueMap)
+            dynamoDBQuery.valueMap
+        )
         assertEquals(
             mapOf(
                 "#expires" to "expires",
                 "#clientId" to "clientId",
                 "#status" to "status"
             ),
-            dynamoDBQuery.nameMap)
+            dynamoDBQuery.nameMap
+        )
     }
 
     @Test
-    fun testNotActiveByClient() {
+    fun testNotActiveByClient()
+    {
 
         val filterExpression = Filter.LogicalExpression(
             Filter.LogicalOperator.AND,
@@ -115,22 +133,29 @@ class DelegationQueryTests
             )
         )
 
-        val queryPlan = QueryPlan.build(
-            filterExpression,
-            DynamoDBDelegationDataAccessProvider.DelegationTable.queryCapabilities)
+        val queryPlanner = QueryPlanner(DynamoDBDelegationDataAccessProvider.DelegationTable.queryCapabilities)
 
-        assertNull("scan must be null", queryPlan.scan)
+        val queryPlan = queryPlanner.build(filterExpression)
 
-        val firstQuery = queryPlan.queries.entries.first()
+        if (queryPlan is QueryPlan.UsingScan)
+        {
+            fail("Query plan cannot be a scan")
+            return
+        }
+
+        val queries = (queryPlan as QueryPlan.UsingQueries).queries
+
+        val firstQuery = queries.entries.first()
         assertQuery(firstQuery, AttributeOperator.Lt)
 
-        val secondQuery = queryPlan.queries.entries.drop(1).first()
+        val secondQuery = queries.entries.drop(1).first()
         assertQuery(secondQuery, AttributeOperator.Gt)
     }
 
-    private fun assertQuery(query: Map.Entry<KeyCondition, List<Product>>, operator: AttributeOperator)
+    private fun assertQuery(query: Map.Entry<QueryPlan.KeyCondition, List<Product>>, operator: AttributeOperator)
     {
-        val operatorString = when(operator) {
+        val operatorString = when (operator)
+        {
             AttributeOperator.Lt -> "<"
             AttributeOperator.Gt -> ">"
             else -> throw AssertionError("Unexpected operator here")
@@ -140,7 +165,7 @@ class DelegationQueryTests
             query.key.index
         )
         assertEquals(
-            Expression.Attribute(
+            AttributeExpression(
                 DynamoDBDelegationDataAccessProvider.DelegationTable.clientId,
                 AttributeOperator.Eq,
                 "client-one"
@@ -148,8 +173,8 @@ class DelegationQueryTests
             query.key.partitionCondition
         )
         assertEquals(
-            RangeExpression.Binary(
-                Expression.Attribute(
+            QueryPlan.RangeCondition.Binary(
+                AttributeExpression(
                     DynamoDBDelegationDataAccessProvider.DelegationTable.status,
                     operator,
                     DelegationStatus.issued
@@ -158,7 +183,7 @@ class DelegationQueryTests
             query.key.sortCondition
         )
         assertEquals(
-            Expression.Attribute(
+            AttributeExpression(
                 DynamoDBDelegationDataAccessProvider.DelegationTable.expires,
                 AttributeOperator.Gt,
                 1234
@@ -187,5 +212,34 @@ class DelegationQueryTests
             ),
             dynamoDBQuery.nameMap
         )
+    }
+
+    @Test
+    fun testQueryByRedirectUri()
+    {
+        val filterExpression =
+            Filter.AttributeExpression(
+                Filter.AttributeOperator.EQ,
+                "redirect_uri", "https://example.com"
+            )
+
+        val queryPlanner = QueryPlanner(DynamoDBDelegationDataAccessProvider.DelegationTable.queryCapabilities)
+
+        val queryPlan = queryPlanner.build(filterExpression)
+
+        if (queryPlan is QueryPlan.UsingQueries)
+        {
+            fail("Query plan needs to be a scan")
+            return
+        }
+
+        val expression = (queryPlan as QueryPlan.UsingScan).expression
+        assertEquals(1, expression.products.size)
+        val product = expression.products.single()
+        assertEquals(1, product.terms.size)
+        val term = product.terms.single()
+        assertEquals(AttributeOperator.Eq, term.operator)
+        assertEquals(DynamoDBDelegationDataAccessProvider.DelegationTable.redirectUri, term.attribute)
+        assertEquals("https://example.com", term.value)
     }
 }

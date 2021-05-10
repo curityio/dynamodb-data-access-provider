@@ -32,6 +32,7 @@ import io.curity.identityserver.plugin.dynamodb.toIntOrThrow
 import io.curity.identityserver.plugin.dynamodb.query.DynamoDBQueryBuilder
 import io.curity.identityserver.plugin.dynamodb.query.Index
 import io.curity.identityserver.plugin.dynamodb.query.QueryPlan
+import io.curity.identityserver.plugin.dynamodb.query.QueryPlanner
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
 import io.curity.identityserver.plugin.dynamodb.query.UnsupportedQueryException
 import io.curity.identityserver.plugin.dynamodb.querySequence
@@ -339,32 +340,21 @@ class DynamoDBDelegationDataAccessProvider(
 
         val comparator = getComparatorFor(resourceQuery)
 
-        val queryPlan = QueryPlan.build(
-            resourceQueryFilter,
-            DelegationTable.queryCapabilities
-        )
+        val queryPlanner = QueryPlanner(DelegationTable.queryCapabilities)
 
-        if (queryPlan.scan != null)
+        val queryPlan = queryPlanner.build(resourceQueryFilter)
+
+        if (queryPlan is QueryPlan.UsingScan && !_configuration.getAllowTableScans())
         {
             throw throw UnsupportedQueryException.QueryRequiresTableScan()
         }
 
-        // TODO there isn't yet a limit on the number of DynamoDB queries performed
-        val result = linkedMapOf<String, Map<String, AttributeValue>>()
-        queryPlan.queries.forEach { query ->
-            val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(query.key, query.value)
-
-            val queryRequest = QueryRequest.builder()
-                .tableName(DelegationTable.name)
-                .configureWith(dynamoDBQuery)
-                .build()
-
-            querySequence(queryRequest, _dynamoDBClient).forEach {
-                result[DelegationTable.id.from(it)] = it
-            }
+        val values = when (queryPlan)
+        {
+            is QueryPlan.UsingQueries -> query(queryPlan)
+            is QueryPlan.UsingScan -> scan(queryPlan)
         }
 
-        val values = result.values.asSequence()
         val sortedValues = if (comparator != null)
         {
             values.sortedWith(
@@ -393,6 +383,36 @@ class DynamoDBDelegationDataAccessProvider(
     {
         _logger.debug("Unable to process query. Reason is '{}', query = '{}", e.message, resourceQuery)
         throw _configuration.getExceptionFactory().externalServiceException(e.message)
+    }
+
+    private fun query(queryPlan: QueryPlan.UsingQueries): Sequence<DynamoDBItem>
+    {
+        val result = linkedMapOf<String, Map<String, AttributeValue>>()
+        queryPlan.queries.forEach { query ->
+            val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(query.key, query.value)
+
+            val queryRequest = QueryRequest.builder()
+                .tableName(DelegationTable.name)
+                .configureWith(dynamoDBQuery)
+                .build()
+
+            querySequence(queryRequest, _dynamoDBClient).forEach {
+                result[DelegationTable.id.from(it)] = it
+            }
+        }
+        return result.values.asSequence()
+    }
+
+    private fun scan(queryPlan: QueryPlan.UsingScan): Sequence<DynamoDBItem>
+    {
+        val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression)
+
+        val queryRequest = ScanRequest.builder()
+            .tableName(DelegationTable.name)
+            .configureWith(dynamoDBScan)
+            .build()
+
+        return scanSequence(queryRequest, _dynamoDBClient)
     }
 
     private fun getComparatorFor(resourceQuery: ResourceQuery): Comparator<Map<String, AttributeValue>>?

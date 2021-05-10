@@ -20,7 +20,7 @@ import org.junit.runners.Parameterized
 class NormalizationTests(
     private val description:String,
     private val inputExpression: Expression,
-    private val expectedNormalizedExpression: Normal)
+    private val expectedNormalizedExpression: DisjunctiveNormalForm)
 {
 
     @Test
@@ -36,19 +36,19 @@ class NormalizationTests(
                 "(A || B) && C",
                 and(
                     or(
-                        Expression.Attribute(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
-                        Expression.Attribute(USER_NAME, AttributeOperator.Eq, "alice")
+                        AttributeExpression(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
+                        AttributeExpression(USER_NAME, AttributeOperator.Eq, "alice")
                     ),
-                    Expression.Attribute(STATUS, AttributeOperator.Eq, "valid")
+                    AttributeExpression(STATUS, AttributeOperator.Eq, "valid")
                 ),
-                Normal(setOf(
-                    productOf(
-                        Expression.Attribute(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
-                        Expression.Attribute(STATUS, AttributeOperator.Eq, "valid")
+                DisjunctiveNormalForm(setOf(
+                    Product.of(
+                        AttributeExpression(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
+                        AttributeExpression(STATUS, AttributeOperator.Eq, "valid")
                     ),
-                    productOf(
-                        Expression.Attribute(USER_NAME, AttributeOperator.Eq, "alice"),
-                        Expression.Attribute(STATUS, AttributeOperator.Eq, "valid")
+                    Product.of(
+                        AttributeExpression(USER_NAME, AttributeOperator.Eq, "alice"),
+                        AttributeExpression(STATUS, AttributeOperator.Eq, "valid")
                     )
                 ))
             ),
@@ -57,19 +57,19 @@ class NormalizationTests(
                 "(A || B) && !C",
                 and(
                     or(
-                        Expression.Attribute(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
-                        Expression.Attribute(USER_NAME, AttributeOperator.Eq, "alice")
+                        AttributeExpression(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
+                        AttributeExpression(USER_NAME, AttributeOperator.Eq, "alice")
                     ),
-                    negate(Expression.Attribute(STATUS, AttributeOperator.Eq, "valid"))
+                    negate(AttributeExpression(STATUS, AttributeOperator.Eq, "valid"))
                 ),
-                Normal(setOf(
-                    productOf(
-                        Expression.Attribute(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
-                        Expression.Attribute(STATUS, AttributeOperator.Ne, "valid")
+                DisjunctiveNormalForm(setOf(
+                    Product.of(
+                        AttributeExpression(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
+                        AttributeExpression(STATUS, AttributeOperator.Ne, "valid")
                     ),
-                    productOf(
-                        Expression.Attribute(USER_NAME, AttributeOperator.Eq, "alice"),
-                        Expression.Attribute(STATUS, AttributeOperator.Ne, "valid")
+                    Product.of(
+                        AttributeExpression(USER_NAME, AttributeOperator.Eq, "alice"),
+                        AttributeExpression(STATUS, AttributeOperator.Ne, "valid")
                     )
                 ))
             ),
@@ -77,30 +77,30 @@ class NormalizationTests(
                 "(A || B) && (C || D)",
                 and(
                     or(
-                        Expression.Attribute(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
-                        Expression.Attribute(USER_NAME, AttributeOperator.Eq, "alice")
+                        AttributeExpression(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
+                        AttributeExpression(USER_NAME, AttributeOperator.Eq, "alice")
                     ),
                     or(
-                        Expression.Attribute(STATUS, AttributeOperator.Eq, "expired"),
-                        Expression.Attribute(STATUS, AttributeOperator.Eq, "revoked")
+                        AttributeExpression(STATUS, AttributeOperator.Eq, "expired"),
+                        AttributeExpression(STATUS, AttributeOperator.Eq, "revoked")
                     )
                 ),
-                Normal(setOf(
-                    productOf(
-                        Expression.Attribute(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
-                        Expression.Attribute(STATUS, AttributeOperator.Eq, "expired")
+                DisjunctiveNormalForm(setOf(
+                    Product.of(
+                        AttributeExpression(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
+                        AttributeExpression(STATUS, AttributeOperator.Eq, "expired")
                     ),
-                    productOf(
-                        Expression.Attribute(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
-                        Expression.Attribute(STATUS, AttributeOperator.Eq, "revoked")
+                    Product.of(
+                        AttributeExpression(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
+                        AttributeExpression(STATUS, AttributeOperator.Eq, "revoked")
                     ),
-                    productOf(
-                        Expression.Attribute(USER_NAME, AttributeOperator.Eq, "alice"),
-                        Expression.Attribute(STATUS, AttributeOperator.Eq, "expired")
+                    Product.of(
+                        AttributeExpression(USER_NAME, AttributeOperator.Eq, "alice"),
+                        AttributeExpression(STATUS, AttributeOperator.Eq, "expired")
                     ),
-                    productOf(
-                        Expression.Attribute(USER_NAME, AttributeOperator.Eq, "alice"),
-                        Expression.Attribute(STATUS, AttributeOperator.Eq, "revoked")
+                    Product.of(
+                        AttributeExpression(USER_NAME, AttributeOperator.Eq, "alice"),
+                        AttributeExpression(STATUS, AttributeOperator.Eq, "revoked")
                     )
                 ))
             ),
@@ -109,24 +109,24 @@ class NormalizationTests(
                 "(A || B) && !(C || D)",
                 and(
                     or(
-                        Expression.Attribute(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
-                        Expression.Attribute(USER_NAME, AttributeOperator.Eq, "alice")
+                        AttributeExpression(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
+                        AttributeExpression(USER_NAME, AttributeOperator.Eq, "alice")
                     ),
                     negate(or(
-                        Expression.Attribute(STATUS, AttributeOperator.Eq, "expired"),
-                        Expression.Attribute(STATUS, AttributeOperator.Eq, "revoked")
+                        AttributeExpression(STATUS, AttributeOperator.Eq, "expired"),
+                        AttributeExpression(STATUS, AttributeOperator.Eq, "revoked")
                     ))
                 ),
-                Normal(setOf(
-                    productOf(
-                        Expression.Attribute(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
-                        Expression.Attribute(STATUS, AttributeOperator.Ne, "expired"),
-                        Expression.Attribute(STATUS, AttributeOperator.Ne, "revoked")
+                DisjunctiveNormalForm(setOf(
+                    Product.of(
+                        AttributeExpression(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
+                        AttributeExpression(STATUS, AttributeOperator.Ne, "expired"),
+                        AttributeExpression(STATUS, AttributeOperator.Ne, "revoked")
                     ),
-                    productOf(
-                        Expression.Attribute(USER_NAME, AttributeOperator.Eq, "alice"),
-                        Expression.Attribute(STATUS, AttributeOperator.Ne, "expired"),
-                        Expression.Attribute(STATUS, AttributeOperator.Ne, "revoked")
+                    Product.of(
+                        AttributeExpression(USER_NAME, AttributeOperator.Eq, "alice"),
+                        AttributeExpression(STATUS, AttributeOperator.Ne, "expired"),
+                        AttributeExpression(STATUS, AttributeOperator.Ne, "revoked")
                     )
                 ))
             )
