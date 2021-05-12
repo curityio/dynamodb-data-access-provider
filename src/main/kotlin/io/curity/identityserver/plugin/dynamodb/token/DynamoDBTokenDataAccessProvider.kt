@@ -16,23 +16,19 @@
 package io.curity.identityserver.plugin.dynamodb.token
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
-import io.curity.identityserver.plugin.dynamodb.DynamoDBDynamicallyRegisteredClientDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBItem
 import io.curity.identityserver.plugin.dynamodb.Index
 import io.curity.identityserver.plugin.dynamodb.ListStringAttribute
-import io.curity.identityserver.plugin.dynamodb.MutableDynamoDBItem
 import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import io.curity.identityserver.plugin.dynamodb.Table
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import io.curity.identityserver.plugin.dynamodb.useIndexAndKey
-import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.data.authorization.Token
 import se.curity.identityserver.sdk.data.authorization.TokenStatus
 import se.curity.identityserver.sdk.data.tokens.DefaultStringOrArray
 import se.curity.identityserver.sdk.datasource.TokenDataAccessProvider
 import se.curity.identityserver.sdk.errors.ConflictException
-import se.curity.identityserver.sdk.service.Json
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
@@ -80,8 +76,8 @@ class DynamoDBTokenDataAccessProvider(
     private fun Token.toItem() = mutableMapOf<String, AttributeValue>().also { item ->
         TokenTable.tokenHash.addTo(item, tokenHash)
 
-        TokenTable.id.addToOpt(item, id)
-        TokenTable.scope.addToOpt(item, scope)
+        TokenTable.id.addToNullable(item, id)
+        TokenTable.scope.addToNullable(item, scope)
 
         TokenTable.delegationsId.addTo(item, delegationsId)
         TokenTable.purpose.addTo(item, purpose)
@@ -106,8 +102,8 @@ class DynamoDBTokenDataAccessProvider(
 
             DynamoDBToken(
                 tokenHash = tokenHash.from(item),
-                id = id.fromOpt(item),
-                scope = scope.fromOpt(item),
+                id = id.optionalFrom(item),
+                scope = scope.optionalFrom(item),
                 delegationsId = delegationsId.from(item),
                 purpose = purpose.from(item),
                 usage = usage.from(item),
