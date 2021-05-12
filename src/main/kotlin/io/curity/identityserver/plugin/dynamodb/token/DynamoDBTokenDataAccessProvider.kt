@@ -76,8 +76,8 @@ class DynamoDBTokenDataAccessProvider(
     private fun Token.toItem() = mutableMapOf<String, AttributeValue>().also { item ->
         TokenTable.tokenHash.addTo(item, tokenHash)
 
-        TokenTable.id.addToOpt(item, id)
-        TokenTable.scope.addToOpt(item, scope)
+        TokenTable.id.addToNullable(item, id)
+        TokenTable.scope.addToNullable(item, scope)
 
         TokenTable.delegationsId.addTo(item, delegationsId)
         TokenTable.purpose.addTo(item, purpose)
@@ -102,8 +102,8 @@ class DynamoDBTokenDataAccessProvider(
 
             DynamoDBToken(
                 tokenHash = tokenHash.from(item),
-                id = id.fromOpt(item),
-                scope = scope.fromOpt(item),
+                id = id.optionalFrom(item),
+                scope = scope.optionalFrom(item),
                 delegationsId = delegationsId.from(item),
                 purpose = purpose.from(item),
                 usage = usage.from(item),

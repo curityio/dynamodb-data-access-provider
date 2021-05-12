@@ -39,7 +39,6 @@ import se.curity.identityserver.sdk.errors.ConflictException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
-import software.amazon.awssdk.services.dynamodb.model.DynamoDbException
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
@@ -92,13 +91,13 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             add(ATTRIBUTES, MapAttributeValue.of(_jsonHandler.toAttributes(DcrTable.attributes.from(item))))
 
             // Nullable
-            add(CLIENT_SECRET, DcrTable.clientSecret.fromOpt(item))
-            add(INSTANCE_OF_CLIENT, DcrTable.instanceOfClient.fromOpt(item))
-            add(INITIAL_CLIENT, DcrTable.initialClient.fromOpt(item))
-            add(AUTHENTICATED_USER, DcrTable.authenticatedUser.fromOpt(item))
-            add(SCOPE, DcrTable.scope.fromOpt(item))
-            add(REDIRECT_URIS, DcrTable.redirectUris.fromOpt(item))
-            add(GRANT_TYPES, DcrTable.grantTypes.fromOpt(item))
+            add(CLIENT_SECRET, DcrTable.clientSecret.optionalFrom(item))
+            add(INSTANCE_OF_CLIENT, DcrTable.instanceOfClient.optionalFrom(item))
+            add(INITIAL_CLIENT, DcrTable.initialClient.optionalFrom(item))
+            add(AUTHENTICATED_USER, DcrTable.authenticatedUser.optionalFrom(item))
+            add(SCOPE, DcrTable.scope.optionalFrom(item))
+            add(REDIRECT_URIS, DcrTable.redirectUris.optionalFrom(item))
+            add(GRANT_TYPES, DcrTable.grantTypes.optionalFrom(item))
         }
 
         return DynamicallyRegisteredClientAttributes.of(Attributes.of(result))
@@ -119,14 +118,14 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         DcrTable.attributes.addTo(item, _jsonHandler.fromAttributes(Attributes.of(attributes)))
 
         // Nullable
-        DcrTable.clientSecret.addToOpt(item, clientSecret)
-        DcrTable.instanceOfClient.addToOpt(item, instanceOfClient)
-        DcrTable.initialClient.addToOpt(item, initialClient)
-        DcrTable.authenticatedUser.addToOpt(item, authenticatedUser)
+        DcrTable.clientSecret.addToNullable(item, clientSecret)
+        DcrTable.instanceOfClient.addToNullable(item, instanceOfClient)
+        DcrTable.initialClient.addToNullable(item, initialClient)
+        DcrTable.authenticatedUser.addToNullable(item, authenticatedUser)
         // Empty lists are not converted into attributes
-        DcrTable.scope.addToOpt(item, scope)
-        DcrTable.redirectUris.addToOpt(item, redirectUris)
-        DcrTable.grantTypes.addToOpt(item, grantTypes)
+        DcrTable.scope.addToNullable(item, scope)
+        DcrTable.redirectUris.addToNullable(item, redirectUris)
+        DcrTable.grantTypes.addToNullable(item, grantTypes)
 
         return item
     }

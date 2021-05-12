@@ -15,6 +15,8 @@
  */
 package io.curity.identityserver.plugin.dynamodb
 
+import io.curity.identityserver.plugin.dynamodb.DynamoDBDeviceDataAccessProvider.Companion.computePkFromAccountIdAndDeviceId
+import io.curity.identityserver.plugin.dynamodb.DynamoDBDeviceDataAccessProvider.Companion.computePkFromId
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -142,7 +144,7 @@ class DynamoDBDeviceDataAccessProvider(
             it.toAttribute(this)?.let { attribute -> attributeList.add(attribute) }
         }
 
-        DeviceTable.attributes.fromOpt(item)?.let {
+        DeviceTable.attributes.optionalFrom(item)?.let {
             attributeList.addAll(_jsonHandler.toAttributes(it))
         }
 
@@ -617,7 +619,7 @@ private data class AttributeMapping<T>(
     fun toAttribute(item: DynamoDBItem): Attribute? =
         if (optional)
         {
-            dynamoAttribute.fromOpt(item)?.let {
+            dynamoAttribute.optionalFrom(item)?.let {
                 Attribute.of(
                     deviceAttributeName,
                     se.curity.identityserver.sdk.attribute.AttributeValue.of(toAttributeValue?.invoke(it) ?: it)

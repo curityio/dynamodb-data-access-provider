@@ -49,14 +49,14 @@ interface DynamoDBAttribute<T>
     fun toNamePair(): Pair<String, String>
     fun toNameValuePair(value: T): Pair<String, AttributeValue>
     fun toExpressionNameValuePair(value: T): Pair<String, AttributeValue>
-    fun fromOpt(map: Map<String, AttributeValue>): T?
+    fun optionalFrom(map: Map<String, AttributeValue>): T?
     fun from(map: Map<String, AttributeValue>): T
     val hashName: String
     val colonName: String
     fun toAttrValue(value: T): AttributeValue
     fun from(attrValue: AttributeValue): T
     fun addTo(map: MutableMap<String, AttributeValue>, value: T)
-    fun addToOpt(map: MutableMap<String, AttributeValue>, value: T?)
+    fun addToNullable(map: MutableMap<String, AttributeValue>, value: T?)
     fun addToAny(map: MutableMap<String, AttributeValue>, value: Any)
     fun cast(value: Any): T?
     fun isValueCompatible(value: Any): Boolean
@@ -82,14 +82,14 @@ abstract class BaseAttribute<T>(
     override fun toString() = name
     override fun toNameValuePair(value: T) = name to toAttrValue(value)
     override fun toExpressionNameValuePair(value: T) = ":${name}" to toAttrValue(value)
-    override fun fromOpt(map: Map<String, AttributeValue>): T? = map[name]?.let { from(it) }
-    override fun from(map: Map<String, AttributeValue>) = fromOpt(map) ?: throw SchemaErrorException(this)
+    override fun optionalFrom(map: Map<String, AttributeValue>): T? = map[name]?.let { from(it) }
+    override fun from(map: Map<String, AttributeValue>) = optionalFrom(map) ?: throw SchemaErrorException(this)
     override fun addTo(map: MutableMap<String, AttributeValue>, value: T)
     {
         map[name] = toAttrValue(value)
     }
 
-    override fun addToOpt(map: MutableMap<String, AttributeValue>, value: T?)
+    override fun addToNullable(map: MutableMap<String, AttributeValue>, value: T?)
     {
         if (value != null)
         {
@@ -141,7 +141,7 @@ class StringAttribute(name: String) : BaseAttribute<String>(name, AttributeType.
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
     override fun from(attrValue: AttributeValue): String = attrValue.s()
     override fun cast(value: Any) = value as? String
-    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(fromOpt(a), fromOpt(b)) }
+    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
 }
 
 class EnumAttribute<T : Enum<T>>(
@@ -162,7 +162,7 @@ class EnumAttribute<T : Enum<T>>(
         null
     }
 
-    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(fromOpt(a), fromOpt(b)) }
+    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
 
     companion object
     {
@@ -196,21 +196,14 @@ class ListStringAttribute(name: String) : BaseAttribute<Collection<String>>(name
 }
 
 // An attribute that is composed by two values
-class StringCompositeAttribute2(name: String, private val template: (String, String) -> String) :
-    BaseAttribute<String>(name, AttributeType.S)
+class StringCompositeAttribute2(name: String, private val template: (String, String)->String)
+    : BaseAttribute<Pair<String, String>>(name, AttributeType.S)
 {
-    override fun toAttrValue(value: String): AttributeValue =
-        throw UnsupportedOperationException("Cannot create from a single value")
-
-    fun toAttrValue2(first: String, second: String): AttributeValue =
-        AttributeValue.builder().s(template(first, second)).build()
-
-    fun toNameValuePair(first: String, second: String) = name to toAttrValue2(first, second)
-    override fun from(attrValue: AttributeValue): String = attrValue.s()
-
-    override fun cast(value: Any) = value as? String
-
-    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(fromOpt(a), fromOpt(b)) }
+    override fun toAttrValue(value: Pair<String, String>): AttributeValue = AttributeValue.builder().s(template(value.first, value.second)).build()
+    fun toNameValuePair(first: String, second: String) = name to toAttrValue(Pair(first, second))
+    override fun from(attrValue: AttributeValue) = throw UnsupportedOperationException("Cannot read a composite value")
+    override fun cast(value: Any) = throw UnsupportedOperationException("Cannot cast a composite value")
+    override fun comparator(): Comparator<Map<String, AttributeValue>>? = null
 }
 
 class UniqueStringAttribute(name: String, val _f: (String) -> String) : BaseAttribute<String>(name, AttributeType.S),
@@ -220,7 +213,7 @@ class UniqueStringAttribute(name: String, val _f: (String) -> String) : BaseAttr
     override fun from(attrValue: AttributeValue): String = attrValue.s()
     override fun uniquenessValueFrom(value: String) = _f(value)
     override fun cast(value: Any) = value as? String
-    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(fromOpt(a), fromOpt(b)) }
+    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
 }
 
 class KeyStringAttribute(name: String) : BaseAttribute<String>(name, AttributeType.S)
@@ -233,7 +226,7 @@ class KeyStringAttribute(name: String) : BaseAttribute<String>(name, AttributeTy
 
     override fun cast(value: Any) = value as? String
 
-    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(fromOpt(a), fromOpt(b)) }
+    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
 }
 
 class NumberLongAttribute(name: String) : BaseAttribute<Long>(name, AttributeType.N)
@@ -241,7 +234,7 @@ class NumberLongAttribute(name: String) : BaseAttribute<Long>(name, AttributeTyp
     override fun toAttrValue(value: Long): AttributeValue = AttributeValue.builder().n(value.toString()).build()
     override fun from(attrValue: AttributeValue): Long = attrValue.n().toLong()
     override fun cast(value: Any) = value as? Long ?: (value as? Int)?.toLong()
-    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(fromOpt(a), fromOpt(b)) }
+    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
 }
 
 class BooleanAttribute(name: String) : BaseAttribute<Boolean>(name, AttributeType.N)
@@ -249,14 +242,13 @@ class BooleanAttribute(name: String) : BaseAttribute<Boolean>(name, AttributeTyp
     override fun toAttrValue(value: Boolean): AttributeValue = AttributeValue.builder().bool(value).build()
     override fun from(attrValue: AttributeValue): Boolean = attrValue.bool()
     override fun cast(value: Any) = value as? Boolean
-    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(fromOpt(a), fromOpt(b)) }
+    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
 }
 
 class ExpressionBuilder(
-    expr: String, vararg attributes: DynamoDBAttribute<*>
+    val expression: String, vararg attributes: DynamoDBAttribute<*>
 )
 {
-    val expression: String = expr
     val attributeNames = attributes
         .map {
             it.toNamePair()

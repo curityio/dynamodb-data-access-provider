@@ -44,7 +44,7 @@ class DynamoDBBucketDataAccessProvider(
         {
             return mapOf()
         }
-        val attributesString = BucketsTable.attributes.fromOpt(response.item())
+        val attributesString = BucketsTable.attributes.optionalFrom(response.item())
             ?: throw SchemaErrorException(
                 BucketsTable,
                 BucketsTable.attributes
@@ -67,7 +67,7 @@ class DynamoDBBucketDataAccessProvider(
         val request = UpdateItemRequest.builder()
             .tableName(BucketsTable.name)
             .key(BucketsTable.key(subject, purpose))
-            .updateExpression(newUpdateExpression(attributesString, now, now))
+            .updateExpression(updateExpression(attributesString, now, now))
             .build()
 
         _client.updateItem(request)
@@ -102,7 +102,7 @@ class DynamoDBBucketDataAccessProvider(
         )
     }
 
-    private fun newUpdateExpression(attributesString: String, created: Long, updated: Long) = object : Expression(
+    private fun updateExpression(attributesString: String, created: Long, updated: Long) = object : Expression(
         _updateExpressionBuilder
     )
     {
