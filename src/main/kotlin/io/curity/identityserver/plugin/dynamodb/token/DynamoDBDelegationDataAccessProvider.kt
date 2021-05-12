@@ -108,16 +108,16 @@ class DynamoDBDelegationDataAccessProvider(
         DelegationTable.created.addTo(res, created)
         DelegationTable.expires.addTo(res, expires)
         DelegationTable.clientId.addTo(res, clientId)
-        DelegationTable.redirectUri.addToOpt(res, redirectUri)
-        DelegationTable.authorizationCodeHash.addToOpt(res, authorizationCodeHash)
+        DelegationTable.redirectUri.addToNullable(res, redirectUri)
+        DelegationTable.authorizationCodeHash.addToNullable(res, authorizationCodeHash)
         DelegationTable.scope.addTo(res, scope)
 
-        DelegationTable.mtlsClientCertificate.addToOpt(res, mtlsClientCertificate)
-        DelegationTable.mtlsClientCertificateDN.addToOpt(res, mtlsClientCertificateDN)
-        DelegationTable.mtlsClientCertificateX5TS256.addToOpt(res, mtlsClientCertificateX5TS256)
+        DelegationTable.mtlsClientCertificate.addToNullable(res, mtlsClientCertificate)
+        DelegationTable.mtlsClientCertificateDN.addToNullable(res, mtlsClientCertificateDN)
+        DelegationTable.mtlsClientCertificateX5TS256.addToNullable(res, mtlsClientCertificateX5TS256)
 
         DelegationTable.authenticationAttributes.addTo(res, _jsonHandler.toJson(authenticationAttributes.asMap()))
-        DelegationTable.consentResult.addToOpt(res, consentResult?.asMap()?.let { _jsonHandler.toJson(it) })
+        DelegationTable.consentResult.addToNullable(res, consentResult?.asMap()?.let { _jsonHandler.toJson(it) })
         DelegationTable.claimMap.addTo(res, _jsonHandler.toJson(claimMap))
         DelegationTable.customClaimValues.addTo(res, _jsonHandler.toJson(customClaimValues))
         DelegationTable.claims.addTo(res, _jsonHandler.toJson(claims))
@@ -135,8 +135,8 @@ class DynamoDBDelegationDataAccessProvider(
             created = DelegationTable.created.from(this),
             expires = DelegationTable.expires.from(this),
             clientId = DelegationTable.clientId.from(this),
-            redirectUri = DelegationTable.redirectUri.fromOpt(this),
-            authorizationCodeHash = DelegationTable.redirectUri.fromOpt(this),
+            redirectUri = DelegationTable.redirectUri.optionalFrom(this),
+            authorizationCodeHash = DelegationTable.redirectUri.optionalFrom(this),
             authenticationAttributes = DelegationTable.authenticationAttributes.from(this).let {
                 AuthenticationAttributes.fromAttributes(
                     Attributes.fromMap(
@@ -144,7 +144,7 @@ class DynamoDBDelegationDataAccessProvider(
                     )
                 )
             },
-            consentResult = DelegationTable.consentResult.fromOpt(this)?.let {
+            consentResult = DelegationTable.consentResult.optionalFrom(this)?.let {
                 DelegationConsentResult.fromMap(
                     _jsonHandler.fromJson(it)
                 )
@@ -153,9 +153,9 @@ class DynamoDBDelegationDataAccessProvider(
             claimMap = DelegationTable.claimMap.from(this).let { _jsonHandler.fromJson(it) },
             customClaimValues = DelegationTable.customClaimValues.from(this).let { _jsonHandler.fromJson(it) },
             claims = DelegationTable.claims.from(this).let { _jsonHandler.fromJson(it) },
-            mtlsClientCertificate = DelegationTable.mtlsClientCertificate.fromOpt(this),
-            mtlsClientCertificateDN = DelegationTable.mtlsClientCertificateDN.fromOpt(this),
-            mtlsClientCertificateX5TS256 = DelegationTable.mtlsClientCertificateX5TS256.fromOpt(this)
+            mtlsClientCertificate = DelegationTable.mtlsClientCertificate.optionalFrom(this),
+            mtlsClientCertificateDN = DelegationTable.mtlsClientCertificateDN.optionalFrom(this),
+            mtlsClientCertificateX5TS256 = DelegationTable.mtlsClientCertificateX5TS256.optionalFrom(this)
         )
 
     override fun getById(id: String): Delegation?
@@ -175,7 +175,7 @@ class DynamoDBDelegationDataAccessProvider(
 
         val status =
             DelegationStatus.valueOf(
-                DelegationTable.status.fromOpt(item)
+                DelegationTable.status.optionalFrom(item)
                     ?: throw SchemaErrorException(DelegationTable, DelegationTable.status)
             )
         if (status != DelegationStatus.issued)

@@ -64,7 +64,7 @@ import java.time.ZonedDateTime
  * We call "secondary item" to the items using the `userName`, `email`, and `phone` for the partition key.
  * These secondary items only exist to ensure uniqueness. They don't carry other relevant information.
  *
- * The is a version attribute to support optimistic concurrency when updating or deleting the multiple item from an user
+ * There is a version attribute to support optimistic concurrency when updating or deleting the multiple item from an user
  * on a transaction.
  *
  * The `userName`, `email`, and `phone` attributes:
@@ -178,12 +178,15 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val transactionItems = mutableListOf<TransactWriteItem>()
 
+        // the item put can only happen if the item does not exist
+        val writeConditionExpression = "attribute_not_exists(${AccountsTable.pk.name})"
+
         // Add main item
         transactionItems.add(
             TransactWriteItem.builder()
                 .put {
                     it.tableName(AccountsTable.name)
-                    it.conditionExpression("attribute_not_exists(${AccountsTable.pk})")
+                    it.conditionExpression(writeConditionExpression)
                     it.item(item)
                 }
                 .build()
@@ -191,10 +194,6 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val accountIdAttr = AccountsTable.accountId.toNameValuePair(accountId)
         val versionAttr = AccountsTable.version.toNameValuePair(0)
-        val userNameAttr = AccountsTable.userName.toAttrValue(userName)
-
-        // the item put can only happen if the item does not exist
-        val writeConditionExpression = "attribute_not_exists(${AccountsTable.pk.name})"
 
         // Add secondary item with userName
         transactionItems.add(
@@ -204,7 +203,7 @@ class DynamoDBUserAccountDataAccessProvider(
                     it.conditionExpression(writeConditionExpression)
                     it.item(
                         mapOf(
-                            AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, userNameAttr.s()),
+                            AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, userName),
                             accountIdAttr,
                             versionAttr
                         )
@@ -288,25 +287,25 @@ class DynamoDBUserAccountDataAccessProvider(
                 .build()
         )
 
-        if (!getItemResponse.hasItem())
+        if (!getItemResponse.hasItem() || getItemResponse.item().isEmpty())
         {
             return TransactionAttemptResult.Success(Unit)
         }
 
         val item = getItemResponse.item()
         val version =
-            AccountsTable.version.fromOpt(item) ?: throw SchemaErrorException(AccountsTable, AccountsTable.version)
+            AccountsTable.version.optionalFrom(item) ?: throw SchemaErrorException(AccountsTable, AccountsTable.version)
         val userName =
-            AccountsTable.userName.fromOpt(item) ?: throw SchemaErrorException(AccountsTable, AccountsTable.userName)
+            AccountsTable.userName.optionalFrom(item) ?: throw SchemaErrorException(AccountsTable, AccountsTable.userName)
         // email and phone may not exist
-        val email = AccountsTable.email.fromOpt(item)
-        val phone = AccountsTable.phone.fromOpt(item)
+        val email = AccountsTable.email.optionalFrom(item)
+        val phone = AccountsTable.phone.optionalFrom(item)
 
         // Create a transaction with all the items (main and secondary) deletions,
         // conditioned to the version not having changed - optimistic concurrency.
         val transactionItems = mutableListOf<TransactWriteItem>()
 
-        val conditionExpression = newConditionExpression(version, accountId)
+        val conditionExpression = versionAndAccountIdConditionExpression(version, accountId)
 
         transactionItems.add(
             TransactWriteItem.builder()
@@ -416,7 +415,7 @@ class DynamoDBUserAccountDataAccessProvider(
             AccountsTable,
             key,
             AccountsTable.pk,
-            newConditionExpression(observedVersion, accountId),
+            versionAndAccountIdConditionExpression(observedVersion, accountId),
             newVersion,
             AccountsTable.version,
             arrayOf(
@@ -428,25 +427,25 @@ class DynamoDBUserAccountDataAccessProvider(
 
         updateBuilder.handleUniqueAttribute(
             AccountsTable.userName,
-            AccountsTable.userName.fromOpt(observedItem),
+            AccountsTable.userName.optionalFrom(observedItem),
             accountAttributes.userName
         )
 
         updateBuilder.handleUniqueAttribute(
             AccountsTable.email,
-            AccountsTable.email.fromOpt(observedItem),
+            AccountsTable.email.optionalFrom(observedItem),
             accountAttributes.emails.primaryOrFirst?.significantValue
         )
 
         updateBuilder.handleUniqueAttribute(
             AccountsTable.phone,
-            AccountsTable.phone.fromOpt(observedItem),
+            AccountsTable.phone.optionalFrom(observedItem),
             accountAttributes.phoneNumbers.primaryOrFirst?.significantValue
         )
 
         updateBuilder.handleNonUniqueAttribute(
             AccountsTable.active,
-            AccountsTable.active.fromOpt(observedItem),
+            AccountsTable.active.optionalFrom(observedItem),
             accountAttributes.isActive
         )
 
@@ -454,7 +453,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
         updateBuilder.handleNonUniqueAttribute(
             AccountsTable.attributes,
-            AccountsTable.attributes.fromOpt(observedItem),
+            AccountsTable.attributes.optionalFrom(observedItem),
             attributesToPersist
         )
 
@@ -467,7 +466,7 @@ class DynamoDBUserAccountDataAccessProvider(
         updateBuilder.handleNonUniqueAttribute(
             AccountsTable.version,
             observedVersion,
-            observedVersion + 1
+            newVersion
         )
 
         try
@@ -565,10 +564,10 @@ class DynamoDBUserAccountDataAccessProvider(
         return querySequence(request, _client)
             .map { item ->
                 LinkedAccount.of(
-                    LinksTable.linkedAccountDomainName.fromOpt(item),
-                    LinksTable.linkedAccountId.fromOpt(item),
+                    LinksTable.linkedAccountDomainName.optionalFrom(item),
+                    LinksTable.linkedAccountId.optionalFrom(item),
                     NO_LINK_DESCRIPTION,
-                    LinksTable.created.fromOpt(item).toString()
+                    LinksTable.created.optionalFrom(item).toString()
                 )
             }
             .toList()
@@ -594,7 +593,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val item = response.item()
 
-        val itemAccountManager = LinksTable.linkingAccountManager.fromOpt(item)
+        val itemAccountManager = LinksTable.linkingAccountManager.optionalFrom(item)
             ?: throw SchemaErrorException(LinksTable, LinksTable.linkingAccountManager)
 
         if (itemAccountManager != linkingAccountManager)
@@ -602,7 +601,7 @@ class DynamoDBUserAccountDataAccessProvider(
             return null
         }
 
-        val localAccountId = LinksTable.localAccountId.fromOpt(item)
+        val localAccountId = LinksTable.localAccountId.optionalFrom(item)
             ?: throw SchemaErrorException(LinksTable, LinksTable.localAccountId)
 
         return getById(localAccountId)
@@ -766,7 +765,7 @@ class DynamoDBUserAccountDataAccessProvider(
     {
         val map = mutableMapOf<String, Any?>()
 
-        map["id"] = AccountsTable.accountId.fromOpt(this)
+        map["id"] = AccountsTable.accountId.optionalFrom(this)
 
         forEach { (key, value) ->
             when (key)
@@ -782,7 +781,7 @@ class DynamoDBUserAccountDataAccessProvider(
                 {
                 } // skip, phones are in attributes
                 AccountsTable.attributes.name -> map.putAll(
-                    jsonHandler.fromJson(AccountsTable.attributes.fromOpt(this)) ?: emptyMap<String, Any>()
+                    jsonHandler.fromJson(AccountsTable.attributes.optionalFrom(this)) ?: emptyMap<String, Any>()
                 )
                 AccountsTable.created.name ->
                 {
@@ -803,17 +802,14 @@ class DynamoDBUserAccountDataAccessProvider(
                 if (map["timezone"] != null) ZoneId.of(map["timezone"].toString()) else ZoneId.of("UTC")
 
             map["meta"] = mapOf(
-                Pair(Meta.RESOURCE_TYPE, AccountAttributes.RESOURCE_TYPE),
-                Pair(
-                    "created",
-                    ZonedDateTime.ofInstant(Instant.ofEpochSecond(AccountsTable.created.fromOpt(this) ?: -1L), zoneId)
+                Meta.RESOURCE_TYPE to AccountAttributes.RESOURCE_TYPE,
+                "created" to
+                    ZonedDateTime.ofInstant(Instant.ofEpochSecond(AccountsTable.created.optionalFrom(this) ?: -1L), zoneId)
+                        .toString(),
+                "lastModified" to
+                    ZonedDateTime.ofInstant(Instant.ofEpochSecond(AccountsTable.updated.optionalFrom(this) ?: -1L), zoneId)
                         .toString()
-                ),
-                Pair(
-                    "lastModified",
-                    ZonedDateTime.ofInstant(Instant.ofEpochSecond(AccountsTable.updated.fromOpt(this) ?: -1L), zoneId)
-                        .toString()
-                )
+
             )
         }
 
@@ -886,7 +882,7 @@ class DynamoDBUserAccountDataAccessProvider(
         )
     }
 
-    private fun newConditionExpression(version: Long, accountId: String) = object : Expression(
+    private fun versionAndAccountIdConditionExpression(version: Long, accountId: String) = object : Expression(
         _conditionExpressionBuilder
     )
     {
@@ -932,7 +928,7 @@ class DynamoDBUserAccountDataAccessProvider(
         }
 
         private fun DynamoDBItem.version(): Long =
-            AccountsTable.version.fromOpt(this)
+            AccountsTable.version.optionalFrom(this)
                 ?: throw SchemaErrorException(
                     AccountsTable,
                     AccountsTable.version
