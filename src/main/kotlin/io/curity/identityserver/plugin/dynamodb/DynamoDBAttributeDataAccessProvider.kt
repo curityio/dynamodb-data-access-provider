@@ -47,12 +47,7 @@ class DynamoDBAttributeDataAccessProvider(private val dynamoDBClient: DynamoDBCl
             .expressionAttributeValues(mapOf(LinksTable.localAccountId.toExpressionNameValuePair(accountId)))
             .build()
 
-        val items = querySequence(linksQueryRequest, dynamoDBClient).toList()
-
-        if (items.isEmpty())
-        {
-            return AttributeTableView.empty()
-        }
+        val items = querySequence(linksQueryRequest, dynamoDBClient)
 
         return AttributeTableView.ofAttributes(
             items
@@ -63,6 +58,7 @@ class DynamoDBAttributeDataAccessProvider(private val dynamoDBClient: DynamoDBCl
                             .toMap()
                     )
                 }
+                .toList()
         )
     }
 

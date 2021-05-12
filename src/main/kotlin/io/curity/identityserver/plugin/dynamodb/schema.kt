@@ -80,13 +80,12 @@ class StringAttribute(name: String) : BaseAttribute<String>(name, AttributeType.
 }
 
 // An attribute that is composed by two values
-class StringCompositeAttribute2(name: String, private val template: (String, String)->String) : BaseAttribute<String>(name, AttributeType.S)
+class StringCompositeAttribute2(name: String, private val template: (String, String)->String)
+    : BaseAttribute<Pair<String, String>>(name, AttributeType.S)
 {
-    override fun toAttrValue(value: String): AttributeValue = throw UnsupportedOperationException("Cannot create from a single value")
-    fun toAttrValue2(first: String, second: String): AttributeValue =
-        AttributeValue.builder().s(template(first, second)).build()
-    fun toNameValuePair(first: String, second: String) = name to toAttrValue2(first, second)
-    override fun from(attrValue: AttributeValue): String = attrValue.s()
+    override fun toAttrValue(value: Pair<String, String>): AttributeValue = AttributeValue.builder().s(template(value.first, value.second)).build()
+    fun toNameValuePair(first: String, second: String) = name to toAttrValue(Pair(first, second))
+    override fun from(attrValue: AttributeValue) = throw UnsupportedOperationException("Cannot read a composite value")
 }
 
 class UniqueStringAttribute(name: String, val _f: (String) -> String)
@@ -119,9 +118,8 @@ class BooleanAttribute(name: String) : BaseAttribute<Boolean>(name, AttributeTyp
 }
 
 class ExpressionBuilder(
-    expr: String, vararg attributes: Attribute<*>)
+    val expression: String, vararg attributes: Attribute<*>)
 {
-    val expression: String = expr
     val attributeNames = attributes
         .map {
             it.toNamePair()
