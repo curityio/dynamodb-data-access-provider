@@ -64,7 +64,7 @@ import java.time.ZonedDateTime
  * We call "secondary item" to the items using the `userName`, `email`, and `phone` for the partition key.
  * These secondary items only exist to ensure uniqueness. They don't carry other relevant information.
  *
- * The is a version attribute to support optimistic concurrency when updating or deleting the multiple item from an user
+ * There is a version attribute to support optimistic concurrency when updating or deleting the multiple item from an user
  * on a transaction.
  *
  * The `userName`, `email`, and `phone` attributes:
@@ -179,12 +179,15 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val transactionItems = mutableListOf<TransactWriteItem>()
 
+        // the item put can only happen if the item does not exist
+        val writeConditionExpression = "attribute_not_exists(${AccountsTable.pk.name})"
+
         // Add main item
         transactionItems.add(
             TransactWriteItem.builder()
                 .put {
                     it.tableName(AccountsTable.name)
-                    it.conditionExpression("attribute_not_exists(${AccountsTable.pk})")
+                    it.conditionExpression(writeConditionExpression)
                     it.item(item)
                 }
                 .build()
@@ -192,10 +195,6 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val accountIdAttr = AccountsTable.accountId.toNameValuePair(accountId)
         val versionAttr = AccountsTable.version.toNameValuePair(0)
-        val userNameAttr = AccountsTable.userName.toAttrValue(userName)
-
-        // the item put can only happen if the item does not exist
-        val writeConditionExpression = "attribute_not_exists(${AccountsTable.pk.name})"
 
         // Add secondary item with userName
         transactionItems.add(
@@ -205,7 +204,7 @@ class DynamoDBUserAccountDataAccessProvider(
                     it.conditionExpression(writeConditionExpression)
                     it.item(
                         mapOf(
-                            AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, userNameAttr.s()),
+                            AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, userName),
                             accountIdAttr,
                             versionAttr
                         )
@@ -289,7 +288,7 @@ class DynamoDBUserAccountDataAccessProvider(
                 .build()
         )
 
-        if (!getItemResponse.hasItem())
+        if (!getItemResponse.hasItem() || getItemResponse.item().isEmpty())
         {
             return TransactionAttemptResult.Success(Unit)
         }
@@ -307,7 +306,7 @@ class DynamoDBUserAccountDataAccessProvider(
         // conditioned to the version not having changed - optimistic concurrency.
         val transactionItems = mutableListOf<TransactWriteItem>()
 
-        val conditionExpression = newConditionExpression(version, accountId)
+        val conditionExpression = versionAndAccountIdConditionExpression(version, accountId)
 
         transactionItems.add(
             TransactWriteItem.builder()
@@ -417,7 +416,7 @@ class DynamoDBUserAccountDataAccessProvider(
             AccountsTable,
             key,
             AccountsTable.pk,
-            newConditionExpression(observedVersion, accountId),
+            versionAndAccountIdConditionExpression(observedVersion, accountId),
             newVersion,
             AccountsTable.version,
             arrayOf(
@@ -468,7 +467,7 @@ class DynamoDBUserAccountDataAccessProvider(
         updateBuilder.handleNonUniqueAttribute(
             AccountsTable.version,
             observedVersion,
-            observedVersion + 1
+            newVersion
         )
 
         try
@@ -804,17 +803,14 @@ class DynamoDBUserAccountDataAccessProvider(
                 if (map["timezone"] != null) ZoneId.of(map["timezone"].toString()) else ZoneId.of("UTC")
 
             map["meta"] = mapOf(
-                Pair(Meta.RESOURCE_TYPE, AccountAttributes.RESOURCE_TYPE),
-                Pair(
-                    "created",
+                Meta.RESOURCE_TYPE to AccountAttributes.RESOURCE_TYPE,
+                "created" to
                     ZonedDateTime.ofInstant(Instant.ofEpochSecond(AccountsTable.created.fromOpt(this) ?: -1L), zoneId)
-                        .toString()
-                ),
-                Pair(
-                    "lastModified",
+                        .toString(),
+                "lastModified" to
                     ZonedDateTime.ofInstant(Instant.ofEpochSecond(AccountsTable.updated.fromOpt(this) ?: -1L), zoneId)
                         .toString()
-                )
+
             )
         }
 
@@ -887,7 +883,7 @@ class DynamoDBUserAccountDataAccessProvider(
         )
     }
 
-    private fun newConditionExpression(version: Long, accountId: String) = object : Expression(
+    private fun versionAndAccountIdConditionExpression(version: Long, accountId: String) = object : Expression(
         _conditionExpressionBuilder
     )
     {
