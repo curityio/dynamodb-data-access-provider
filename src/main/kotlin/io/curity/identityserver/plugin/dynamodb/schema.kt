@@ -46,14 +46,14 @@ interface Attribute<T>
     fun toNamePair(): Pair<String, String>
     fun toNameValuePair(value: T): Pair<String, AttributeValue>
     fun toExpressionNameValuePair(value: T): Pair<String, AttributeValue>
-    fun fromOpt(map: Map<String, AttributeValue>): T?
+    fun optionalFrom(map: Map<String, AttributeValue>): T?
     fun from(map: Map<String, AttributeValue>): T
     val hashName: String
     val colonName: String
     fun toAttrValue(value: T): AttributeValue
     fun from(attrValue: AttributeValue): T
     fun addTo(map: MutableMap<String, AttributeValue>, value: T)
-    fun addToOpt(map: MutableMap<String, AttributeValue>, value: T?)
+    fun addToNullable(map: MutableMap<String, AttributeValue>, value: T?)
 }
 
 // A DynamoDB attribute that must also be unique
@@ -73,14 +73,14 @@ abstract class BaseAttribute<T>(
     override fun toString() = name
     override fun toNameValuePair(value: T) = name to toAttrValue(value)
     override fun toExpressionNameValuePair(value: T) = ":${name}" to toAttrValue(value)
-    override fun fromOpt(map: Map<String, AttributeValue>): T? = map[name]?.let { from(it) }
-    override fun from(map: Map<String, AttributeValue>) = fromOpt(map) ?: throw SchemaErrorException(this)
+    override fun optionalFrom(map: Map<String, AttributeValue>): T? = map[name]?.let { from(it) }
+    override fun from(map: Map<String, AttributeValue>) = optionalFrom(map) ?: throw SchemaErrorException(this)
     override fun addTo(map: MutableMap<String, AttributeValue>, value: T)
     {
         map[name] = toAttrValue(value)
     }
 
-    override fun addToOpt(map: MutableMap<String, AttributeValue>, value: T?)
+    override fun addToNullable(map: MutableMap<String, AttributeValue>, value: T?)
     {
         if (value != null)
         {

@@ -37,7 +37,7 @@ class DynamoDBAttributeDataAccessProvider(private val dynamoDBClient: DynamoDBCl
             return AttributeTableView.empty()
         }
         val accountQueryItem = accountQueryResult.items()[0]
-        val accountId = AccountsTable.accountId.fromOpt(accountQueryItem)
+        val accountId = AccountsTable.accountId.optionalFrom(accountQueryItem)
             ?: throw SchemaErrorException(AccountsTable, AccountsTable.accountId)
 
         val linksQueryRequest = QueryRequest.builder()

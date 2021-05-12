@@ -44,7 +44,7 @@ class DynamoDBBucketDataAccessProvider(
         {
             return mapOf()
         }
-        val attributesString = BucketsTable.attributes.fromOpt(response.item())
+        val attributesString = BucketsTable.attributes.optionalFrom(response.item())
             ?: throw SchemaErrorException(
                 BucketsTable,
                 BucketsTable.attributes
