@@ -21,7 +21,11 @@ sealed class QueryPlan
 
     data class UsingScan(
         val expression: DisjunctiveNormalForm
-    ): QueryPlan()
+    ): QueryPlan() {
+        companion object {
+            fun fullScan() = UsingScan(expression = DisjunctiveNormalForm(products = setOf()))
+        }
+    }
 
     // Auxiliary types
 

@@ -16,6 +16,12 @@
 package io.curity.identityserver.plugin.dynamodb
 
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
+import io.curity.identityserver.plugin.dynamodb.query.DynamoDBQueryBuilder
+import io.curity.identityserver.plugin.dynamodb.query.Index
+import io.curity.identityserver.plugin.dynamodb.query.QueryPlan
+import io.curity.identityserver.plugin.dynamodb.query.QueryPlanner
+import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
+import io.curity.identityserver.plugin.dynamodb.query.UnsupportedQueryException
 import io.curity.identityserver.plugin.dynamodb.token.UserAccountFilterParser
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -25,6 +31,7 @@ import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.LinkedAccount
+import se.curity.identityserver.sdk.data.query.Filter
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.data.query.ResourceQueryResult
 import se.curity.identityserver.sdk.data.update.AttributeUpdate
@@ -74,10 +81,10 @@ import java.time.ZonedDateTime
  */
 class DynamoDBUserAccountDataAccessProvider(
     private val _client: DynamoDBClient,
-    configuration: DynamoDBDataAccessProviderConfiguration
+    private val _configuration: DynamoDBDataAccessProviderConfiguration
 ) : UserAccountDataAccessProvider
 {
-    private val jsonHandler = configuration.getJsonHandler()
+    private val jsonHandler = _configuration.getJsonHandler()
 
     override fun getById(
         accountId: String
@@ -88,7 +95,7 @@ class DynamoDBUserAccountDataAccessProvider(
         attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): ResourceAttributes<*>?
     {
-        logger.debug("Received request to get account by ID : {}", accountId)
+        _logger.debug("Received request to get account by ID : {}", accountId)
 
         val requestBuilder = GetItemRequest.builder()
             .tableName(AccountsTable.name)
@@ -112,7 +119,7 @@ class DynamoDBUserAccountDataAccessProvider(
         attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): ResourceAttributes<*>?
     {
-        logger.debug("Received request to get account by userName : {}", userName)
+        _logger.debug("Received request to get account by userName : {}", userName)
 
         return retrieveByIndexQuery(AccountsTable.userNameIndex, userName, attributesEnumeration)
     }
@@ -122,7 +129,7 @@ class DynamoDBUserAccountDataAccessProvider(
         attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): ResourceAttributes<*>?
     {
-        logger.debug("Received request to get account by email : {}", email)
+        _logger.debug("Received request to get account by email : {}", email)
 
         return retrieveByIndexQuery(AccountsTable.emailIndex, email, attributesEnumeration)
     }
@@ -132,7 +139,7 @@ class DynamoDBUserAccountDataAccessProvider(
         attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): ResourceAttributes<*>?
     {
-        logger.debug("Received request to get account by phone number : {}", phone)
+        _logger.debug("Received request to get account by phone number : {}", phone)
 
         return retrieveByIndexQuery(AccountsTable.phoneIndex, phone, attributesEnumeration)
     }
@@ -167,7 +174,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
     override fun create(accountAttributes: AccountAttributes): AccountAttributes
     {
-        logger.debug("Received request to create account with data : {}", accountAttributes)
+        _logger.debug("Received request to create account with data : {}", accountAttributes)
         val item = accountAttributes.toItem()
         val accountId = generateRandomId()
         val accountIdPk = AccountsTable.accountId.uniquenessValueFrom(accountId)
@@ -275,7 +282,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
     private fun tryDelete(accountId: String): TransactionAttemptResult<Unit>
     {
-        logger.debug("Received request to delete account with accountId: {}", accountId)
+        _logger.debug("Received request to delete account with accountId: {}", accountId)
 
         // Deleting an account requires the deletion of the main item and all the secondary items.
         // A `getItem` is needed to obtain the `userName`, `email`, and `phone` required to compute the
@@ -296,7 +303,10 @@ class DynamoDBUserAccountDataAccessProvider(
         val version =
             AccountsTable.version.optionalFrom(item) ?: throw SchemaErrorException(AccountsTable, AccountsTable.version)
         val userName =
-            AccountsTable.userName.optionalFrom(item) ?: throw SchemaErrorException(AccountsTable, AccountsTable.userName)
+            AccountsTable.userName.optionalFrom(item) ?: throw SchemaErrorException(
+                AccountsTable,
+                AccountsTable.userName
+            )
         // email and phone may not exist
         val email = AccountsTable.email.optionalFrom(item)
         val phone = AccountsTable.phone.optionalFrom(item)
@@ -375,7 +385,7 @@ class DynamoDBUserAccountDataAccessProvider(
         attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): ResourceAttributes<*>?
     {
-        logger.debug("Received request to update account with data : {}", accountAttributes)
+        _logger.debug("Received request to update account with data : {}", accountAttributes)
 
         val id = accountAttributes.id
         updateAccount(id, accountAttributes)
@@ -389,7 +399,7 @@ class DynamoDBUserAccountDataAccessProvider(
         attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): ResourceAttributes<*>?
     {
-        logger.debug("Received request to update account with id:{} and data : {}", accountId, map)
+        _logger.debug("Received request to update account with id:{} and data : {}", accountId, map)
 
         updateAccount(accountId, AccountAttributes.fromMap(map))
 
@@ -497,7 +507,7 @@ class DynamoDBUserAccountDataAccessProvider(
                 attributeUpdate.attributeReplacements.contains(AccountAttributes.PASSWORD)
             )
             {
-                logger.info(
+                _logger.info(
                     "Received an account with a password to update. Cannot update passwords using this method, " +
                             "so the password will be ignored."
                 )
@@ -634,7 +644,128 @@ class DynamoDBUserAccountDataAccessProvider(
         return response.sdkHttpResponse().isSuccessful
     }
 
-    override fun getAll(query: ResourceQuery): ResourceQueryResult
+    override fun getAll(resourceQuery: ResourceQuery): ResourceQueryResult = try
+    {
+
+        val comparator = getComparatorFor(resourceQuery)
+
+        val queryPlan = if (resourceQuery.filter != null)
+        {
+            QueryPlanner(AccountsTable.queryCapabilities).build(resourceQuery.filter)
+        } else
+        {
+            QueryPlan.UsingScan.fullScan()
+        }
+
+        if (queryPlan is QueryPlan.UsingScan && !_configuration.getAllowTableScans().orElse(false))
+        {
+            throw throw UnsupportedQueryException.QueryRequiresTableScan()
+        }
+
+        val values = when (queryPlan)
+        {
+            is QueryPlan.UsingQueries -> query(queryPlan)
+            is QueryPlan.UsingScan -> scan(queryPlan)
+        }
+
+        // FIXME avoid the toList
+        val sortedValues = if (comparator != null)
+        {
+            values.sortedWith(
+                if (resourceQuery.sorting.sortOrder == ResourceQuery.Sorting.SortOrder.ASCENDING)
+                {
+                    comparator
+                } else
+                {
+                    comparator.reversed()
+                }
+            ).toList()
+        } else
+        {
+            values.toList()
+        }
+
+        val validatedStartIndex = resourceQuery.pagination.startIndex.toIntOrThrow("pagination.startIndex")
+        val validatedCount = resourceQuery.pagination.count.toIntOrThrow("pagination.count")
+
+        val finalValues = sortedValues
+            .drop(validatedStartIndex)
+            .take(validatedCount)
+            .map { it.toAccountAttributes(resourceQuery.attributesEnumeration) }
+            .toList()
+
+        ResourceQueryResult(
+            finalValues,
+            sortedValues.size.toLong(),
+            resourceQuery.pagination.startIndex,
+            resourceQuery.pagination.count
+        )
+    } catch (e: UnsupportedQueryException)
+    {
+        _logger.debug(
+            "Unable to process query. Reason is '{}', query = '{}",
+            e.message,
+            resourceQuery
+        )
+        throw _configuration.getExceptionFactory().externalServiceException(e.message)
+    }
+
+    private fun scan(queryPlan: QueryPlan.UsingScan?): Sequence<DynamoDBItem>
+    {
+        val scanRequestBuilder = ScanRequest.builder()
+            .tableName(AccountsTable.name)
+            .indexName(AccountsTable.userNameIndex.name)
+
+        if (queryPlan != null)
+        {
+            val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression)
+            scanRequestBuilder.configureWith(dynamoDBScan)
+        }
+        val scanRequest = scanRequestBuilder.build()
+
+        return scanSequence(scanRequest, _client)
+    }
+
+    private fun query(queryPlan: QueryPlan.UsingQueries): Sequence<DynamoDBItem>
+    {
+        val nOfQueries = queryPlan.queries.entries.size
+        if (nOfQueries > MAX_QUERIES)
+        {
+            throw UnsupportedQueryException.QueryRequiresTooManyOperations(nOfQueries, MAX_QUERIES)
+        }
+        val result = linkedMapOf<String, Map<String, AttributeValue>>()
+        queryPlan.queries.forEach { query ->
+            val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(query.key, query.value)
+
+            val queryRequest = QueryRequest.builder()
+                .tableName(AccountsTable.name)
+                .configureWith(dynamoDBQuery)
+                .build()
+
+            querySequence(queryRequest, _client).forEach {
+                result[AccountsTable.accountId.from(it)] = it
+            }
+        }
+        return result.values.asSequence()
+    }
+
+    private fun getComparatorFor(resourceQuery: ResourceQuery): Comparator<Map<String, AttributeValue>>?
+    {
+        return if (resourceQuery.sorting != null && resourceQuery.sorting.sortBy != null)
+        {
+            AccountsTable.queryCapabilities.attributeMap[resourceQuery.sorting.sortBy]
+                ?.let { attribute ->
+                    attribute.comparator()
+                        ?: throw UnsupportedQueryException.UnsupportedSortAttribute(resourceQuery.sorting.sortBy)
+                }
+                ?: throw UnsupportedQueryException.UnknownSortAttribute(resourceQuery.sorting.sortBy)
+        } else
+        {
+            null
+        }
+    }
+
+    fun getAllOld(query: ResourceQuery): ResourceQueryResult
     {
         //TODO IS-5851 avoid scan? should implement pagination and proper handling of DynamoDB pagination?
 
@@ -675,7 +806,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
     override fun getAll(startIndex: Long, count: Long): ResourceQueryResult
     {
-        logger.debug("Received request to get all accounts with startIndex :{} and count: {}", startIndex, count)
+        _logger.debug("Received request to get all accounts with startIndex :{} and count: {}", startIndex, count)
 
         val request = ScanRequest.builder()
             .tableName(tableName)
@@ -804,11 +935,17 @@ class DynamoDBUserAccountDataAccessProvider(
             map["meta"] = mapOf(
                 Meta.RESOURCE_TYPE to AccountAttributes.RESOURCE_TYPE,
                 "created" to
-                    ZonedDateTime.ofInstant(Instant.ofEpochSecond(AccountsTable.created.optionalFrom(this) ?: -1L), zoneId)
-                        .toString(),
+                        ZonedDateTime.ofInstant(
+                            Instant.ofEpochSecond(AccountsTable.created.optionalFrom(this) ?: -1L),
+                            zoneId
+                        )
+                            .toString(),
                 "lastModified" to
-                    ZonedDateTime.ofInstant(Instant.ofEpochSecond(AccountsTable.updated.optionalFrom(this) ?: -1L), zoneId)
-                        .toString()
+                        ZonedDateTime.ofInstant(
+                            Instant.ofEpochSecond(AccountsTable.updated.optionalFrom(this) ?: -1L),
+                            zoneId
+                        )
+                            .toString()
 
             )
         }
@@ -853,6 +990,20 @@ class DynamoDBUserAccountDataAccessProvider(
         val emailIndex = PartitionOnlyIndex("email-index", email)
 
         val phoneIndex = PartitionOnlyIndex("phone-index", phone)
+
+        val queryCapabilities = TableQueryCapabilities(
+            indexes = listOf(
+                Index.from(userNameIndex),
+                Index.from(emailIndex),
+                Index.from(phoneIndex)
+            ),
+            attributeMap = mapOf(
+                AccountAttributes.USER_NAME to userName,
+                AccountAttributes.EMAILS to email,
+                AccountAttributes.PHONE_NUMBERS to phone,
+                AccountAttributes.ACTIVE to active
+            )
+        )
     }
 
     object LinksTable : Table("curity-links")
@@ -902,7 +1053,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
         private const val tableName = "curity-accounts"
         private const val linksTableName = "curity-links"
-        private val logger: Logger = LoggerFactory.getLogger(DynamoDBCredentialDataAccessProvider::class.java)
+        private val _logger: Logger = LoggerFactory.getLogger(DynamoDBUserAccountDataAccessProvider::class.java)
 
         private val attributesToRemove = listOf(
             // these are SDK attribute names and not DynamoDB table attribute names
@@ -918,7 +1069,7 @@ class DynamoDBUserAccountDataAccessProvider(
             var withoutLinks = account
             for (linkedAccount in account.linkedAccounts.toList())
             {
-                logger.trace(
+                _logger.trace(
                     "Removing linked account before persisting to accounts table '{}'",
                     linkedAccount
                 )
@@ -933,5 +1084,7 @@ class DynamoDBUserAccountDataAccessProvider(
                     AccountsTable,
                     AccountsTable.version
                 )
+
+        private const val MAX_QUERIES = 8
     }
 }
