@@ -12,6 +12,7 @@
 package io.curity.identityserver.plugin.dynamodb.query
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBAttribute
+import io.curity.identityserver.plugin.dynamodb.DynamoDBItem
 import se.curity.identityserver.sdk.data.query.Filter
 
 /*
@@ -21,114 +22,167 @@ import se.curity.identityserver.sdk.data.query.Filter
 /**
  * Class hierarchy with the supported DynamoDB attribute operators.
  */
+
 sealed class AttributeOperator
 {
-    abstract fun negate(): AttributeOperator
-    abstract fun toDynamoOperator(left: String, right: String): String
+    open val requiresPostQueryEvaluation = false
+}
 
-    object Eq : AttributeOperator()
+sealed class BinaryAttributeOperator : AttributeOperator()
+{
+    abstract fun negate(): BinaryAttributeOperator
+    abstract fun toDynamoOperator(left: String, right: String): String
+    abstract fun eval(left: Any?, right: Any): Boolean
+
+    object Eq : BinaryAttributeOperator()
     {
         override fun toString() = "Eq"
         override fun negate() = Ne
         override fun toDynamoOperator(left: String, right: String) = "$left = $right"
+        override fun eval(left: Any?, right: Any) = left == right
     }
 
-    object Ne : AttributeOperator()
+    object Ne : BinaryAttributeOperator()
     {
         override fun toString() = "Ne"
         override fun negate() = Eq
         override fun toDynamoOperator(left: String, right: String) = "$left <> $right"
+        override fun eval(left: Any?, right: Any) = left != right
     }
 
-    object Co : AttributeOperator()
+    object Co : BinaryAttributeOperator()
     {
         override fun toString() = "Co"
         override fun negate() = NotCo
         override fun toDynamoOperator(left: String, right: String) = "contains($left,$right)"
+        override fun eval(left: Any?, right: Any) = left is String && right is String && left.contains(right)
     }
 
-    object NotCo : AttributeOperator()
+    object NotCo : BinaryAttributeOperator()
     {
         override fun toString() = "NotCo"
         override fun negate() = Co
         override fun toDynamoOperator(left: String, right: String) = "NOT ${Co.toDynamoOperator(left, right)}"
+        override fun eval(left: Any?, right: Any) = !Co.eval(left, right)
     }
 
-    object Sw : AttributeOperator()
+    object Sw : BinaryAttributeOperator()
     {
         override fun toString() = "Sw"
         override fun negate() = NotSw
         override fun toDynamoOperator(left: String, right: String) = "begins_with($left, $right)"
+        override fun eval(left: Any?, right: Any) = left is String && right is String && left.startsWith(right)
     }
 
-    object NotSw : AttributeOperator()
+    object NotSw : BinaryAttributeOperator()
     {
         override fun toString() = "NotSw"
         override fun negate() = Sw
         override fun toDynamoOperator(left: String, right: String) = "NOT ${Sw.toDynamoOperator(left, right)}"
+        override fun eval(left: Any?, right: Any) = !Sw.eval(left, right)
     }
 
-    object Pr : AttributeOperator()
+    object Ew : BinaryAttributeOperator()
     {
-        override fun toString() = "Pr"
-        override fun negate() = NotPr
-        override fun toDynamoOperator(left: String, right: String) = "attribute_exists($left)"
+        override fun toString() = "Ew"
+        override fun negate() = NotEw
+        override fun toDynamoOperator(left: String, right: String) = "contains($left, $right)"
+        override fun eval(left: Any?, right: Any) = left is String && right is String && left.endsWith(right)
+        override val requiresPostQueryEvaluation = true
     }
 
-    object NotPr : AttributeOperator()
+    object NotEw : BinaryAttributeOperator()
     {
-        override fun toString() = "NotPr"
-        override fun negate() = Pr
-        override fun toDynamoOperator(left: String, right: String) = "attribute_not_exists($left)"
+        override fun toString() = "NotEw"
+        override fun negate() = Ew
+        override fun toDynamoOperator(left: String, right: String) = "NOT ${Ew.toDynamoOperator(left, right)}"
+        override fun eval(left: Any?, right: Any) = !Sw.eval(left, right)
+        override val requiresPostQueryEvaluation = true
     }
 
-    object Gt : AttributeOperator()
+    object Gt : BinaryAttributeOperator()
     {
         override fun toString() = "Gt"
         override fun negate() = Le
         override fun toDynamoOperator(left: String, right: String) = "$left > $right"
+        override fun eval(left: Any?, right: Any) = compare(this, left, right) > 0
     }
 
-    object Ge : AttributeOperator()
+    object Ge : BinaryAttributeOperator()
     {
         override fun toString() = "Ge"
         override fun negate() = Lt
         override fun toDynamoOperator(left: String, right: String) = "$left >= $right"
+        override fun eval(left: Any?, right: Any) = compare(this, left, right) >= 0
     }
 
-    object Lt : AttributeOperator()
+    object Lt : BinaryAttributeOperator()
     {
         override fun toString() = "Lt"
         override fun negate() = Ge
         override fun toDynamoOperator(left: String, right: String) = "$left < $right"
+        override fun eval(left: Any?, right: Any) = compare(this, left, right) < 0
     }
 
-    object Le : AttributeOperator()
+    object Le : BinaryAttributeOperator()
     {
         override fun toString() = "Le"
         override fun negate() = Gt
         override fun toDynamoOperator(left: String, right: String) = "$left <= $right"
-    }
-
-    companion object
-    {
-        fun isUsableOnSortIndex(operator: AttributeOperator) = sortOperators.contains(operator)
-
-        fun from(filterOperator: Filter.AttributeOperator) = when (filterOperator)
-        {
-            Filter.AttributeOperator.EQ -> Eq
-            Filter.AttributeOperator.NE -> Ne
-            Filter.AttributeOperator.CO -> Co
-            Filter.AttributeOperator.SW -> Sw
-            Filter.AttributeOperator.EW -> throw UnsupportedQueryException.UnsupportedOperator(Filter.AttributeOperator.EW)
-            Filter.AttributeOperator.PR -> Pr
-            Filter.AttributeOperator.GT -> Gt
-            Filter.AttributeOperator.GE -> Ge
-            Filter.AttributeOperator.LT -> Lt
-            Filter.AttributeOperator.LE -> Le
-        }
+        override fun eval(left: Any?, right: Any) = compare(this, left, right) <= 0
     }
 }
+
+sealed class UnaryAttributeOperator : AttributeOperator()
+{
+    abstract fun negate(): UnaryAttributeOperator
+    abstract fun toDynamoOperator(left: String): String
+    abstract fun eval(left: Any?): Boolean
+
+    object Pr : UnaryAttributeOperator()
+    {
+        override fun toString() = "Pr"
+        override fun negate() = NotPr
+        override fun toDynamoOperator(left: String) = "attribute_exists($left)"
+        override fun eval(left: Any?) = left != null
+    }
+
+    object NotPr : UnaryAttributeOperator()
+    {
+        override fun toString() = "NotPr"
+        override fun negate() = Pr
+        override fun toDynamoOperator(left: String) = "attribute_not_exists($left)"
+        override fun eval(left: Any?) = !Pr.eval(left)
+    }
+}
+
+fun operatorFrom(filterOperator: Filter.AttributeOperator) = when (filterOperator)
+{
+    Filter.AttributeOperator.EQ -> BinaryAttributeOperator.Eq
+    Filter.AttributeOperator.NE -> BinaryAttributeOperator.Ne
+    Filter.AttributeOperator.CO -> BinaryAttributeOperator.Co
+    Filter.AttributeOperator.SW -> BinaryAttributeOperator.Sw
+    Filter.AttributeOperator.EW -> BinaryAttributeOperator.Ew
+    Filter.AttributeOperator.PR -> UnaryAttributeOperator.Pr
+    Filter.AttributeOperator.GT -> BinaryAttributeOperator.Gt
+    Filter.AttributeOperator.GE -> BinaryAttributeOperator.Ge
+    Filter.AttributeOperator.LT -> BinaryAttributeOperator.Lt
+    Filter.AttributeOperator.LE -> BinaryAttributeOperator.Le
+}
+
+fun isUsableOnSortIndex(operator: AttributeOperator) = sortOperators.contains(operator)
+
+fun compare(operator: AttributeOperator, left: Any?, right: Any) =
+    if (left is String && right is String)
+    {
+        compareValues(left, right)
+    } else if (left is Long && right is Long)
+    {
+        compareValues(left, right)
+    } else
+    {
+        throw UnsupportedQueryException.InvalidOperandTypes(operator, left, right)
+    }
 
 /**
  * Class hierarchy with the supported DynamoDB binary logical operators.
@@ -160,11 +214,30 @@ sealed class LogicalOperator
  */
 sealed class Expression
 
-data class AttributeExpression(
-    val attribute: DynamoDBAttribute<*>,
-    val operator: AttributeOperator,
-    val value: Any
+sealed class AttributeExpression(
+    open val attribute: DynamoDBAttribute<*>,
+    open val operator: AttributeOperator
 ) : Expression()
+{
+    abstract fun match(item: DynamoDBItem): Boolean
+}
+
+data class BinaryAttributeExpression(
+    override val attribute: DynamoDBAttribute<*>,
+    override val operator: BinaryAttributeOperator,
+    val value: Any
+) : AttributeExpression(attribute, operator)
+{
+    override fun match(item: DynamoDBItem) = operator.eval(attribute.optionalFrom(item), value)
+}
+
+data class UnaryAttributeExpression(
+    override val attribute: DynamoDBAttribute<*>,
+    override val operator: UnaryAttributeOperator
+) : AttributeExpression(attribute, operator)
+{
+    override fun match(item: DynamoDBItem) = operator.eval(attribute.optionalFrom(item))
+}
 
 data class LogicalExpression(
     val left: Expression,
@@ -187,11 +260,15 @@ class ExpressionMapper(
     fun from(filter: Filter): Expression = when (filter)
     {
         is Filter.AttributeExpression -> lookupAttribute(filter.attributeName).let { attribute ->
-            AttributeExpression(
-                attribute,
-                AttributeOperator.from(filter.operator),
-                validateValue(attribute, filter.value)
-            )
+            when (val operator = operatorFrom(filter.operator))
+            {
+                is UnaryAttributeOperator -> UnaryAttributeExpression(attribute, operator)
+                is BinaryAttributeOperator -> BinaryAttributeExpression(
+                    attribute,
+                    operator,
+                    validateValue(attribute, filter.value)
+                )
+            }
         }
         is Filter.LogicalExpression -> LogicalExpression(
             from(filter.leftHandFilter),
@@ -222,6 +299,8 @@ class ExpressionMapper(
 data class Product(val terms: Set<AttributeExpression>)
 {
     override fun toString() = terms.joinToString(".") { it.toString() }
+
+    fun match(item: DynamoDBItem) = terms.all { it.match(item) }
 
     companion object
     {
@@ -255,9 +334,26 @@ fun or(normalExpressions: List<DisjunctiveNormalForm>) =
 
 fun or(left: Expression, right: Expression) = LogicalExpression(left, LogicalOperator.Or, right)
 
+fun requiresPostQueryEvaluation(prod: Product) = prod.terms.any { it.operator.requiresPostQueryEvaluation }
+fun requiresPostQueryEvaluation(prods: Iterable<Product>) = prods.any { requiresPostQueryEvaluation(it) }
+
+fun DynamoDBItem.matches(attributeExpression: AttributeExpression) = attributeExpression.match(this)
+fun DynamoDBItem.matches(product: Product) = product.terms.all { this.matches(it) }
+fun DynamoDBItem.matches(products: Iterable<Product>) = products.any { this.matches(it) }
+
+fun Sequence<DynamoDBItem>.filterWith(products: Iterable<Product>) =
+    if (requiresPostQueryEvaluation(products))
+    {
+        this.filter { it.matches(products) }
+    } else
+    {
+        this
+    }
+
 /**
  * Converts an [Expression] into the equivalent [DisjunctiveNormalForm]
  */
+
 fun normalize(expr: Expression): DisjunctiveNormalForm = when (expr)
 {
     is AttributeExpression -> DisjunctiveNormalForm(setOf(Product(setOf(expr))))
@@ -278,10 +374,15 @@ fun normalize(expr: Expression): DisjunctiveNormalForm = when (expr)
  */
 fun negate(expr: Expression): Expression = when (expr)
 {
-    is AttributeExpression ->
+    is UnaryAttributeExpression ->
+    {
+        val (attr, operation) = expr
+        UnaryAttributeExpression(attr, operation.negate())
+    }
+    is BinaryAttributeExpression ->
     {
         val (attr, operation, value) = expr
-        AttributeExpression(attr, operation.negate(), value)
+        BinaryAttributeExpression(attr, operation.negate(), value)
     }
     is LogicalExpression ->
     {
@@ -296,10 +397,10 @@ fun negate(expr: Expression): Expression = when (expr)
 }
 
 private val sortOperators = setOf(
-    AttributeOperator.Eq,
-    AttributeOperator.Gt,
-    AttributeOperator.Ge,
-    AttributeOperator.Lt,
-    AttributeOperator.Le,
-    AttributeOperator.Sw
+    BinaryAttributeOperator.Eq,
+    BinaryAttributeOperator.Gt,
+    BinaryAttributeOperator.Ge,
+    BinaryAttributeOperator.Lt,
+    BinaryAttributeOperator.Le,
+    BinaryAttributeOperator.Sw
 )

@@ -38,4 +38,7 @@ sealed class UnsupportedQueryException(msg: String) : Exception(msg)
 
     class QueryRequiresTooManyOperations(val queries: Int, val maxQueries: Int)
         : UnsupportedQueryException("Query requires $queries table queries and the allowed maximum is $maxQueries")
+
+    class InvalidOperandTypes(operator: AttributeOperator, left: Any?, right: Any)
+        : UnsupportedQueryException("Operands '$left' and '$right' are not usable with operator $operator")
 }

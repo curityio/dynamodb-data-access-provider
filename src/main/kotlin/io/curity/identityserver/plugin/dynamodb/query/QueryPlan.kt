@@ -31,13 +31,13 @@ sealed class QueryPlan
 
     data class KeyCondition(
         val index: Index,
-        val partitionCondition: AttributeExpression,
+        val partitionCondition: BinaryAttributeExpression,
         val sortCondition: RangeCondition? = null
     )
 
     sealed class RangeCondition
     {
-        data class Binary(val attributeExpression: AttributeExpression) : RangeCondition()
+        data class Binary(val attributeExpression: BinaryAttributeExpression) : RangeCondition()
         data class Between(val attribute: DynamoDBAttribute<*>, val lower: Any, val higher: Any) : RangeCondition()
     }
 }

@@ -44,17 +44,17 @@ class QueryPlanTests(
                 listOf(emailIndex, userNameIndex),
                 and(
                     or(
-                        AttributeExpression(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
-                        AttributeExpression(USER_NAME, AttributeOperator.Eq, "alice")
+                        BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com"),
+                        BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice")
                     ),
-                    AttributeExpression(STATUS, AttributeOperator.Eq, "valid")
+                    BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "valid")
                 ),
                 QueryPlan.UsingQueries(
                     mapOf(
-                        QueryPlan.KeyCondition(emailIndex, AttributeExpression(EMAIL, AttributeOperator.Eq, "alice@gmail.com"))
-                                to listOf(Product.of(AttributeExpression(STATUS, AttributeOperator.Eq, "valid"))),
-                        QueryPlan.KeyCondition(userNameIndex, AttributeExpression(USER_NAME, AttributeOperator.Eq, "alice"))
-                                to listOf(Product.of(AttributeExpression(STATUS, AttributeOperator.Eq, "valid")))
+                        QueryPlan.KeyCondition(emailIndex, BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com"))
+                                to listOf(Product.of(BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "valid"))),
+                        QueryPlan.KeyCondition(userNameIndex, BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice"))
+                                to listOf(Product.of(BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "valid")))
 
                     )
                 )
@@ -64,25 +64,25 @@ class QueryPlanTests(
                 listOf(emailIndex, userNameIndex),
                 and(
                     or(
-                        AttributeExpression(EMAIL, AttributeOperator.Eq, "alice@gmail.com"),
-                        AttributeExpression(USER_NAME, AttributeOperator.Eq, "alice")
+                        BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com"),
+                        BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice")
                     ),
                     or(
-                        AttributeExpression(STATUS, AttributeOperator.Eq, "expired"),
-                        AttributeExpression(STATUS, AttributeOperator.Eq, "revoked")
+                        BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "expired"),
+                        BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "revoked")
                     )
                 ),
                 QueryPlan.UsingQueries(
                     mapOf(
-                        QueryPlan.KeyCondition(emailIndex, AttributeExpression(EMAIL, AttributeOperator.Eq, "alice@gmail.com"))
+                        QueryPlan.KeyCondition(emailIndex, BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com"))
                                 to listOf(
-                            Product.of(AttributeExpression(STATUS, AttributeOperator.Eq, "expired")),
-                            Product.of(AttributeExpression(STATUS, AttributeOperator.Eq, "revoked"))
+                            Product.of(BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "expired")),
+                            Product.of(BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "revoked"))
                         ),
-                        QueryPlan.KeyCondition(userNameIndex, AttributeExpression(USER_NAME, AttributeOperator.Eq, "alice"))
+                        QueryPlan.KeyCondition(userNameIndex, BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice"))
                                 to listOf(
-                            Product.of(AttributeExpression(STATUS, AttributeOperator.Eq, "expired")),
-                            Product.of(AttributeExpression(STATUS, AttributeOperator.Eq, "revoked"))
+                            Product.of(BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "expired")),
+                            Product.of(BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "revoked"))
                         )
 
                     )

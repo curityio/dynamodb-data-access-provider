@@ -28,15 +28,16 @@ import io.curity.identityserver.plugin.dynamodb.Table
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import io.curity.identityserver.plugin.dynamodb.configureWith
 import io.curity.identityserver.plugin.dynamodb.count
-import io.curity.identityserver.plugin.dynamodb.toIntOrThrow
 import io.curity.identityserver.plugin.dynamodb.query.DynamoDBQueryBuilder
 import io.curity.identityserver.plugin.dynamodb.query.Index
 import io.curity.identityserver.plugin.dynamodb.query.QueryPlan
 import io.curity.identityserver.plugin.dynamodb.query.QueryPlanner
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
 import io.curity.identityserver.plugin.dynamodb.query.UnsupportedQueryException
+import io.curity.identityserver.plugin.dynamodb.query.filterWith
 import io.curity.identityserver.plugin.dynamodb.querySequence
 import io.curity.identityserver.plugin.dynamodb.scanSequence
+import io.curity.identityserver.plugin.dynamodb.toIntOrThrow
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.attribute.AccountAttributes
 import se.curity.identityserver.sdk.attribute.Attributes
@@ -151,35 +152,35 @@ class DynamoDBDelegationDataAccessProvider(
      * Deserializes an item into a Delegation implementation
      */
     private fun Map<String, AttributeValue>.toDelegation() = DynamoDBDelegation(
-            version = DelegationTable.version.from(this),
-            id = DelegationTable.id.from(this),
-            status = DelegationTable.status.from(this),
-            owner = DelegationTable.owner.from(this),
-            created = DelegationTable.created.from(this),
-            expires = DelegationTable.expires.from(this),
-            clientId = DelegationTable.clientId.from(this),
-            redirectUri = DelegationTable.redirectUri.optionalFrom(this),
-            authorizationCodeHash = DelegationTable.redirectUri.optionalFrom(this),
-            authenticationAttributes = DelegationTable.authenticationAttributes.from(this).let {
-                AuthenticationAttributes.fromAttributes(
-                    Attributes.fromMap(
-                        _jsonHandler.fromJson(it)
-                    )
-                )
-            },
-            consentResult = DelegationTable.consentResult.optionalFrom(this)?.let {
-                DelegationConsentResult.fromMap(
+        version = DelegationTable.version.from(this),
+        id = DelegationTable.id.from(this),
+        status = DelegationTable.status.from(this),
+        owner = DelegationTable.owner.from(this),
+        created = DelegationTable.created.from(this),
+        expires = DelegationTable.expires.from(this),
+        clientId = DelegationTable.clientId.from(this),
+        redirectUri = DelegationTable.redirectUri.optionalFrom(this),
+        authorizationCodeHash = DelegationTable.redirectUri.optionalFrom(this),
+        authenticationAttributes = DelegationTable.authenticationAttributes.from(this).let {
+            AuthenticationAttributes.fromAttributes(
+                Attributes.fromMap(
                     _jsonHandler.fromJson(it)
                 )
-            },
-            scope = DelegationTable.scope.from(this),
-            claimMap = DelegationTable.claimMap.from(this).let { _jsonHandler.fromJson(it) },
-            customClaimValues = DelegationTable.customClaimValues.from(this).let { _jsonHandler.fromJson(it) },
-            claims = DelegationTable.claims.from(this).let { _jsonHandler.fromJson(it) },
-            mtlsClientCertificate = DelegationTable.mtlsClientCertificate.optionalFrom(this),
-            mtlsClientCertificateDN = DelegationTable.mtlsClientCertificateDN.optionalFrom(this),
-            mtlsClientCertificateX5TS256 = DelegationTable.mtlsClientCertificateX5TS256.optionalFrom(this)
-        )
+            )
+        },
+        consentResult = DelegationTable.consentResult.optionalFrom(this)?.let {
+            DelegationConsentResult.fromMap(
+                _jsonHandler.fromJson(it)
+            )
+        },
+        scope = DelegationTable.scope.from(this),
+        claimMap = DelegationTable.claimMap.from(this).let { _jsonHandler.fromJson(it) },
+        customClaimValues = DelegationTable.customClaimValues.from(this).let { _jsonHandler.fromJson(it) },
+        claims = DelegationTable.claims.from(this).let { _jsonHandler.fromJson(it) },
+        mtlsClientCertificate = DelegationTable.mtlsClientCertificate.optionalFrom(this),
+        mtlsClientCertificateDN = DelegationTable.mtlsClientCertificateDN.optionalFrom(this),
+        mtlsClientCertificateX5TS256 = DelegationTable.mtlsClientCertificateX5TS256.optionalFrom(this)
+    )
 
     override fun getById(id: String): Delegation?
     {
@@ -401,23 +402,24 @@ class DynamoDBDelegationDataAccessProvider(
                 .configureWith(dynamoDBQuery)
                 .build()
 
-            querySequence(queryRequest, _dynamoDBClient).forEach {
-                result[DelegationTable.id.from(it)] = it
-            }
+            querySequence(queryRequest, _dynamoDBClient)
+                .filterWith(query.value)
+                .forEach {
+                    result[DelegationTable.id.from(it)] = it
+                }
         }
         return result.values.asSequence()
     }
 
     private fun scan(queryPlan: QueryPlan.UsingScan): Sequence<DynamoDBItem>
     {
-        val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression)
-
-        val queryRequest = ScanRequest.builder()
+        val scanRequestBuilder = ScanRequest.builder()
             .tableName(DelegationTable.name)
-            .configureWith(dynamoDBScan)
-            .build()
 
-        return scanSequence(queryRequest, _dynamoDBClient)
+        val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression)
+        scanRequestBuilder.configureWith(dynamoDBScan)
+        return scanSequence(scanRequestBuilder.build(), _dynamoDBClient)
+            .filterWith(queryPlan.expression.products)
     }
 
     private fun getComparatorFor(resourceQuery: ResourceQuery): Comparator<Map<String, AttributeValue>>?

@@ -70,7 +70,21 @@ class DynamoDBQueryBuilder
     private fun toDynamoExpression(product: Product): String =
         product.terms.joinToString(" AND ") { toDynamoExpression(it) }
 
-    private fun toDynamoExpression(it: AttributeExpression): String
+    private fun toDynamoExpression(expression: AttributeExpression): String
+    {
+        val hashName = hashNameFor(expression.attribute)
+        return when (expression)
+        {
+            is UnaryAttributeExpression -> expression.operator.toDynamoOperator(hashName)
+            is BinaryAttributeExpression ->
+            {
+                val colonName = colonNameFor(expression.attribute, expression.value)
+                expression.operator.toDynamoOperator(hashName, colonName)
+            }
+        }
+    }
+
+    private fun toDynamoExpression(it: BinaryAttributeExpression): String
     {
         val hashName = hashNameFor(it.attribute)
         val colonName = colonNameFor(it.attribute, it.value)

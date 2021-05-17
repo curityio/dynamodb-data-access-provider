@@ -15,6 +15,7 @@ import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import io.curity.identityserver.plugin.dynamodb.token.DynamoDBDelegationDataAccessProvider
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import se.curity.identityserver.sdk.data.authorization.DelegationStatus
@@ -61,27 +62,27 @@ class DelegationQueryTests
             query.key.index
         )
         assertEquals(
-            AttributeExpression(
+            BinaryAttributeExpression(
                 DynamoDBDelegationDataAccessProvider.DelegationTable.clientId,
-                AttributeOperator.Eq,
+                BinaryAttributeOperator.Eq,
                 "client-one"
             ),
             query.key.partitionCondition
         )
         assertEquals(
             QueryPlan.RangeCondition.Binary(
-                AttributeExpression(
+                BinaryAttributeExpression(
                     DynamoDBDelegationDataAccessProvider.DelegationTable.status,
-                    AttributeOperator.Eq,
+                    BinaryAttributeOperator.Eq,
                     DelegationStatus.issued
                 )
             ),
             query.key.sortCondition
         )
         assertEquals(
-            AttributeExpression(
+            BinaryAttributeExpression(
                 DynamoDBDelegationDataAccessProvider.DelegationTable.expires,
-                AttributeOperator.Gt,
+                BinaryAttributeOperator.Gt,
                 1234
             ),
             query.value.single().terms.single()
@@ -146,18 +147,18 @@ class DelegationQueryTests
         val queries = (queryPlan as QueryPlan.UsingQueries).queries
 
         val firstQuery = queries.entries.first()
-        assertQuery(firstQuery, AttributeOperator.Lt)
+        assertQuery(firstQuery, BinaryAttributeOperator.Lt)
 
         val secondQuery = queries.entries.drop(1).first()
-        assertQuery(secondQuery, AttributeOperator.Gt)
+        assertQuery(secondQuery, BinaryAttributeOperator.Gt)
     }
 
-    private fun assertQuery(query: Map.Entry<QueryPlan.KeyCondition, List<Product>>, operator: AttributeOperator)
+    private fun assertQuery(query: Map.Entry<QueryPlan.KeyCondition, List<Product>>, operator: BinaryAttributeOperator)
     {
         val operatorString = when (operator)
         {
-            AttributeOperator.Lt -> "<"
-            AttributeOperator.Gt -> ">"
+            BinaryAttributeOperator.Lt -> "<"
+            BinaryAttributeOperator.Gt -> ">"
             else -> throw AssertionError("Unexpected operator here")
         }
         assertEquals(
@@ -165,16 +166,16 @@ class DelegationQueryTests
             query.key.index
         )
         assertEquals(
-            AttributeExpression(
+            BinaryAttributeExpression(
                 DynamoDBDelegationDataAccessProvider.DelegationTable.clientId,
-                AttributeOperator.Eq,
+                BinaryAttributeOperator.Eq,
                 "client-one"
             ),
             query.key.partitionCondition
         )
         assertEquals(
             QueryPlan.RangeCondition.Binary(
-                AttributeExpression(
+                BinaryAttributeExpression(
                     DynamoDBDelegationDataAccessProvider.DelegationTable.status,
                     operator,
                     DelegationStatus.issued
@@ -183,9 +184,9 @@ class DelegationQueryTests
             query.key.sortCondition
         )
         assertEquals(
-            AttributeExpression(
+            BinaryAttributeExpression(
                 DynamoDBDelegationDataAccessProvider.DelegationTable.expires,
-                AttributeOperator.Gt,
+                BinaryAttributeOperator.Gt,
                 1234
             ),
             query.value.single().terms.single()
@@ -238,8 +239,9 @@ class DelegationQueryTests
         val product = expression.products.single()
         assertEquals(1, product.terms.size)
         val term = product.terms.single()
-        assertEquals(AttributeOperator.Eq, term.operator)
+        assertEquals(BinaryAttributeOperator.Eq, term.operator)
         assertEquals(DynamoDBDelegationDataAccessProvider.DelegationTable.redirectUri, term.attribute)
-        assertEquals("https://example.com", term.value)
+        assertTrue(term is BinaryAttributeExpression)
+        assertEquals("https://example.com", (term as BinaryAttributeExpression).value)
     }
 }

@@ -22,7 +22,7 @@ import io.curity.identityserver.plugin.dynamodb.query.QueryPlan
 import io.curity.identityserver.plugin.dynamodb.query.QueryPlanner
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
 import io.curity.identityserver.plugin.dynamodb.query.UnsupportedQueryException
-import io.curity.identityserver.plugin.dynamodb.token.UserAccountFilterParser
+import io.curity.identityserver.plugin.dynamodb.query.filterWith
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.attribute.AccountAttributes
@@ -31,7 +31,6 @@ import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.LinkedAccount
-import se.curity.identityserver.sdk.data.query.Filter
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.data.query.ResourceQueryResult
 import se.curity.identityserver.sdk.data.update.AttributeUpdate
@@ -45,7 +44,6 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
-import java.lang.UnsupportedOperationException
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -549,7 +547,7 @@ class DynamoDBUserAccountDataAccessProvider(
     )
     {
         val request = PutItemRequest.builder()
-            .tableName(linksTableName)
+            .tableName(LinksTable.name)
             .item(LinksTable.createItem(linkingAccountManager, localAccountId, foreignDomainName, foreignUserName))
             .build()
 
@@ -559,7 +557,7 @@ class DynamoDBUserAccountDataAccessProvider(
     override fun listLinks(linkingAccountManager: String, localAccountId: String): Collection<LinkedAccount>
     {
         val request = QueryRequest.builder()
-            .tableName(linksTableName)
+            .tableName(LinksTable.name)
             .indexName(LinksTable.listLinksIndex.name)
             .keyConditionExpression(LinksTable.listLinksIndex.keyConditionExpression)
             .expressionAttributeValues(
@@ -646,7 +644,6 @@ class DynamoDBUserAccountDataAccessProvider(
 
     override fun getAll(resourceQuery: ResourceQuery): ResourceQueryResult = try
     {
-
         val comparator = getComparatorFor(resourceQuery)
 
         val queryPlan = if (resourceQuery.filter != null)
@@ -716,14 +713,16 @@ class DynamoDBUserAccountDataAccessProvider(
             .tableName(AccountsTable.name)
             .indexName(AccountsTable.userNameIndex.name)
 
-        if (queryPlan != null)
+        return if (queryPlan != null)
         {
             val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression)
             scanRequestBuilder.configureWith(dynamoDBScan)
+            scanSequence(scanRequestBuilder.build(), _client)
+                .filterWith(queryPlan.expression.products)
+        } else
+        {
+            scanSequence(scanRequestBuilder.build(), _client)
         }
-        val scanRequest = scanRequestBuilder.build()
-
-        return scanSequence(scanRequest, _client)
     }
 
     private fun query(queryPlan: QueryPlan.UsingQueries): Sequence<DynamoDBItem>
@@ -742,9 +741,11 @@ class DynamoDBUserAccountDataAccessProvider(
                 .configureWith(dynamoDBQuery)
                 .build()
 
-            querySequence(queryRequest, _client).forEach {
-                result[AccountsTable.accountId.from(it)] = it
-            }
+            querySequence(queryRequest, _client)
+                .filterWith(query.value)
+                .forEach {
+                    result[AccountsTable.accountId.from(it)] = it
+                }
         }
         return result.values.asSequence()
     }
@@ -765,70 +766,25 @@ class DynamoDBUserAccountDataAccessProvider(
         }
     }
 
-    fun getAllOld(query: ResourceQuery): ResourceQueryResult
-    {
-        //TODO IS-5851 avoid scan? should implement pagination and proper handling of DynamoDB pagination?
-
-        val requestBuilder = ScanRequest.builder()
-            .tableName(tableName)
-            // By using the userName index only main entries are considered and the secondary ones are skipped
-            // This is possible because the userName index has all the main entries (i.e. all users have userName)
-            .indexName(AccountsTable.userNameIndex.name)
-
-        if (query.filter != null)
-        {
-            val parsedFilter = UserAccountFilterParser(query.filter)
-
-            requestBuilder
-                .filterExpression(parsedFilter.parsedFilter)
-                .expressionAttributeValues(parsedFilter.attributeValues)
-            if (parsedFilter.attributesNamesMap.isNotEmpty())
-            {
-                requestBuilder.expressionAttributeNames(parsedFilter.attributesNamesMap)
-            }
-        }
-
-        if (query.pagination?.count != null)
-        {
-            requestBuilder.limit(query.pagination.count.toInt())
-        }
-
-        val response = _client.scan(requestBuilder.build())
-
-        val results = mutableListOf<ResourceAttributes<*>>()
-
-        response.items().forEach { item ->
-            results.add(item.toAccountAttributes(query.attributesEnumeration))
-        }
-
-        return ResourceQueryResult(results, response.count().toLong(), 0, query.pagination.count)
-    }
-
     override fun getAll(startIndex: Long, count: Long): ResourceQueryResult
     {
-        _logger.debug("Received request to get all accounts with startIndex :{} and count: {}", startIndex, count)
-
-        val request = ScanRequest.builder()
-            .tableName(tableName)
-            // By using the userName index only main entries are considered and the secondary ones are skipped
-            // This is possible because the userName index has all the main entries (i.e. all users have userName)
-            .indexName(AccountsTable.userNameIndex.name)
-            .build()
-
-        val response = _client.scan(request)
-        if (response.hasLastEvaluatedKey())
+        if (!_configuration.getAllowTableScans().orElse(false))
         {
-            // TODO IS-5851 is this an acceptable behavior?
-            throw UnsupportedOperationException("DynamoDB doesn't support getAll on a table that exceeds the maximum page size")
+            throw throw UnsupportedQueryException.QueryRequiresTableScan()
         }
 
-        val results = response.items().asSequence()
-            .drop(startIndex.toInt())
+        val validatedStartIndex = startIndex.toIntOrThrow("pagination.startIndex")
+        val validatedCount = count.toIntOrThrow("pagination.count")
+
+        val allItems = scan(null).toList()
+
+        val paginatedItems = allItems
+            .drop(validatedStartIndex)
+            .take(validatedCount)
             .map { it.toAccountAttributes() }
-            .take(count.toInt())
             .toList()
 
-        return ResourceQueryResult(results, response.count().toLong(), startIndex, results.size.toLong())
+        return ResourceQueryResult(paginatedItems, allItems.count().toLong(), startIndex, count)
     }
 
     private fun AccountAttributes.toItem(): MutableMap<String, AttributeValue>
@@ -1045,14 +1001,11 @@ class DynamoDBUserAccountDataAccessProvider(
 
     companion object
     {
-
         private val _conditionExpressionBuilder = ExpressionBuilder(
             "#version = :oldVersion AND #accountId = :accountId",
             AccountsTable.version, AccountsTable.accountId
         )
 
-        private const val tableName = "curity-accounts"
-        private const val linksTableName = "curity-links"
         private val _logger: Logger = LoggerFactory.getLogger(DynamoDBUserAccountDataAccessProvider::class.java)
 
         private val attributesToRemove = listOf(

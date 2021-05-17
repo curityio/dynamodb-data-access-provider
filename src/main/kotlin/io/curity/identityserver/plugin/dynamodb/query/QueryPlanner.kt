@@ -72,7 +72,9 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities)
             return NO_KEY_CONDITION
         }
         val partitionKeyExpression = partitionKeyExpressions.single()
-        if (partitionKeyExpression.operator != AttributeOperator.Eq)
+        if (partitionKeyExpression !is BinaryAttributeExpression ||
+            partitionKeyExpression.operator != BinaryAttributeOperator.Eq
+        )
         {
             _logger.trace("Index cannot be used: partition key is used with an operator other than EQ")
             return NO_KEY_CONDITION
@@ -94,7 +96,13 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities)
             _logger.trace("Index cannot be used: sort keys are used more than twice")
             return NO_KEY_CONDITION
         }
-        val rangeExpressions = getRangeExpressions(index.sortAttribute, sortKeyExpressions)
+        if (sortKeyExpressions.any { it is UnaryAttributeExpression })
+        {
+            _logger.trace("Index cannot be used: sort key is used with unary operator")
+            return NO_KEY_CONDITION
+        }
+        val binarySortKeyExpressions = sortKeyExpressions.filterIsInstance(BinaryAttributeExpression::class.java)
+        val rangeExpressions = getRangeExpressions(index.sortAttribute, binarySortKeyExpressions)
         return rangeExpressions.map {
             QueryPlan.KeyCondition(index, partitionKeyExpression, it)
         }
@@ -102,7 +110,7 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities)
 
     private fun getRangeExpressions(
         sortAttribute: DynamoDBAttribute<*>,
-        sortKeyExpressions: List<AttributeExpression>
+        sortKeyExpressions: List<BinaryAttributeExpression>
     ):
             List<QueryPlan.RangeCondition> =
 
@@ -111,25 +119,25 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities)
             val sortKeyExpression = sortKeyExpressions.single()
             when
             {
-                AttributeOperator.isUsableOnSortIndex(sortKeyExpression.operator) ->
+                isUsableOnSortIndex(sortKeyExpression.operator) ->
                 {
                     listOf(QueryPlan.RangeCondition.Binary(sortKeyExpression))
                 }
                 // Special case for NE, that will result in two queries
-                sortKeyExpression.operator == AttributeOperator.Ne ->
+                sortKeyExpression.operator == BinaryAttributeOperator.Ne ->
                 {
                     listOf(
                         QueryPlan.RangeCondition.Binary(
-                            AttributeExpression(
+                            BinaryAttributeExpression(
                                 sortKeyExpression.attribute,
-                                AttributeOperator.Lt,
+                                BinaryAttributeOperator.Lt,
                                 sortKeyExpression.value
                             )
                         ),
                         QueryPlan.RangeCondition.Binary(
-                            AttributeExpression(
+                            BinaryAttributeExpression(
                                 sortKeyExpression.attribute,
-                                AttributeOperator.Gt,
+                                BinaryAttributeOperator.Gt,
                                 sortKeyExpression.value
                             )
                         )
@@ -137,15 +145,17 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities)
                 }
                 else ->
                 {
-                    _logger.trace("Index cannot be used: sort keys use an operator that cannot be used on an index - '{}'",
-                        sortKeyExpression.operator)
+                    _logger.trace(
+                        "Index cannot be used: sort keys use an operator that cannot be used on an index - '{}'",
+                        sortKeyExpression.operator
+                    )
                     NO_RANGE_CONDITION
                 }
             }
         } else if (sortKeyExpressions.size == 2)
         {
-            val leExpression = sortKeyExpressions.singleOrNull { it.operator == AttributeOperator.Le }
-            val geExpression = sortKeyExpressions.singleOrNull { it.operator == AttributeOperator.Ge }
+            val leExpression = sortKeyExpressions.singleOrNull { it.operator == BinaryAttributeOperator.Le }
+            val geExpression = sortKeyExpressions.singleOrNull { it.operator == BinaryAttributeOperator.Ge }
             if (leExpression != null && geExpression != null)
             {
                 listOf(QueryPlan.RangeCondition.Between(sortAttribute, geExpression.value, leExpression.value))
