@@ -59,7 +59,7 @@ class DynamoDBDelegation(
     override fun getMtlsClientCertificateX5TS256(): String? = mtlsClientCertificateX5TS256
     override fun getMtlsClientCertificateDN(): String? = mtlsClientCertificateDN
 
-    // Empty set because it property is deprecated
+    // Empty set because the property is deprecated
     override fun getScopeClaims(): Set<ScopeClaim> = setOf()
 
     override fun getEnumActiveStatus() = DelegationStatus.issued
