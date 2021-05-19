@@ -38,7 +38,6 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
-import java.lang.UnsupportedOperationException
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -564,8 +563,8 @@ class DynamoDBUserAccountDataAccessProvider(
         return querySequence(request, _client)
             .map { item ->
                 LinkedAccount.of(
-                    LinksTable.linkedAccountDomainName.optionalFrom(item),
-                    LinksTable.linkedAccountId.optionalFrom(item),
+                    LinksTable.linkedAccountDomainName.from(item),
+                    LinksTable.linkedAccountId.from(item),
                     NO_LINK_DESCRIPTION,
                     LinksTable.created.optionalFrom(item).toString()
                 )

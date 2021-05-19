@@ -196,10 +196,9 @@ class DynamoDBDelegationDataAccessProvider(
         }
         val item = response.item()
 
-        val status =
-            DelegationTable.status.optionalFrom(item)
-                ?: throw SchemaErrorException(DelegationTable, DelegationTable.status)
-
+        // Only valid (i.e. status == issue) delegations are retrieved here
+        // to mimic the JDBC DAP behavior.
+        val status = DelegationTable.status.from(item)
         if (status != DelegationStatus.issued)
         {
             return null
@@ -274,7 +273,7 @@ class DynamoDBDelegationDataAccessProvider(
                 index.expressionValueMap(owner, DelegationStatus.issued)
             )
             .expressionAttributeNames(index.expressionNameMap)
-            .limit(count.toInt())
+            .limit(validatedCount)
             .build()
 
         return querySequence(request, _dynamoDBClient)

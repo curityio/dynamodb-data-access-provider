@@ -58,7 +58,7 @@ import java.util.UUID
  * just to ensure uniqueness, and containing only the the device `id`.
  *
  * Note that the `accountId` and `deviceId` properties can never change for a device, so the secondary item
- * is doesn't need to be changed on update operations.
+ * doesn't need to be changed on update operations.
  */
 class DynamoDBDeviceDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient,
@@ -369,7 +369,7 @@ class DynamoDBDeviceDataAccessProvider(
 
     override fun getByAccountId(accountId: String?): List<DeviceAttributes>
     {
-        _logger.debug("Received request to get device by accountId: {}", accountId)
+        _logger.debug("Received request to get devices by accountId: {}", accountId)
 
         if (accountId == null)
         {
@@ -481,6 +481,10 @@ class DynamoDBDeviceDataAccessProvider(
         val validatedStartIndex = startIndex.toIntOrThrow("startIndex")
         val validatedCount = count.toIntOrThrow("count")
 
+        // The index is required because this table has both main items (with all columns) and secondary items
+        // with just the id column (this is done to ensure two uniqueness constraints).
+        // Due to this a scan without index would return both item types.
+        // By using the index we only get the main items because the secondary items don’t have the indexed columns.
         val request = ScanRequest.builder()
             .tableName(DeviceTable.name)
             .indexName(DeviceTable.accountIdDeviceIdIndex.name)
@@ -500,7 +504,7 @@ class DynamoDBDeviceDataAccessProvider(
 
     companion object
     {
-        private val _logger: Logger = LoggerFactory.getLogger(DynamoDBCredentialDataAccessProvider::class.java)
+        private val _logger: Logger = LoggerFactory.getLogger(DynamoDBDeviceDataAccessProvider::class.java)
 
         private fun computePkFromAccountIdAndDeviceId(accountId: String, deviceId: String) =
             "accountIdDeviceId#${URLEncoder.encode(accountId, StandardCharsets.UTF_8.name())}" +
