@@ -956,7 +956,9 @@ class DynamoDBUserAccountDataAccessProvider(
             attributeMap = mapOf(
                 AccountAttributes.USER_NAME to userName,
                 AccountAttributes.EMAILS to email,
+                AccountAttributes.EMAILS + ".value" to email,
                 AccountAttributes.PHONE_NUMBERS to phone,
+                AccountAttributes.PHONE_NUMBERS + ".value" to phone,
                 AccountAttributes.ACTIVE to active
             )
         )
