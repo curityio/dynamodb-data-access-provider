@@ -58,7 +58,7 @@ import java.util.UUID
  * just to ensure uniqueness, and containing only the the device `id`.
  *
  * Note that the `accountId` and `deviceId` properties can never change for a device, so the secondary item
- * is doesn't need to be changed on update operations.
+ * doesn't need to be changed on update operations.
  */
 class DynamoDBDeviceDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient,
@@ -369,7 +369,7 @@ class DynamoDBDeviceDataAccessProvider(
 
     override fun getByAccountId(accountId: String?): List<DeviceAttributes>
     {
-        _logger.debug("Received request to get device by accountId: {}", accountId)
+        _logger.debug("Received request to get devices by accountId: {}", accountId)
 
         if (accountId == null)
         {
