@@ -20,7 +20,6 @@ import io.curity.identityserver.plugin.dynamodb.DynamoDBItem
 import io.curity.identityserver.plugin.dynamodb.Index
 import io.curity.identityserver.plugin.dynamodb.Index2
 import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
-import io.curity.identityserver.plugin.dynamodb.SchemaErrorException
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import io.curity.identityserver.plugin.dynamodb.Table
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
@@ -173,11 +172,9 @@ class DynamoDBDelegationDataAccessProvider(
         }
         val item = response.item()
 
-        val status =
-            DelegationStatus.valueOf(
-                DelegationTable.status.optionalFrom(item)
-                    ?: throw SchemaErrorException(DelegationTable, DelegationTable.status)
-            )
+        // Only valid (i.e. status == issue) delegations are retrieved here
+        // to mimic the JDBC DAP behavior.
+        val status = DelegationStatus.valueOf(DelegationTable.status.from(item))
         if (status != DelegationStatus.issued)
         {
             return null
@@ -252,7 +249,7 @@ class DynamoDBDelegationDataAccessProvider(
                 index.expressionValueMap(owner, DelegationStatus.issued.toString())
             )
             .expressionAttributeNames(index.expressionNameMap)
-            .limit(count.toInt())
+            .limit(validatedCount)
             .build()
 
         return querySequence(request, dynamoDBClient)
