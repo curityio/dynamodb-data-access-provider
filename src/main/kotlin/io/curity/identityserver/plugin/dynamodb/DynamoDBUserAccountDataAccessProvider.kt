@@ -572,8 +572,8 @@ class DynamoDBUserAccountDataAccessProvider(
         return querySequence(request, _client)
             .map { item ->
                 LinkedAccount.of(
-                    LinksTable.linkedAccountDomainName.optionalFrom(item),
-                    LinksTable.linkedAccountId.optionalFrom(item),
+                    LinksTable.linkedAccountDomainName.from(item),
+                    LinksTable.linkedAccountId.from(item),
                     NO_LINK_DESCRIPTION,
                     LinksTable.created.optionalFrom(item).toString()
                 )
