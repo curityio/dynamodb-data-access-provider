@@ -72,9 +72,7 @@ class DynamoDBSessionDataAccessProvider(
             SessionTable.expiresAt.toNameValuePair(session.expiresAt.epochSecond),
             SessionTable.data.toNameValuePair(session.data)
         )
-        ttlFor(session.expiresAt)?.let {
-            SessionTable.deletableAt.addTo(item, it.epochSecond)
-        }
+        SessionTable.deletableAt.addToNullable(item, ttlFor(session.expiresAt)?.epochSecond)
 
         val request = PutItemRequest.builder()
             .tableName(SessionTable.name)

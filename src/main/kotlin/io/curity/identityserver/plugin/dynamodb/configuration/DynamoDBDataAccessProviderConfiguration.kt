@@ -65,8 +65,11 @@ interface DynamoDBDataAccessProviderConfiguration: Configuration
     @Description("Allow use of table scans to fulfill resource queries")
     fun getAllowTableScans(): Optional<Boolean>
 
-    @Description("Sessions TTL retain duration in seconds")
+    @Description("Optional sessions additional retain duration (in seconds)")
     fun getSessionsTtlRetainDuration(): Optional<@RangeConstraint(min=0.0, max=Long.MAX_VALUE.toDouble()) Long>
+
+    @Description("Optional nonces TTL additional retain duration (in seconds)")
+    fun getNoncesTtlRetainDuration(): Optional<@RangeConstraint(min=0.0, max=Long.MAX_VALUE.toDouble()) Long>
 
     fun getExceptionFactory(): ExceptionFactory
 

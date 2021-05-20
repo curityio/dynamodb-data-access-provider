@@ -19,6 +19,7 @@ import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import io.curity.identityserver.plugin.dynamodb.Table
+import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.datasource.NonceDataAccessProvider
 import se.curity.identityserver.sdk.errors.ConflictException
@@ -26,10 +27,12 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
-import java.lang.IllegalArgumentException
 import java.time.Instant
 
-class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient) : NonceDataAccessProvider
+class DynamoDBNonceDataAccessProvider(
+    private val _dynamoDBClient: DynamoDBClient,
+    private val _configuration: DynamoDBDataAccessProviderConfiguration
+) : NonceDataAccessProvider
 {
     object NonceTable : Table("curity-nonces")
     {
@@ -39,6 +42,7 @@ class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient
         val nonceTtl = NumberLongAttribute("nonceTtl")
         val nonceValue = StringAttribute("nonceValue")
         val consumedAt = NumberLongAttribute("consumedAt")
+        val deletableAt = NumberLongAttribute("deletableAt")
 
         fun key(nonce: String) = mapOf(this.nonce.toNameValuePair(nonce))
     }
@@ -51,7 +55,7 @@ class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient
             .consistentRead(true)
             .build()
 
-        val response = dynamoDBClient.getItem(request)
+        val response = _dynamoDBClient.getItem(request)
 
         if (!response.hasItem() || response.item().isEmpty())
         {
@@ -80,23 +84,26 @@ class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient
 
     override fun save(nonce: String, value: String, createdAt: Long, ttl: Long)
     {
+        val item = mutableMapOf(
+            NonceTable.nonce.toNameValuePair(nonce),
+            NonceTable.nonceValue.toNameValuePair(value),
+            NonceTable.createAt.toNameValuePair(createdAt),
+            NonceTable.nonceTtl.toNameValuePair(ttl),
+            NonceTable.nonceStatus.toNameValuePair(NonceStatus.issued.name)
+        )
+
+        NonceTable.deletableAt.addToNullable(item,
+            ttlFor(Instant.ofEpochSecond(createdAt + ttl))?.epochSecond)
+
         val request = PutItemRequest.builder()
             .tableName(NonceTable.name)
-            .item(
-                mapOf(
-                    NonceTable.nonce.toNameValuePair(nonce),
-                    NonceTable.nonceValue.toNameValuePair(value),
-                    NonceTable.createAt.toNameValuePair(createdAt),
-                    NonceTable.nonceTtl.toNameValuePair(ttl),
-                    NonceTable.nonceStatus.toNameValuePair(NonceStatus.issued.name)
-                )
-            )
+            .item(item)
             .conditionExpression("attribute_not_exists(${NonceTable.nonce})")
             .build()
 
         try
         {
-            dynamoDBClient.putItem(request)
+            _dynamoDBClient.putItem(request)
         } catch (_: ConditionalCheckFailedException)
         {
             throw ConflictException("Nonce already exists")
@@ -111,6 +118,14 @@ class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient
     private fun consumeNonce(nonce: String, consumedAt: Long) = changeStatus(nonce, NonceStatus.consumed, consumedAt)
     private fun expireNonce(nonce: String) = changeStatus(nonce, NonceStatus.expired, null)
 
+    // This method doesn't change the deletableAt attribute, if already present
+    // - The time-to-live of a nonce is immutable (i.e. not extendable), so the deletableAt is never increased.
+    // - Eventually we could reduce the deletableAt when the nonce is consumed,
+    // making it `deletableAt = consumedAt + retainDuration`. However we opted out for not doing it since there is
+    // no clear advantage and introduces more complexity.
+    // Also, if the deletableAt was enabled when the nonce was created and disabled when the nonce is updated,
+    // then the original deletableAt is kept.
+    // We also don't add a deletableAt when the nonce is updated.
     private fun changeStatus(nonce: String, status: NonceStatus, maybeConsumedAt: Long?)
     {
         val requestBuilder = UpdateItemRequest.builder()
@@ -145,11 +160,22 @@ class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient
 
         try
         {
-            dynamoDBClient.updateItem(requestBuilder.build())
+            _dynamoDBClient.updateItem(requestBuilder.build())
         } catch (_: ConditionalCheckFailedException)
         {
             _logger.trace("Trying to update a nonexistent nonce")
         }
+    }
+
+    private fun ttlFor(expiration: Instant): Instant?
+    {
+        val maybeRetainDuration = _configuration.getNoncesTtlRetainDuration().orElse(null) ?: return null
+        if (maybeRetainDuration < 0)
+        {
+            throw _configuration.getExceptionFactory()
+                .configurationException("nonces retain duration cannot be negative")
+        }
+        return expiration.plusSeconds(maybeRetainDuration)
     }
 
     private enum class NonceStatus
@@ -159,7 +185,8 @@ class DynamoDBNonceDataAccessProvider(private val dynamoDBClient: DynamoDBClient
         issued, consumed, expired
     }
 
-    companion object {
+    companion object
+    {
         val _logger = LoggerFactory.getLogger(DynamoDBNonceDataAccessProvider::class.java)
     }
 }
