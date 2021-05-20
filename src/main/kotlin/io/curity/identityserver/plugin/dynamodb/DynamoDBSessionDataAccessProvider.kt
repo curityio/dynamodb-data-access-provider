@@ -15,7 +15,7 @@
  */
 package io.curity.identityserver.plugin.dynamodb
 
-import io.curity.identityserver.plugin.dynamodb.token.DynamoDBTokenDataAccessProvider
+import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.data.Session
 import se.curity.identityserver.sdk.datasource.SessionDataAccessProvider
@@ -27,13 +27,17 @@ import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 import java.time.Instant
 
-class DynamoDBSessionDataAccessProvider(private val dynamoDBClient: DynamoDBClient) : SessionDataAccessProvider
+class DynamoDBSessionDataAccessProvider(
+    private val _dynamoDBClient: DynamoDBClient,
+    private val _configuration: DynamoDBDataAccessProviderConfiguration
+) : SessionDataAccessProvider
 {
     object SessionTable : Table("curity-sessions")
     {
         val id = StringAttribute("id")
         val data = StringAttribute("sessionData")
         val expiresAt = NumberLongAttribute("expiresAt")
+        val deletableAt = NumberLongAttribute("deletableAt")
 
         fun key(id: String) = mapOf(this.id.toNameValuePair(id))
     }
@@ -45,7 +49,7 @@ class DynamoDBSessionDataAccessProvider(private val dynamoDBClient: DynamoDBClie
             .key(SessionTable.key(id))
             .build()
 
-        val response = dynamoDBClient.getItem(request)
+        val response = _dynamoDBClient.getItem(request)
 
         if (!response.hasItem() || response.item().isEmpty())
         {
@@ -63,11 +67,14 @@ class DynamoDBSessionDataAccessProvider(private val dynamoDBClient: DynamoDBClie
 
     override fun insertSession(session: Session)
     {
-        val item = mapOf(
+        val item = mutableMapOf(
             SessionTable.id.toNameValuePair(session.id),
             SessionTable.expiresAt.toNameValuePair(session.expiresAt.epochSecond),
             SessionTable.data.toNameValuePair(session.data)
         )
+        ttlFor(session.expiresAt)?.let {
+            SessionTable.deletableAt.addTo(item, it.epochSecond)
+        }
 
         val request = PutItemRequest.builder()
             .tableName(SessionTable.name)
@@ -76,50 +83,90 @@ class DynamoDBSessionDataAccessProvider(private val dynamoDBClient: DynamoDBClie
             .build()
         try
         {
-            dynamoDBClient.putItem(request)
+            _dynamoDBClient.putItem(request)
         } catch (_: ConditionalCheckFailedException)
         {
-           throw ConflictException("There is already a session with the same id.")
+            throw ConflictException("There is already a session with the same id.")
         }
     }
 
     override fun updateSession(updatedSession: Session)
     {
+        val maybeTtl = ttlFor(updatedSession.expiresAt)
+        // if TTL is configured with update the session with that attribute...
+        val ttlUpdatePart = if (maybeTtl != null)
+        {
+            ", ${SessionTable.deletableAt} = ${SessionTable.deletableAt.colonName}"
+        } else
+        // ... otherwise we need to remove it, otherwise it would be there with an invalid TTL value
+        {
+            " REMOVE ${SessionTable.deletableAt}"
+        }
+        val attributeValuesMap = if (maybeTtl != null)
+        {
+            mapOf(
+                SessionTable.expiresAt.toExpressionNameValuePair(updatedSession.expiresAt.epochSecond),
+                SessionTable.data.toExpressionNameValuePair(updatedSession.data),
+                SessionTable.deletableAt.toExpressionNameValuePair(maybeTtl.epochSecond)
+            )
+        } else
+        {
+            mapOf(
+                SessionTable.expiresAt.toExpressionNameValuePair(updatedSession.expiresAt.epochSecond),
+                SessionTable.data.toExpressionNameValuePair(updatedSession.data)
+            )
+        }
         val request = UpdateItemRequest.builder()
             .tableName(SessionTable.name)
             .key(SessionTable.key(updatedSession.id))
             .updateExpression(
                 "SET ${SessionTable.data} = ${SessionTable.data.colonName}," +
-                        " ${SessionTable.expiresAt} = ${SessionTable.expiresAt.colonName}"
+                        " ${SessionTable.expiresAt} = ${SessionTable.expiresAt.colonName}" +
+                        ttlUpdatePart
             )
-            .expressionAttributeValues(
-                mapOf(
-                    SessionTable.expiresAt.toExpressionNameValuePair(updatedSession.expiresAt.epochSecond),
-                    SessionTable.data.toExpressionNameValuePair(updatedSession.data)
-                )
-            )
+            .expressionAttributeValues(attributeValuesMap)
             .build()
 
-        dynamoDBClient.updateItem(request)
+        _dynamoDBClient.updateItem(request)
     }
 
     override fun updateSessionExpiration(id: String, expiresAt: Instant)
     {
+        val maybeTtl = ttlFor(expiresAt)
+        // see comments on the updateSession
+        val ttlUpdatePart = if (maybeTtl != null)
+        {
+            ", ${SessionTable.deletableAt} = ${SessionTable.deletableAt.colonName}"
+        } else
+        {
+            " REMOVE ${SessionTable.deletableAt}"
+        }
+        val attributeValuesMap = if (maybeTtl != null)
+        {
+            mapOf(
+                SessionTable.expiresAt.toExpressionNameValuePair(expiresAt.epochSecond),
+                SessionTable.deletableAt.toExpressionNameValuePair(maybeTtl.epochSecond)
+            )
+        } else
+        {
+            mapOf(
+                SessionTable.expiresAt.toExpressionNameValuePair(expiresAt.epochSecond)
+            )
+        }
         val request = UpdateItemRequest.builder()
             .tableName(SessionTable.name)
             .key(SessionTable.key(id))
             .conditionExpression("attribute_exists(${SessionTable.id})")
-            .updateExpression("SET ${SessionTable.expiresAt} = ${SessionTable.expiresAt.colonName}")
-            .expressionAttributeValues(
-                mapOf(
-                    SessionTable.expiresAt.toExpressionNameValuePair(expiresAt.epochSecond)
-                )
+            .updateExpression(
+                "SET ${SessionTable.expiresAt} = ${SessionTable.expiresAt.colonName}" +
+                        ttlUpdatePart
             )
+            .expressionAttributeValues(attributeValuesMap)
             .build()
 
         try
         {
-            dynamoDBClient.updateItem(request)
+            _dynamoDBClient.updateItem(request)
         } catch (_: ConditionalCheckFailedException)
         {
             // this exceptions means the entry does not exists, which isn't an error
@@ -134,7 +181,18 @@ class DynamoDBSessionDataAccessProvider(private val dynamoDBClient: DynamoDBClie
             .key(SessionTable.key(id))
             .build()
 
-        dynamoDBClient.deleteItem(request)
+        _dynamoDBClient.deleteItem(request)
+    }
+
+    private fun ttlFor(expiration: Instant): Instant?
+    {
+        val maybeRetainDuration = _configuration.getSessionsTtlRetainDuration().orElse(null) ?: return null
+        if (maybeRetainDuration < 0)
+        {
+            throw _configuration.getExceptionFactory()
+                .configurationException("sessions retain duration cannot be negative")
+        }
+        return expiration.plusSeconds(maybeRetainDuration)
     }
 
     companion object

@@ -14,6 +14,11 @@ apply plugin: 'kotlin'
 
 compileKotlin {
     kotlinOptions.jvmTarget = "1.8"
+    kotlinOptions {
+        // required by SDK configuration constraint annotations
+        // see https://youtrack.jetbrains.com/issue/KT-35843
+        freeCompilerArgs += ["-Xemit-jvm-type-annotations"]
+    }
 }
 
 dependencies {

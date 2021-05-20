@@ -18,6 +18,7 @@ package io.curity.identityserver.plugin.dynamodb.configuration
 import se.curity.identityserver.sdk.config.Configuration
 import se.curity.identityserver.sdk.config.OneOf
 import se.curity.identityserver.sdk.config.annotation.Description
+import se.curity.identityserver.sdk.config.annotation.RangeConstraint
 import se.curity.identityserver.sdk.service.ExceptionFactory
 import se.curity.identityserver.sdk.service.Json
 import java.util.Optional
@@ -63,6 +64,9 @@ interface DynamoDBDataAccessProviderConfiguration: Configuration
 
     @Description("Allow use of table scans to fulfill resource queries")
     fun getAllowTableScans(): Optional<Boolean>
+
+    @Description("Sessions TTL retain duration in seconds")
+    fun getSessionsTtlRetainDuration(): Optional<@RangeConstraint(min=0.0, max=Long.MAX_VALUE.toDouble()) Long>
 
     fun getExceptionFactory(): ExceptionFactory
 
