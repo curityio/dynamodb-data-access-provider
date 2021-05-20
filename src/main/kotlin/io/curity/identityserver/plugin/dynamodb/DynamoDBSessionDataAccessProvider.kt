@@ -90,48 +90,27 @@ class DynamoDBSessionDataAccessProvider(
 
     override fun updateSession(updatedSession: Session)
     {
-        val maybeTtl = ttlFor(updatedSession.expiresAt)
-        // if TTL is configured with update the session with that attribute...
-        val ttlUpdatePart = if (maybeTtl != null)
-        {
-            ", ${SessionTable.deletableAt} = ${SessionTable.deletableAt.colonName}"
-        } else
-        // ... otherwise we need to remove it, otherwise it would be there with an invalid TTL value
-        {
-            " REMOVE ${SessionTable.deletableAt}"
-        }
-        val attributeValuesMap = if (maybeTtl != null)
-        {
-            mapOf(
-                SessionTable.expiresAt.toExpressionNameValuePair(updatedSession.expiresAt.epochSecond),
-                SessionTable.data.toExpressionNameValuePair(updatedSession.data),
-                SessionTable.deletableAt.toExpressionNameValuePair(maybeTtl.epochSecond)
-            )
-        } else
-        {
-            mapOf(
-                SessionTable.expiresAt.toExpressionNameValuePair(updatedSession.expiresAt.epochSecond),
-                SessionTable.data.toExpressionNameValuePair(updatedSession.data)
-            )
-        }
-        val request = UpdateItemRequest.builder()
+        val item = mutableMapOf(
+            SessionTable.id.toNameValuePair(updatedSession.id),
+            SessionTable.expiresAt.toNameValuePair(updatedSession.expiresAt.epochSecond),
+            SessionTable.data.toNameValuePair(updatedSession.data)
+        )
+        SessionTable.deletableAt.addToNullable(item, ttlFor(updatedSession.expiresAt)?.epochSecond)
+
+        // The PutItem does not have any condition, so:
+        // - if the item already exists, it will be completely overwritten
+        // - otherwise, a new item will be created
+        val request = PutItemRequest.builder()
             .tableName(SessionTable.name)
-            .key(SessionTable.key(updatedSession.id))
-            .updateExpression(
-                "SET ${SessionTable.data} = ${SessionTable.data.colonName}," +
-                        " ${SessionTable.expiresAt} = ${SessionTable.expiresAt.colonName}" +
-                        ttlUpdatePart
-            )
-            .expressionAttributeValues(attributeValuesMap)
+            .item(item)
             .build()
 
-        _dynamoDBClient.updateItem(request)
+        _dynamoDBClient.putItem(request)
     }
 
     override fun updateSessionExpiration(id: String, expiresAt: Instant)
     {
         val maybeTtl = ttlFor(expiresAt)
-        // see comments on the updateSession
         val ttlUpdatePart = if (maybeTtl != null)
         {
             ", ${SessionTable.deletableAt} = ${SessionTable.deletableAt.colonName}"
