@@ -211,6 +211,11 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
         }
     }
 
+    override fun close()
+    {
+        client.close()
+    }
+
     companion object
     {
         val logger: Logger = LoggerFactory.getLogger(DynamoDBClient::class.java)
