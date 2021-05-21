@@ -17,6 +17,7 @@ package io.curity.identityserver.plugin.dynamodb.configuration
 
 import se.curity.identityserver.sdk.config.Configuration
 import se.curity.identityserver.sdk.config.OneOf
+import se.curity.identityserver.sdk.config.annotation.DefaultLong
 import se.curity.identityserver.sdk.config.annotation.Description
 import se.curity.identityserver.sdk.config.annotation.RangeConstraint
 import se.curity.identityserver.sdk.service.ExceptionFactory
@@ -65,11 +66,39 @@ interface DynamoDBDataAccessProviderConfiguration: Configuration
     @Description("Allow use of table scans to fulfill resource queries")
     fun getAllowTableScans(): Optional<Boolean>
 
-    @Description("Optional sessions additional retain duration (in seconds)")
-    fun getSessionsTtlRetainDuration(): Optional<@RangeConstraint(min=0.0, max=Long.MAX_VALUE.toDouble()) Long>
+    // Additional retain duration
 
-    @Description("Optional nonces TTL additional retain duration (in seconds)")
-    fun getNoncesTtlRetainDuration(): Optional<@RangeConstraint(min=0.0, max=Long.MAX_VALUE.toDouble()) Long>
+    @Description("Sessions additional retain duration (in seconds)")
+    // TODO sign-off on this default value
+    @DefaultLong(24*60*60)
+    @RangeConstraint(min=0.0, max=Long.MAX_VALUE.toDouble())
+    fun getSessionsTtlRetainDuration(): Long
+
+    @Description("Nonces additional retain duration (in seconds)")
+    // TODO sign-off on this default value
+    @DefaultLong(24*60*60)
+    @RangeConstraint(min=0.0, max=Long.MAX_VALUE.toDouble())
+    fun getNoncesTtlRetainDuration(): Long
+
+    @Description("Delegations additional retain duration (in seconds)")
+    // TODO sign-off on this default value
+    @DefaultLong(365*24*60*60)
+    @RangeConstraint(min=0.0, max=Long.MAX_VALUE.toDouble())
+    fun getDelegationsTtlRetainDuration(): Long
+
+    @Description("Tokens additional retain duration (in seconds)")
+    // TODO sign-off on this default value
+    @DefaultLong(2*24*60*60)
+    @RangeConstraint(min=0.0, max=Long.MAX_VALUE.toDouble())
+    fun getTokensTtlRetainDuration(): Long
+
+    @Description("Devices additional retain duration (in seconds)")
+    // TODO sign-off on this default value
+    @DefaultLong(30*24*60*60)
+    @RangeConstraint(min=0.0, max=Long.MAX_VALUE.toDouble())
+    fun getDevicesTtlRetainDuration(): Long
+
+    // Services
 
     fun getExceptionFactory(): ExceptionFactory
 

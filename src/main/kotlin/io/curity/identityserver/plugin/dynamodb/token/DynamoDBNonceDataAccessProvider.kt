@@ -84,16 +84,14 @@ class DynamoDBNonceDataAccessProvider(
 
     override fun save(nonce: String, value: String, createdAt: Long, ttl: Long)
     {
-        val item = mutableMapOf(
+        val item = mapOf(
             NonceTable.nonce.toNameValuePair(nonce),
             NonceTable.nonceValue.toNameValuePair(value),
             NonceTable.createAt.toNameValuePair(createdAt),
             NonceTable.nonceTtl.toNameValuePair(ttl),
-            NonceTable.nonceStatus.toNameValuePair(NonceStatus.issued.name)
+            NonceTable.nonceStatus.toNameValuePair(NonceStatus.issued.name),
+            NonceTable.deletableAt.toNameValuePair(createdAt + ttl + _configuration.getNoncesTtlRetainDuration())
         )
-
-        NonceTable.deletableAt.addToNullable(item,
-            ttlFor(Instant.ofEpochSecond(createdAt + ttl))?.epochSecond)
 
         val request = PutItemRequest.builder()
             .tableName(NonceTable.name)
@@ -165,17 +163,6 @@ class DynamoDBNonceDataAccessProvider(
         {
             _logger.trace("Trying to update a nonexistent nonce")
         }
-    }
-
-    private fun ttlFor(expiration: Instant): Instant?
-    {
-        val maybeRetainDuration = _configuration.getNoncesTtlRetainDuration().orElse(null) ?: return null
-        if (maybeRetainDuration < 0)
-        {
-            throw _configuration.getExceptionFactory()
-                .configurationException("nonces retain duration cannot be negative")
-        }
-        return expiration.plusSeconds(maybeRetainDuration)
     }
 
     private enum class NonceStatus
