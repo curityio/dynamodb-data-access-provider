@@ -33,13 +33,11 @@ import se.curity.identityserver.sdk.data.query.ResourceQueryResult
 import se.curity.identityserver.sdk.datasource.DeviceDataAccessProvider
 import se.curity.identityserver.sdk.errors.ConflictException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
-import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
-import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.Instant
@@ -55,17 +53,18 @@ import java.util.UUID
  * The `pk` column has the "primary key", which is unique and can be:
  * - `id#{id}` (see [computePkFromId]) - main item, with all the attributes.
  * - `accountIdDeviceId#{accountId}&{deviceId}` (see [computePkFromAccountIdAndDeviceId]) - secondary item,
- * just to ensure uniqueness, and containing only the the device `id`.
+ * just to ensure uniqueness, and containing only the the device `id` and the `deletableAt`
+ * (so that it is also automatically deleted)
  *
- * Note that the `accountId` and `deviceId` properties can never change for a device, so the secondary item
- * doesn't need to be changed on update operations.
+ * Note that the `accountId` and `deviceId` properties can never change for a device, however the secondary item
+ * can change due to the `deletableAt` attribute.
  */
 class DynamoDBDeviceDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient,
-    configuration: DynamoDBDataAccessProviderConfiguration
+    private val _configuration: DynamoDBDataAccessProviderConfiguration
 ) : DeviceDataAccessProvider
 {
-    private val _jsonHandler = configuration.getJsonHandler()
+    private val _jsonHandler = _configuration.getJsonHandler()
 
     object DeviceTable : Table("curity-devices")
     {
@@ -82,6 +81,7 @@ class DynamoDBDeviceDataAccessProvider(
         val expires = NumberLongAttribute("expires")
         val created = NumberLongAttribute("created")
         val updated = NumberLongAttribute("updated")
+        val deletableAt = NumberLongAttribute("deletableAt")
 
         // These two fields refer to the same index, which can be used in two different ways...
         // - Just with the partition key, to obtain all the devices associated to an `accountId`.
@@ -162,6 +162,18 @@ class DynamoDBDeviceDataAccessProvider(
         val id = DeviceTable.id.from(mainItem)
         DeviceTable.pk.addTo(mainItem, computePkFromId(id))
 
+        // Add secondary item, with the device ID.
+        val secondaryItem = mutableMapOf(
+            DeviceTable.id.toNameValuePair(id)
+        )
+
+        // Conditionally add the `deletableAt` to *both* main and secondary items
+        DeviceTable.expires.optionalFrom(mainItem)?.let { expires ->
+            val deletableAt = expires + _configuration.getDevicesTtlRetainDuration()
+            DeviceTable.deletableAt.addTo(mainItem, deletableAt)
+            DeviceTable.deletableAt.addTo(secondaryItem, deletableAt)
+        }
+
         transactionItems.add(
             TransactWriteItem.builder()
                 .put {
@@ -172,10 +184,6 @@ class DynamoDBDeviceDataAccessProvider(
                 .build()
         )
 
-        // Add secondary item, with just the device ID
-        val secondaryItem = mutableMapOf(
-            DeviceTable.id.toNameValuePair(id)
-        )
         DeviceTable.pk.addTo(secondaryItem, computePkFromAccountIdAndDeviceId(deviceAttributes))
         transactionItems.add(
             TransactWriteItem.builder()
@@ -314,29 +322,82 @@ class DynamoDBDeviceDataAccessProvider(
             updateBuilder.onlyIf(DeviceTable.accountId, it)
         }
 
+        val deletableAt: Long? = deviceAttributes.expiresAt?.let {
+            it.epochSecond + _configuration.getDevicesTtlRetainDuration()
+        }
+
+        // Update the `deletableAt` on the main item
+        updateBuilder.update(DeviceTable.deletableAt, deletableAt)
+
+        // Update the `deletableAt` on the secondary item, which may require a SET or a REMOVE
+        val (secondaryUpdateExpression, secondaryValuesMap) = if (deletableAt == null)
+        {
+            Pair(
+                "REMOVE ${DeviceTable.deletableAt}",
+                mapOf()
+            )
+        } else
+        {
+            Pair(
+                "SET ${DeviceTable.deletableAt} = ${DeviceTable.deletableAt.colonName}",
+                mapOf(DeviceTable.deletableAt.toExpressionNameValuePair(deletableAt))
+            )
+        }
+
         /*
-         * Only updates the main item:
-         * - The secondary item doesn't need to change because an update cannot change `accountId nor `deviceId`.
+         * Updates both items:
+         * - The secondary item needs to change because of a possible update to `deletableAt`.
          * - The update is conditioned to `accountId` and `deviceId` being the same as the ones in device attributes.
          */
-        val updateRequest = UpdateItemRequest.builder()
-            .tableName(DeviceTable.name)
-            .apply {
-                updateBuilder.applyTo(this)
-            }
-            .key(mapOf(DeviceTable.pk.toNameValuePair(computePkFromId(deviceAttributes.id))))
+        val transactionItems = mutableListOf<TransactWriteItem>()
+        transactionItems.add(
+            TransactWriteItem.builder()
+                .update {
+                    it.tableName(DeviceTable.name)
+                    updateBuilder.applyTo(it)
+                    it.key(mapOf(DeviceTable.pk.toNameValuePair(computePkFromId(deviceAttributes.id))))
+                }
+                .build()
+        )
+
+        transactionItems.add(
+            TransactWriteItem.builder()
+                .update {
+                    it.tableName(DeviceTable.name)
+                    it.key(
+                        mapOf(
+                            DeviceTable.pk.toNameValuePair(
+                                computePkFromAccountIdAndDeviceId(
+                                    deviceAttributes.accountId, deviceAttributes.deviceId
+                                )
+                            )
+                        )
+                    )
+                    it.updateExpression(secondaryUpdateExpression)
+                    if (secondaryValuesMap.isNotEmpty())
+                    {
+                        it.expressionAttributeValues(secondaryValuesMap)
+                    }
+                }
+                .build()
+        )
+
+        val request = TransactWriteItemsRequest.builder()
+            .transactItems(transactionItems)
             .build()
 
         try
         {
-            _dynamoDBClient.updateItem(updateRequest)
-        } catch (e: ConditionalCheckFailedException)
+            _dynamoDBClient.transactionWriteItems(request)
+        } catch (ex: Exception)
         {
-            _logger.trace(
-                "conditional request was not applied, " +
-                        "meaning that a device with the update key (accountId, deviceId) does not exist"
-            )
-            // Ignoring the failed update is by design
+            if (ex.isTransactionCancelledDueToConditionFailure())
+            {
+                _logger.trace("No device matches the update condition")
+            } else
+            {
+                throw ex
+            }
         }
     }
 
@@ -482,7 +543,7 @@ class DynamoDBDeviceDataAccessProvider(
         val validatedCount = count.toIntOrThrow("count")
 
         // The index is required because this table has both main items (with all columns) and secondary items
-        // with just the id column (this is done to ensure two uniqueness constraints).
+        // with just the id and deletableAt columns (this is done to ensure two uniqueness constraints).
         // Due to this a scan without index would return both item types.
         // By using the index we only get the main items because the secondary items don’t have the indexed columns.
         val request = ScanRequest.builder()

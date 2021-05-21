@@ -17,9 +17,9 @@ package io.curity.identityserver.plugin.dynamodb.token
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.DynamoDBItem
-import io.curity.identityserver.plugin.dynamodb.PartitionOnlyIndex
 import io.curity.identityserver.plugin.dynamodb.ListStringAttribute
 import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
+import io.curity.identityserver.plugin.dynamodb.PartitionOnlyIndex
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import io.curity.identityserver.plugin.dynamodb.Table
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
@@ -38,11 +38,11 @@ import software.amazon.awssdk.services.dynamodb.model.ReturnValue
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 
 class DynamoDBTokenDataAccessProvider(
-    configuration: DynamoDBDataAccessProviderConfiguration,
+    private val _configuration: DynamoDBDataAccessProviderConfiguration,
     private val _dynamoDBClient: DynamoDBClient
 ) : TokenDataAccessProvider
 {
-    private val _jsonHandler = configuration.getJsonHandler()
+    private val _jsonHandler = _configuration.getJsonHandler()
 
     object TokenTable : Table("curity-tokens")
     {
@@ -64,6 +64,7 @@ class DynamoDBTokenDataAccessProvider(
 
         val created = NumberLongAttribute("created")
         val expires = NumberLongAttribute("expires")
+        val deletableAt = NumberLongAttribute("deletableAt")
         val notBefore = NumberLongAttribute("notBefore")
 
         fun keyFromHash(hash: String) = mapOf(
@@ -93,6 +94,7 @@ class DynamoDBTokenDataAccessProvider(
         TokenTable.created.addTo(item, created)
         TokenTable.expires.addTo(item, expires)
         TokenTable.notBefore.addTo(item, notBefore)
+        TokenTable.deletableAt.addTo(item, expires + _configuration.getTokensTtlRetainDuration())
     }
 
     private fun DynamoDBItem.toToken(): Token

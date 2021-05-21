@@ -12,6 +12,7 @@
 package io.curity.identityserver.plugin.dynamodb
 
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
+import software.amazon.awssdk.services.dynamodb.model.Update
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 
 class UpdateExpressionsBuilder
@@ -44,6 +45,32 @@ class UpdateExpressionsBuilder
     }
 
     fun applyTo(builder: UpdateItemRequest.Builder)
+    {
+
+        var updateExpression = ""
+
+        if (_updateExpressionParts.isNotEmpty())
+        {
+            updateExpression += "SET ${_updateExpressionParts.joinToString(", ")} "
+            builder
+                .expressionAttributeValues(_attributeValues)
+        }
+
+        if (_attributesToRemoveFromItem.isNotEmpty())
+        {
+            updateExpression += "REMOVE ${_attributesToRemoveFromItem.joinToString(", ")} "
+        }
+
+        if (_conditionExpressionParts.isNotEmpty())
+        {
+            builder.conditionExpression(_conditionExpressionParts.joinToString(" AND "))
+        }
+
+        builder.updateExpression(updateExpression)
+        builder.expressionAttributeNames(_attributeNames)
+    }
+
+    fun applyTo(builder: Update.Builder)
     {
 
         var updateExpression = ""

@@ -22,7 +22,6 @@ import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
 import io.curity.identityserver.plugin.dynamodb.PartitionAndSortIndex
 import io.curity.identityserver.plugin.dynamodb.PartitionOnlyIndex
 import io.curity.identityserver.plugin.dynamodb.PrimaryKey
-import io.curity.identityserver.plugin.dynamodb.SchemaErrorException
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import io.curity.identityserver.plugin.dynamodb.Table
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
@@ -78,6 +77,7 @@ class DynamoDBDelegationDataAccessProvider(
 
         val created = NumberLongAttribute("created")
         val expires = NumberLongAttribute("expires")
+        val deletableAt = NumberLongAttribute("deletableAt")
 
         val scope = StringAttribute("scope")
         val claimMap = StringAttribute("claimMap")
@@ -131,6 +131,7 @@ class DynamoDBDelegationDataAccessProvider(
         DelegationTable.owner.addTo(res, owner)
         DelegationTable.created.addTo(res, created)
         DelegationTable.expires.addTo(res, expires)
+        DelegationTable.deletableAt.addTo(res, expires + _configuration.getDelegationsTtlRetainDuration())
         DelegationTable.clientId.addTo(res, clientId)
         DelegationTable.redirectUri.addToNullable(res, redirectUri)
         DelegationTable.authorizationCodeHash.addToNullable(res, authorizationCodeHash)
