@@ -18,6 +18,7 @@ package io.curity.identityserver.plugin.dynamodb.configuration
 import se.curity.identityserver.sdk.config.Configuration
 import se.curity.identityserver.sdk.config.OneOf
 import se.curity.identityserver.sdk.config.annotation.Description
+import se.curity.identityserver.sdk.config.annotation.RangeConstraint
 import se.curity.identityserver.sdk.service.ExceptionFactory
 import se.curity.identityserver.sdk.service.Json
 import java.util.Optional
@@ -60,6 +61,12 @@ interface DynamoDBDataAccessProviderConfiguration: Configuration
         @get:Description("EC2 instance that the Curity Identity Server is running on has been assigned an IAM Role with permissions to DynamoDB.")
         val isEC2InstanceProfile: Optional<Boolean>
     }
+
+    @Description("Amount of time in seconds to wait for the execution of an API call to complete, including retries.")
+    fun getApiCallTimeout(): Optional<@RangeConstraint(min=0.0) Long>
+
+    @Description("Amount of time in seconds to wait for each individual request to complete.")
+    fun getApiCallAttemptTimeout(): Optional<@RangeConstraint(min=0.0) Long>
 
     fun getExceptionFactory(): ExceptionFactory
 
