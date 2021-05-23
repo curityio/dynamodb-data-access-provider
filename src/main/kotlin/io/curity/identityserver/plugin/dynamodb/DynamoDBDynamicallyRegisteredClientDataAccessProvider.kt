@@ -212,6 +212,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
                 DcrTable.attributes,
                 _jsonHandler.fromAttributes(Attributes.of(dynamicallyRegisteredClientAttributes.attributes))
             )
+            builder.onlyIfExists(DcrTable.clientId)
         }
 
         val requestBuilder = UpdateItemRequest.builder()
@@ -219,7 +220,13 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             .key(DcrTable.key(dynamicallyRegisteredClientAttributes.clientId))
             .apply { builder.applyTo(this) }
 
-        _dynamoDBClient.updateItem(requestBuilder.build())
+        try
+        {
+            _dynamoDBClient.updateItem(requestBuilder.build())
+        } catch (_: ConditionalCheckFailedException)
+        {
+            // this exceptions means the entry does not exists, which isn't an error
+        }
     }
 
     override fun delete(clientId: String)

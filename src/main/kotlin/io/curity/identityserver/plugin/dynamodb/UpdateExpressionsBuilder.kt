@@ -44,6 +44,11 @@ class UpdateExpressionsBuilder
         _attributeNames[attribute.hashName] = attribute.name
     }
 
+    fun <T> onlyIfExists(keyAttribute: DynamoDBAttribute<T>)
+    {
+        _conditionExpressionParts.add("attribute_exists(${keyAttribute.name})")
+    }
+
     fun applyTo(builder: UpdateItemRequest.Builder)
     {
 

@@ -47,10 +47,10 @@ import se.curity.identityserver.sdk.data.authorization.DelegationStatus
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.datasource.DelegationDataAccessProvider
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
-import software.amazon.awssdk.services.dynamodb.model.ReturnValue
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 import software.amazon.awssdk.services.dynamodb.model.Select
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
@@ -245,21 +245,21 @@ class DynamoDBDelegationDataAccessProvider(
         val request = UpdateItemRequest.builder()
             .tableName(DelegationTable.name)
             .key(mapOf(DelegationTable.id.toNameValuePair(id)))
+            .conditionExpression(updateConditionExpression)
             .updateExpression("SET ${DelegationTable.status.hashName} = ${DelegationTable.status.colonName}")
             .expressionAttributeValues(mapOf(DelegationTable.status.toExpressionNameValuePair(newStatus)))
             .expressionAttributeNames(mapOf(DelegationTable.status.toNamePair()))
-            .returnValues(ReturnValue.UPDATED_NEW)
             .build()
 
-        val response = _dynamoDBClient.updateItem(request)
-
-        return if (response.hasAttributes() && response.attributes().isNotEmpty())
+        try
         {
-            1
-        } else
+            _dynamoDBClient.updateItem(request)
+        } catch (_: ConditionalCheckFailedException)
         {
-            0
+            // this exceptions means the entry does not exists
+            return 0
         }
+        return 1
     }
 
     override fun getByOwner(owner: String, startIndex: Long, count: Long): Collection<Delegation>
@@ -446,6 +446,7 @@ class DynamoDBDelegationDataAccessProvider(
         private val issuedStatusExpressionAttributeMap = mapOf(issuedStatusExpressionAttribute)
         private val issuedStatusExpressionAttributeName = DelegationTable.status.toNamePair()
         private val issuedStatusExpressionAttributeNameMap = mapOf(issuedStatusExpressionAttributeName)
+        private val updateConditionExpression = "attribute_exists(${DelegationTable.id})"
 
         private const val MAX_QUERIES = 8
     }
