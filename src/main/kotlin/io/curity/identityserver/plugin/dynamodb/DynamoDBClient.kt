@@ -16,6 +16,7 @@
 package io.curity.identityserver.plugin.dynamodb
 
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
+import io.curity.identityserver.plugin.dynamodb.query.UnsupportedQueryException
 import org.apache.http.conn.HttpHostConnectException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -167,7 +168,17 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
         callClient(ClientMethod.DeleteItem, request) as DeleteItemResponse
 
     fun query(request: QueryRequest): QueryResponse = callClient(ClientMethod.Query, request) as QueryResponse
-    fun scan(request: ScanRequest): ScanResponse = callClient(ClientMethod.Scan, request) as ScanResponse
+    fun scan(request: ScanRequest): ScanResponse
+    {
+        return if (config.getAllowTableScans())
+        {
+            callClient(ClientMethod.Scan, request) as ScanResponse
+        } else
+        {
+            throw UnsupportedQueryException.QueryRequiresTableScan()
+        }
+    }
+
     fun transactionWriteItems(request: TransactWriteItemsRequest) = callClient(ClientMethod.TransactWriteItems, request)
             as TransactWriteItemsResponse
 

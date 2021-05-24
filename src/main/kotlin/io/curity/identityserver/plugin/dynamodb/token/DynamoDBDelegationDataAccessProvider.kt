@@ -22,7 +22,6 @@ import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
 import io.curity.identityserver.plugin.dynamodb.PartitionAndSortIndex
 import io.curity.identityserver.plugin.dynamodb.PartitionOnlyIndex
 import io.curity.identityserver.plugin.dynamodb.PrimaryKey
-import io.curity.identityserver.plugin.dynamodb.SchemaErrorException
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import io.curity.identityserver.plugin.dynamodb.Table
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
@@ -335,18 +334,14 @@ class DynamoDBDelegationDataAccessProvider(
 
     override fun getAll(resourceQuery: ResourceQuery): Collection<DynamoDBDelegation> = try
     {
-        // A null filter implies a table scan
-        val resourceQueryFilter = resourceQuery.filter ?: throw UnsupportedQueryException.QueryRequiresTableScan()
-
         val comparator = getComparatorFor(resourceQuery)
 
-        val queryPlanner = QueryPlanner(DelegationTable.queryCapabilities)
-
-        val queryPlan = queryPlanner.build(resourceQueryFilter)
-
-        if (queryPlan is QueryPlan.UsingScan && !_configuration.getAllowTableScans().orElse(false))
+        val queryPlan = if (resourceQuery.filter != null)
         {
-            throw throw UnsupportedQueryException.QueryRequiresTableScan()
+            QueryPlanner(DelegationTable.queryCapabilities).build(resourceQuery.filter)
+        } else
+        {
+            QueryPlan.UsingScan.fullScan()
         }
 
         val values = when (queryPlan)
