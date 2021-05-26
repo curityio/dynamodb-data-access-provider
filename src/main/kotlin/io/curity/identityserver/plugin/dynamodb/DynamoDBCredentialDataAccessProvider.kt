@@ -24,39 +24,51 @@ import se.curity.identityserver.sdk.attribute.AuthenticationAttributes
 import se.curity.identityserver.sdk.attribute.ContextAttributes
 import se.curity.identityserver.sdk.attribute.SubjectAttributes
 import se.curity.identityserver.sdk.datasource.CredentialDataAccessProvider
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 
-class DynamoDBCredentialDataAccessProvider(private val dynamoDBClient: DynamoDBClient) : CredentialDataAccessProvider
+class DynamoDBCredentialDataAccessProvider(
+    private val _dynamoDBClient: DynamoDBClient
+) : CredentialDataAccessProvider
 {
     override fun updatePassword(accountAttributes: AccountAttributes)
     {
         val username = accountAttributes.userName
 
-        logger.debug("Received request to update password for username : {}", username)
+        _logger.debug("Received request to update password for username : {}", username)
 
         val newPassword: String? = accountAttributes.password
 
         if (newPassword == null)
         {
-            logger.debug("Cannot update account password for {}, missing password value.", username)
+            _logger.debug("Cannot update account password for {}, missing password value.", username)
             return
         }
 
         val request = UpdateItemRequest.builder()
             .tableName(AccountsTable.name)
             .key(AccountsTable.key(accountAttributes.id))
+            .conditionExpression("attribute_exists(${AccountsTable.accountId})")
             // 'password' is not a DynamoDB reserved word
             .updateExpression("SET ${AccountsTable.password.name} = ${AccountsTable.password.colonName}")
             .expressionAttributeValues(mapOf(AccountsTable.password.toExpressionNameValuePair(newPassword)))
             .build()
 
-        dynamoDBClient.updateItem(request)
+        try
+        {
+            _dynamoDBClient.updateItem(request)
+        } catch (_: ConditionalCheckFailedException)
+        {
+            // This means the condition failed, i.e, the entry does not exist,
+            // which should not be signalled with an exception
+            _logger.debug("Cannot update account password for {}, since that used does not exist", username)
+        }
     }
 
     override fun verifyPassword(userName: String, password: String): AuthenticationAttributes?
     {
-        logger.debug("Received request to verify password for username : {}", userName)
+        _logger.debug("Received request to verify password for username : {}", userName)
 
         val request = QueryRequest.builder()
             .tableName(AccountsTable.name)
@@ -66,10 +78,11 @@ class DynamoDBCredentialDataAccessProvider(private val dynamoDBClient: DynamoDBC
             .expressionAttributeValues(mapOf(AccountsTable.userName.toExpressionNameValuePair(userName)))
             .projectionExpression(
                 "${AccountsTable.accountId.name}, ${AccountsTable.userName.name}, " +
-                        "${AccountsTable.password.name}, ${AccountsTable.active.name}")
+                        "${AccountsTable.password.name}, ${AccountsTable.active.name}"
+            )
             .build()
 
-        val response = dynamoDBClient.query(request)
+        val response = _dynamoDBClient.query(request)
 
         if (!response.hasItems() || response.items().isEmpty())
         {
@@ -106,6 +119,6 @@ class DynamoDBCredentialDataAccessProvider(private val dynamoDBClient: DynamoDBC
     companion object
     {
         private val AccountsTable = DynamoDBUserAccountDataAccessProvider.AccountsTable
-        private val logger: Logger = LoggerFactory.getLogger(DynamoDBCredentialDataAccessProvider::class.java)
+        private val _logger: Logger = LoggerFactory.getLogger(DynamoDBCredentialDataAccessProvider::class.java)
     }
 }

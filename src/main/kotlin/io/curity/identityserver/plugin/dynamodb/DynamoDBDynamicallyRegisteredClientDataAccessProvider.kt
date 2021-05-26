@@ -225,7 +225,9 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             _dynamoDBClient.updateItem(requestBuilder.build())
         } catch (_: ConditionalCheckFailedException)
         {
-            // this exceptions means the entry does not exists, which isn't an error
+            // this exceptions means the entry does not exists, which should be signalled with an exception
+            throw RuntimeException(
+                "Client with ID '${dynamicallyRegisteredClientAttributes.getClientId()}' could not be updated.")
         }
     }
 
