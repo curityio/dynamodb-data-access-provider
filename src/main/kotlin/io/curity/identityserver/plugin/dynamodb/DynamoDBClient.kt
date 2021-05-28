@@ -37,7 +37,6 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemResponse
 import software.amazon.awssdk.services.dynamodb.model.DynamoDbException
-import software.amazon.awssdk.services.dynamodb.model.DynamoDbRequest
 import software.amazon.awssdk.services.dynamodb.model.DynamoDbResponse
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse
@@ -56,6 +55,7 @@ import software.amazon.awssdk.services.sts.model.AssumeRoleRequest
 import software.amazon.awssdk.services.sts.model.AssumeRoleResponse
 import software.amazon.awssdk.services.sts.model.Credentials
 import java.net.URI
+import java.time.Duration
 
 class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration) :
     ManagedObject<DynamoDBDataAccessProviderConfiguration>(config)
@@ -113,14 +113,19 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
         }
         builder.region(_awsRegion)
 
+        builder.overrideConfiguration { c -> c
+            .apiCallAttemptTimeout(config.getApiCallAttemptTimeout().map { Duration.ofSeconds(it) }.orElse(null))
+            .apiCallTimeout(config.getApiCallTimeout().map { Duration.ofSeconds(it) }.orElse(null))
+        }
+
         return builder.build()
     }
 
-    private fun getNewCredentialsFromAssumeRole(credentials: AwsCredentialsProvider, roleARN: String): AwsCredentialsProvider
+    private fun getNewCredentialsFromAssumeRole(credentialsProvider: AwsCredentialsProvider, roleARN: String): AwsCredentialsProvider
     {
         val stsClient: StsClient = StsClient.builder()
             .region(_awsRegion)
-            .credentialsProvider(credentials)
+            .credentialsProvider(credentialsProvider)
             .build()
         val assumeRoleRequest: AssumeRoleRequest = AssumeRoleRequest.builder()
             .durationSeconds(3600)
@@ -137,7 +142,7 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
                     "AssumeRole Request sent but was not successful: {}",
                     assumeRoleResult.sdkHttpResponse().statusText().get()
                 )
-                credentials //Returning the original credentials
+                credentialsProvider //Returning the original credentials
             } else
             {
                 val credentials: Credentials = assumeRoleResult.credentials()
@@ -156,35 +161,21 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
         }
     }
 
-    fun getItem(getItemRequest: GetItemRequest): GetItemResponse =
-        callClient(ClientMethod.GetItem, getItemRequest) as GetItemResponse
+    fun getItem(request: GetItemRequest): GetItemResponse = client.call { getItem(request) }
 
-    fun putItem(request: PutItemRequest): PutItemResponse = callClient(ClientMethod.PutItem, request) as PutItemResponse
-    fun updateItem(request: UpdateItemRequest): UpdateItemResponse =
-        callClient(ClientMethod.UpdateItem, request) as UpdateItemResponse
+    fun putItem(request: PutItemRequest): PutItemResponse = client.call { putItem(request) }
+    fun updateItem(request: UpdateItemRequest): UpdateItemResponse = client.call { updateItem(request) }
 
-    fun deleteItem(request: DeleteItemRequest): DeleteItemResponse =
-        callClient(ClientMethod.DeleteItem, request) as DeleteItemResponse
+    fun deleteItem(request: DeleteItemRequest): DeleteItemResponse = client.call { deleteItem(request) }
 
-    fun query(request: QueryRequest): QueryResponse = callClient(ClientMethod.Query, request) as QueryResponse
-    fun scan(request: ScanRequest): ScanResponse = callClient(ClientMethod.Scan, request) as ScanResponse
-    fun transactionWriteItems(request: TransactWriteItemsRequest) = callClient(ClientMethod.TransactWriteItems, request)
-            as TransactWriteItemsResponse
+    fun query(request: QueryRequest): QueryResponse = client.call { query(request) }
+    fun scan(request: ScanRequest): ScanResponse = client.call { scan(request) }
+    fun transactionWriteItems(request: TransactWriteItemsRequest): TransactWriteItemsResponse = client.call { transactWriteItems(request) }
 
-    private fun callClient(method: ClientMethod, request: DynamoDbRequest): DynamoDbResponse?
-    {
-        return try
+    private fun <T : DynamoDbResponse> DynamoDbClient.call(block: DynamoDbClient.() -> T): T {
+        try
         {
-            when (method)
-            {
-                ClientMethod.GetItem -> client.getItem(request as GetItemRequest)
-                ClientMethod.PutItem -> client.putItem(request as PutItemRequest)
-                ClientMethod.UpdateItem -> client.updateItem(request as UpdateItemRequest)
-                ClientMethod.DeleteItem -> client.deleteItem(request as DeleteItemRequest)
-                ClientMethod.Query -> client.query(request as QueryRequest)
-                ClientMethod.Scan -> client.scan(request as ScanRequest)
-                ClientMethod.TransactWriteItems -> client.transactWriteItems(request as TransactWriteItemsRequest)
-            }
+            return block()
         } catch (e: DynamoDbException)
         {
             when
@@ -211,13 +202,13 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
         }
     }
 
+    override fun close()
+    {
+        client.close()
+    }
+
     companion object
     {
         val logger: Logger = LoggerFactory.getLogger(DynamoDBClient::class.java)
-    }
-
-    enum class ClientMethod
-    {
-        GetItem, PutItem, UpdateItem, DeleteItem, Query, Scan, TransactWriteItems
     }
 }
