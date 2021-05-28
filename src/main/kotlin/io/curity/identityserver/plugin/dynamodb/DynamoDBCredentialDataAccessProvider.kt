@@ -27,6 +27,7 @@ import se.curity.identityserver.sdk.datasource.CredentialDataAccessProvider
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
+import java.time.Instant
 
 class DynamoDBCredentialDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient
@@ -46,13 +47,18 @@ class DynamoDBCredentialDataAccessProvider(
             return
         }
 
+        val now = Instant.now().epochSecond
         val request = UpdateItemRequest.builder()
             .tableName(AccountsTable.name)
             .key(AccountsTable.key(accountAttributes.id))
             .conditionExpression("attribute_exists(${AccountsTable.accountId})")
             // 'password' is not a DynamoDB reserved word
-            .updateExpression("SET ${AccountsTable.password.name} = ${AccountsTable.password.colonName}")
-            .expressionAttributeValues(mapOf(AccountsTable.password.toExpressionNameValuePair(newPassword)))
+            .updateExpression("SET ${AccountsTable.password.name} = ${AccountsTable.password.colonName}, " +
+                    "${AccountsTable.updated.name} = ${AccountsTable.updated.colonName}")
+            .expressionAttributeValues(mapOf(
+                AccountsTable.password.toExpressionNameValuePair(newPassword),
+                AccountsTable.updated.toExpressionNameValuePair(now)
+            ))
             .build()
 
         try
