@@ -55,6 +55,7 @@ import software.amazon.awssdk.services.sts.model.AssumeRoleRequest
 import software.amazon.awssdk.services.sts.model.AssumeRoleResponse
 import software.amazon.awssdk.services.sts.model.Credentials
 import java.net.URI
+import java.time.Duration
 
 class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration) :
     ManagedObject<DynamoDBDataAccessProviderConfiguration>(config)
@@ -111,6 +112,11 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
             builder.endpointOverride(URI.create(config.getEndpointOverride().get()))
         }
         builder.region(_awsRegion)
+
+        builder.overrideConfiguration { c -> c
+            .apiCallAttemptTimeout(config.getApiCallAttemptTimeout().map { Duration.ofSeconds(it) }.orElse(null))
+            .apiCallTimeout(config.getApiCallTimeout().map { Duration.ofSeconds(it) }.orElse(null))
+        }
 
         return builder.build()
     }
