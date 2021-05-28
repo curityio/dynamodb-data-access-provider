@@ -62,10 +62,10 @@ interface DynamoDBDataAccessProviderConfiguration: Configuration
         val isEC2InstanceProfile: Optional<Boolean>
     }
 
-    @Description("Amount of time in seconds to wait for the execution of an API call to complete, including retries.")
+    @Description("Amount of time in seconds to wait for the execution of an API call to complete, including retries. If not set, DynamoDB's default is used.")
     fun getApiCallTimeout(): Optional<@RangeConstraint(min=0.0) Long>
 
-    @Description("Amount of time in seconds to wait for each individual request to complete.")
+    @Description("Amount of time in seconds to wait for each individual request to complete. If not set, DynamoDB's default is used.")
     fun getApiCallAttemptTimeout(): Optional<@RangeConstraint(min=0.0) Long>
 
     fun getExceptionFactory(): ExceptionFactory
