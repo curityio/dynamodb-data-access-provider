@@ -17,13 +17,3 @@ class TableQueryCapabilities(
     val indexes: List<Index>,
     val attributeMap: Map<String, DynamoDBAttribute<*>>
 )
-{
-    companion object
-    {
-        fun attributeMapFrom(vararg attributes: DynamoDBAttribute<*>) =
-            attributes.asSequence()
-                .map{ it.name to it}
-                .toMap()
-
-    }
-}

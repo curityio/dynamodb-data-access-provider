@@ -112,7 +112,7 @@ class DynamoDBDelegationDataAccessProvider(
                 Delegation.KEY_REDIRECT_URI to redirectUri,
                 "redirect_uri" to redirectUri,
                 Delegation.KEY_STATUS to status,
-                "expires" to expires,
+                Delegation.KEY_EXPIRES to expires,
                 "externalId" to id
             )
         )
