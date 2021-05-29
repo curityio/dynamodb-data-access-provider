@@ -92,6 +92,12 @@ interface DynamoDBDataAccessProviderConfiguration : Configuration
     @RangeConstraint(min = 0.0, max = Long.MAX_VALUE.toDouble())
     fun getDevicesTtlRetainDuration(): Long
 
+    @Description("Amount of time in seconds to wait for the execution of an API call to complete, including retries. If not set, DynamoDB's default is used.")
+    fun getApiCallTimeout(): Optional<@RangeConstraint(min=0.0) Long>
+
+    @Description("Amount of time in seconds to wait for each individual request to complete. If not set, DynamoDB's default is used.")
+    fun getApiCallAttemptTimeout(): Optional<@RangeConstraint(min=0.0) Long>
+
     // Services
 
     fun getExceptionFactory(): ExceptionFactory
