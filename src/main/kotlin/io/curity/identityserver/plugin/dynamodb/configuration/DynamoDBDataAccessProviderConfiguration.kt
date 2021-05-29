@@ -24,8 +24,7 @@ import se.curity.identityserver.sdk.service.ExceptionFactory
 import se.curity.identityserver.sdk.service.Json
 import java.util.Optional
 
-
-interface DynamoDBDataAccessProviderConfiguration: Configuration
+interface DynamoDBDataAccessProviderConfiguration : Configuration
 {
     @Description("The AWS Region where DynamoDB is deployed.")
     fun getAwsRegion(): AWSRegion
@@ -69,34 +68,35 @@ interface DynamoDBDataAccessProviderConfiguration: Configuration
     // Additional retain duration
 
     @Description("Sessions additional retain duration (in seconds)")
-    // TODO sign-off on this default value
-    @DefaultLong(24*60*60)
-    @RangeConstraint(min=0.0, max=Long.MAX_VALUE.toDouble())
+    @DefaultLong(24 * 60 * 60)
+    @RangeConstraint(min = 0.0, max = Long.MAX_VALUE.toDouble())
     fun getSessionsTtlRetainDuration(): Long
 
     @Description("Nonces additional retain duration (in seconds)")
-    // TODO sign-off on this default value
-    @DefaultLong(24*60*60)
-    @RangeConstraint(min=0.0, max=Long.MAX_VALUE.toDouble())
+    @DefaultLong(24 * 60 * 60)
+    @RangeConstraint(min = 0.0, max = Long.MAX_VALUE.toDouble())
     fun getNoncesTtlRetainDuration(): Long
 
     @Description("Delegations additional retain duration (in seconds)")
-    // TODO sign-off on this default value
-    @DefaultLong(365*24*60*60)
-    @RangeConstraint(min=0.0, max=Long.MAX_VALUE.toDouble())
+    @DefaultLong(365 * 24 * 60 * 60)
+    @RangeConstraint(min = 0.0, max = Long.MAX_VALUE.toDouble())
     fun getDelegationsTtlRetainDuration(): Long
 
     @Description("Tokens additional retain duration (in seconds)")
-    // TODO sign-off on this default value
-    @DefaultLong(2*24*60*60)
-    @RangeConstraint(min=0.0, max=Long.MAX_VALUE.toDouble())
+    @DefaultLong(2 * 24 * 60 * 60)
+    @RangeConstraint(min = 0.0, max = Long.MAX_VALUE.toDouble())
     fun getTokensTtlRetainDuration(): Long
 
     @Description("Devices additional retain duration (in seconds)")
-    // TODO sign-off on this default value
-    @DefaultLong(30*24*60*60)
-    @RangeConstraint(min=0.0, max=Long.MAX_VALUE.toDouble())
+    @DefaultLong(30 * 24 * 60 * 60)
+    @RangeConstraint(min = 0.0, max = Long.MAX_VALUE.toDouble())
     fun getDevicesTtlRetainDuration(): Long
+
+    @Description("Amount of time in seconds to wait for the execution of an API call to complete, including retries. If not set, DynamoDB's default is used.")
+    fun getApiCallTimeout(): Optional<@RangeConstraint(min=0.0) Long>
+
+    @Description("Amount of time in seconds to wait for each individual request to complete. If not set, DynamoDB's default is used.")
+    fun getApiCallAttemptTimeout(): Optional<@RangeConstraint(min=0.0) Long>
 
     // Services
 

@@ -23,17 +23,17 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities)
 
     fun build(expression: Expression): QueryPlan
     {
-        _logger.trace("Computing query plan for non-normalized expression: {}", expression)
+        _logger.debug("Computing query plan for non-normalized expression: {}", expression)
         val normalized = normalize(expression)
         return buildFromNormalizedExpression(normalized)
     }
 
     private fun buildFromNormalizedExpression(normal: DisjunctiveNormalForm): QueryPlan
     {
-        _logger.trace("Computing query plan for normalized expression: {}", normal)
+        _logger.debug("Computing query plan for normalized expression: {}", normal)
         val queries = mutableMapOf<QueryPlan.KeyCondition, MutableList<Product>>()
         normal.products.forEach { product ->
-            _logger.trace("Finding index for term: {}", product)
+            _logger.debug("Finding index for term: {}", product)
             val keyConditions = tableQueryCapabilities.indexes.asSequence()
                 .map { getKeyConditions(product, it) }
                 .firstOrNull { it.isNotEmpty() }
@@ -41,7 +41,7 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities)
             {
                 if (_logger.isTraceEnabled)
                 {
-                    _logger.trace("Found index: {}", keyConditions.first().index)
+                    _logger.debug("Found index: {}", keyConditions.first().index)
                 }
                 keyConditions.forEach { keyCondition ->
                     queries.computeIfAbsent(keyCondition) { mutableListOf() }
@@ -49,7 +49,7 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities)
                 }
             } else
             {
-                _logger.trace("No index found for term, a scan will be required: {}", product)
+                _logger.debug("No index found for term, a scan will be required: {}", product)
                 return QueryPlan.UsingScan(normal)
             }
         }
@@ -58,17 +58,17 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities)
 
     fun getKeyConditions(product: Product, index: Index): List<QueryPlan.KeyCondition>
     {
-        _logger.trace("Checking if index '{}' can be used on term {}", index.indexName, product)
+        _logger.debug("Checking if index '{}' can be used on term {}", index.indexName, product)
         val partitionKeyExpressions = product.terms
             .filter { term -> term.attribute == index.partitionAttribute }
         if (partitionKeyExpressions.isEmpty())
         {
-            _logger.trace("Index cannot be used: partition key is not used")
+            _logger.debug("Index cannot be used: partition key is not used")
             return NO_KEY_CONDITION
         }
         if (partitionKeyExpressions.size > 1)
         {
-            _logger.trace("Index cannot be used: partition key is used multiple times")
+            _logger.debug("Index cannot be used: partition key is used multiple times")
             return NO_KEY_CONDITION
         }
         val partitionKeyExpression = partitionKeyExpressions.single()
@@ -76,29 +76,29 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities)
             partitionKeyExpression.operator != BinaryAttributeOperator.Eq
         )
         {
-            _logger.trace("Index cannot be used: partition key is used with an operator other than EQ")
+            _logger.debug("Index cannot be used: partition key is used with an operator other than EQ")
             return NO_KEY_CONDITION
         }
         if (index.sortAttribute == null)
         {
             return listOf(QueryPlan.KeyCondition(index, partitionKeyExpression))
         }
-        _logger.trace("Computing sort condition for index '{}'", index.indexName)
+        _logger.debug("Computing sort condition for index '{}'", index.indexName)
         val sortKeyExpressions = product.terms
             .filter { term -> term.attribute == index.sortAttribute }
         if (sortKeyExpressions.isEmpty())
         {
-            _logger.trace("No sort conditions will be used on index '{}'", index.indexName)
+            _logger.debug("No sort conditions will be used on index '{}'", index.indexName)
             return listOf(QueryPlan.KeyCondition(index, partitionKeyExpression))
         }
         if (sortKeyExpressions.size > 2)
         {
-            _logger.trace("Index cannot be used: sort keys are used more than twice")
+            _logger.debug("Index cannot be used: sort keys are used more than twice")
             return NO_KEY_CONDITION
         }
         if (sortKeyExpressions.any { it is UnaryAttributeExpression })
         {
-            _logger.trace("Index cannot be used: sort key is used with unary operator")
+            _logger.debug("Index cannot be used: sort key is used with unary operator")
             return NO_KEY_CONDITION
         }
         val binarySortKeyExpressions = sortKeyExpressions.filterIsInstance(BinaryAttributeExpression::class.java)
@@ -145,7 +145,7 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities)
                 }
                 else ->
                 {
-                    _logger.trace(
+                    _logger.debug(
                         "Index cannot be used: sort keys use an operator that cannot be used on an index - '{}'",
                         sortKeyExpression.operator
                     )
@@ -161,12 +161,12 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities)
                 listOf(QueryPlan.RangeCondition.Between(sortAttribute, geExpression.value, leExpression.value))
             } else
             {
-                _logger.trace("Index cannot be used: sort key usage doesn't match a BETWEEN")
+                _logger.debug("Index cannot be used: sort key usage doesn't match a BETWEEN")
                 NO_RANGE_CONDITION
             }
         } else
         {
-            _logger.trace("Index cannot be used: sort key is used three or more times")
+            _logger.debug("Index cannot be used: sort key is used three or more times")
             NO_RANGE_CONDITION
         }
 

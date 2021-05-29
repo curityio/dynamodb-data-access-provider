@@ -112,7 +112,6 @@ abstract class BaseAttribute<T>(
     override val hashName = "#${name}"
     override val colonName = ":${name}"
 
-    // TODO improve
     override fun isValueCompatible(value: Any) = cast(value) != null
 
     override fun toNameAttributePair() = name to this

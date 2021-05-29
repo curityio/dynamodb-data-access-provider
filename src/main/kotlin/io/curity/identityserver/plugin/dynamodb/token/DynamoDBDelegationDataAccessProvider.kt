@@ -113,7 +113,7 @@ class DynamoDBDelegationDataAccessProvider(
                 Delegation.KEY_REDIRECT_URI to redirectUri,
                 "redirect_uri" to redirectUri,
                 Delegation.KEY_STATUS to status,
-                "expires" to expires,
+                Delegation.KEY_EXPIRES to expires,
                 "externalId" to id
             )
         )
@@ -336,14 +336,15 @@ class DynamoDBDelegationDataAccessProvider(
 
     override fun getAll(resourceQuery: ResourceQuery): Collection<DynamoDBDelegation> = try
     {
-        // A null filter implies a table scan
-        val resourceQueryFilter = resourceQuery.filter ?: throw UnsupportedQueryException.QueryRequiresTableScan()
-
         val comparator = getComparatorFor(resourceQuery)
 
-        val queryPlanner = QueryPlanner(DelegationTable.queryCapabilities)
-
-        val queryPlan = queryPlanner.build(resourceQueryFilter)
+        val queryPlan = if (resourceQuery.filter != null)
+        {
+            QueryPlanner(DelegationTable.queryCapabilities).build(resourceQuery.filter)
+        } else
+        {
+            QueryPlan.UsingScan.fullScan()
+        }
 
         if (queryPlan is QueryPlan.UsingScan && !_configuration.getAllowTableScans().orElse(false))
         {
