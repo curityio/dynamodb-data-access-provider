@@ -17,9 +17,9 @@ package io.curity.identityserver.plugin.dynamodb.token
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.DynamoDBItem
-import io.curity.identityserver.plugin.dynamodb.PartitionOnlyIndex
 import io.curity.identityserver.plugin.dynamodb.ListStringAttribute
 import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
+import io.curity.identityserver.plugin.dynamodb.PartitionOnlyIndex
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import io.curity.identityserver.plugin.dynamodb.Table
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
@@ -125,6 +125,7 @@ class DynamoDBTokenDataAccessProvider(
         val request = GetItemRequest.builder()
             .tableName(TokenTable.name)
             .key(TokenTable.keyFromHash(hash))
+            .consistentRead(true)
             .build()
 
         val response = _dynamoDBClient.getItem(request)

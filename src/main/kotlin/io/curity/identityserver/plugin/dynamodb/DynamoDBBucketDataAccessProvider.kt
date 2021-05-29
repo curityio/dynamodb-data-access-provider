@@ -37,6 +37,7 @@ class DynamoDBBucketDataAccessProvider(
         val request = GetItemRequest.builder()
             .tableName(BucketsTable.name)
             .key(BucketsTable.key(subject, purpose))
+            .consistentRead(true)
             .build()
         val response = _client.getItem(request)
 

@@ -186,6 +186,7 @@ class DynamoDBDelegationDataAccessProvider(
         val request = GetItemRequest.builder()
             .tableName(DelegationTable.name)
             .key(mapOf(DelegationTable.id.toNameValuePair(id)))
+            .consistentRead(true)
             .build()
 
         val response = _dynamoDBClient.getItem(request)

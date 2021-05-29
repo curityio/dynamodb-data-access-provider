@@ -15,7 +15,6 @@
  */
 package io.curity.identityserver.plugin.dynamodb
 
-import io.curity.identityserver.plugin.dynamodb.token.DynamoDBTokenDataAccessProvider
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.data.Session
 import se.curity.identityserver.sdk.datasource.SessionDataAccessProvider
@@ -43,6 +42,7 @@ class DynamoDBSessionDataAccessProvider(private val dynamoDBClient: DynamoDBClie
         val request = GetItemRequest.builder()
             .tableName(SessionTable.name)
             .key(SessionTable.key(id))
+            .consistentRead(true)
             .build()
 
         val response = dynamoDBClient.getItem(request)
