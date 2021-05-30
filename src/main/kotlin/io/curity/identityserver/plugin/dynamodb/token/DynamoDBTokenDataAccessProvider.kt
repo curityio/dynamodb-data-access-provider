@@ -127,6 +127,7 @@ class DynamoDBTokenDataAccessProvider(
         val request = GetItemRequest.builder()
             .tableName(TokenTable.name)
             .key(TokenTable.keyFromHash(hash))
+            .consistentRead(true)
             .build()
 
         val response = _dynamoDBClient.getItem(request)
