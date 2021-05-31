@@ -345,11 +345,6 @@ class DynamoDBDelegationDataAccessProvider(
             QueryPlan.UsingScan.fullScan()
         }
 
-        if (queryPlan is QueryPlan.UsingScan && !_configuration.getAllowTableScans().orElse(false))
-        {
-            throw throw UnsupportedQueryException.QueryRequiresTableScan()
-        }
-
         val values = when (queryPlan)
         {
             is QueryPlan.UsingQueries -> query(queryPlan)
