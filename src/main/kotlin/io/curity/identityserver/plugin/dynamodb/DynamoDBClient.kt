@@ -16,6 +16,7 @@
 package io.curity.identityserver.plugin.dynamodb
 
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
+import io.curity.identityserver.plugin.dynamodb.query.UnsupportedQueryException
 import org.apache.http.conn.HttpHostConnectException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -113,15 +114,19 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
         }
         builder.region(_awsRegion)
 
-        builder.overrideConfiguration { c -> c
-            .apiCallAttemptTimeout(config.getApiCallAttemptTimeout().map { Duration.ofSeconds(it) }.orElse(null))
-            .apiCallTimeout(config.getApiCallTimeout().map { Duration.ofSeconds(it) }.orElse(null))
+        builder.overrideConfiguration { c ->
+            c
+                .apiCallAttemptTimeout(config.getApiCallAttemptTimeout().map { Duration.ofSeconds(it) }.orElse(null))
+                .apiCallTimeout(config.getApiCallTimeout().map { Duration.ofSeconds(it) }.orElse(null))
         }
 
         return builder.build()
     }
 
-    private fun getNewCredentialsFromAssumeRole(credentialsProvider: AwsCredentialsProvider, roleARN: String): AwsCredentialsProvider
+    private fun getNewCredentialsFromAssumeRole(
+        credentialsProvider: AwsCredentialsProvider,
+        roleARN: String
+    ): AwsCredentialsProvider
     {
         val stsClient: StsClient = StsClient.builder()
             .region(_awsRegion)
@@ -169,10 +174,19 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
     fun deleteItem(request: DeleteItemRequest): DeleteItemResponse = client.call { deleteItem(request) }
 
     fun query(request: QueryRequest): QueryResponse = client.call { query(request) }
-    fun scan(request: ScanRequest): ScanResponse = client.call { scan(request) }
-    fun transactionWriteItems(request: TransactWriteItemsRequest): TransactWriteItemsResponse = client.call { transactWriteItems(request) }
+    fun scan(request: ScanRequest): ScanResponse = if (config.getAllowTableScans())
+    {
+        client.call { scan(request) }
+    } else
+    {
+        throw UnsupportedQueryException.QueryRequiresTableScan()
+    }
 
-    private fun <T : DynamoDbResponse> DynamoDbClient.call(block: DynamoDbClient.() -> T): T {
+    fun transactionWriteItems(request: TransactWriteItemsRequest): TransactWriteItemsResponse =
+        client.call { transactWriteItems(request) }
+
+    private fun <T : DynamoDbResponse> DynamoDbClient.call(block: DynamoDbClient.() -> T): T
+    {
         try
         {
             return block()
