@@ -17,6 +17,7 @@ package io.curity.identityserver.plugin.dynamodb.configuration
 
 import se.curity.identityserver.sdk.config.Configuration
 import se.curity.identityserver.sdk.config.OneOf
+import se.curity.identityserver.sdk.config.annotation.DefaultBoolean
 import se.curity.identityserver.sdk.config.annotation.DefaultLong
 import se.curity.identityserver.sdk.config.annotation.Description
 import se.curity.identityserver.sdk.config.annotation.RangeConstraint
@@ -63,7 +64,8 @@ interface DynamoDBDataAccessProviderConfiguration : Configuration
     }
 
     @Description("Allow use of table scans to fulfill resource queries")
-    fun getAllowTableScans(): Optional<Boolean>
+    @DefaultBoolean(false)
+    fun getAllowTableScans(): Boolean
 
     // Additional retain duration
 

@@ -47,6 +47,7 @@ class DynamoDBSessionDataAccessProvider(
         val request = GetItemRequest.builder()
             .tableName(SessionTable.name)
             .key(SessionTable.key(id))
+            .consistentRead(true)
             .build()
 
         val response = _dynamoDBClient.getItem(request)

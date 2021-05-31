@@ -149,6 +149,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         val request = GetItemRequest.builder()
             .tableName(DcrTable.name)
             .key(DcrTable.key(clientId))
+            .consistentRead(true)
             .build()
 
         val response = _dynamoDBClient.getItem(request)

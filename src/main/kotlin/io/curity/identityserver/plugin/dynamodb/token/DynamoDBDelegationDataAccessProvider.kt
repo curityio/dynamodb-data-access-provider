@@ -188,6 +188,7 @@ class DynamoDBDelegationDataAccessProvider(
         val request = GetItemRequest.builder()
             .tableName(DelegationTable.name)
             .key(mapOf(DelegationTable.id.toNameValuePair(id)))
+            .consistentRead(true)
             .build()
 
         val response = _dynamoDBClient.getItem(request)
@@ -344,11 +345,6 @@ class DynamoDBDelegationDataAccessProvider(
         } else
         {
             QueryPlan.UsingScan.fullScan()
-        }
-
-        if (queryPlan is QueryPlan.UsingScan && !_configuration.getAllowTableScans().orElse(false))
-        {
-            throw throw UnsupportedQueryException.QueryRequiresTableScan()
         }
 
         val values = when (queryPlan)
