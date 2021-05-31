@@ -1,5 +1,5 @@
-DynamoDBDataAccessProvider Data Access Provider Plugin
-=============================================
+DynamoDB Data Access Provider Plugin
+====================================
 
 A custom, Kotlin-based data access provider plugin for the Curity Identity Server.
 
@@ -28,3 +28,4 @@ Please visit `curity.io`_ for more information about the Curity Identity Server.
 
 .. _curity.io/plugins: https://support.curity.io/docs/latest/developer-guide/plugins/index.html#plugin-installation
 .. _curity.io: https://curity.io/
+
