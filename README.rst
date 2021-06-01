@@ -21,6 +21,13 @@ Required Dependencies
 For a list of the dependencies and their versions, run ``mvn dependency:list``. Ensure that all of these are installed in
 the plugin group; otherwise, they will not be accessible to this plug-in and run-time errors will result.
 
+Tables, keys, and indexes
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The folder `src/main/resources/schemas <src/main/resources/schemas>`_ contains JSON files with the required tables,
+as well as their key and index schemas.
+The included ``ProvisionedThroughput`` values are illustrative and need to be adapted to the final usage scenario.
+
 More Information
 ~~~~~~~~~~~~~~~~
 
