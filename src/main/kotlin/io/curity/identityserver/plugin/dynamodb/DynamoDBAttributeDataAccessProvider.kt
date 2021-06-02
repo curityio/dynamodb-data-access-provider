@@ -18,25 +18,28 @@ package io.curity.identityserver.plugin.dynamodb
 import se.curity.identityserver.sdk.attribute.AttributeTableView
 import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.datasource.AttributeDataAccessProvider
+import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 
 class DynamoDBAttributeDataAccessProvider(private val dynamoDBClient: DynamoDBClient) : AttributeDataAccessProvider
 {
     override fun getAttributes(subject: String): AttributeTableView
     {
-        val accountQuery = QueryRequest.builder()
+        val accountQuery = GetItemRequest.builder()
             .tableName(AccountsTable.name)
-            .indexName(AccountsTable.userNameIndex.name)
-            .keyConditionExpression("${AccountsTable.userName.name} = ${AccountsTable.userName.colonName}")
-            .expressionAttributeValues(mapOf(AccountsTable.userName.toExpressionNameValuePair(subject)))
+            .key(
+                mapOf(
+                    AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, subject)
+                )
+            )
             .build()
 
-        val accountQueryResult = dynamoDBClient.query(accountQuery)
-        if (!accountQueryResult.hasItems() || accountQueryResult.items().isEmpty())
+        val accountQueryResult = dynamoDBClient.getItem(accountQuery)
+        if (!accountQueryResult.hasItem())
         {
             return AttributeTableView.empty()
         }
-        val accountQueryItem = accountQueryResult.items()[0]
+        val accountQueryItem = accountQueryResult.item()
         val accountId = AccountsTable.accountId.optionalFrom(accountQueryItem)
             ?: throw SchemaErrorException(AccountsTable, AccountsTable.accountId)
 

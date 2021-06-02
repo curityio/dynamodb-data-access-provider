@@ -18,6 +18,7 @@ package io.curity.identityserver.plugin.dynamodb
 
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.Delete
+import software.amazon.awssdk.services.dynamodb.model.Put
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 
@@ -281,6 +282,15 @@ fun UpdateItemRequest.Builder.updateExpression(expression: Expression)
 
 fun Delete.Builder.conditionExpression(expression: Expression)
         : Delete.Builder
+{
+    this.conditionExpression(expression.expression)
+    this.expressionAttributeNames(expression.attributeNames)
+    this.expressionAttributeValues(expression.values)
+    return this
+}
+
+fun Put.Builder.conditionExpression(expression: Expression)
+        : Put.Builder
 {
     this.conditionExpression(expression.expression)
     this.expressionAttributeNames(expression.attributeNames)
