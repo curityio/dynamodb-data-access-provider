@@ -69,6 +69,7 @@ interface DynamoDBAttribute<T>
     fun toNameAttributePair(): Pair<String, DynamoDBAttribute<T>>
     fun toAttrValueWithCast(value: Any): AttributeValue
     fun comparator(): Comparator<Map<String, AttributeValue>>?
+    fun canBeUsedOnQueryTo(other: DynamoDBAttribute<*>): Boolean
 }
 
 // A DynamoDB attribute that must also be unique
@@ -124,6 +125,8 @@ abstract class BaseAttribute<T>(
 
     override fun toAttrValueWithCast(value: Any) =
         toAttrValue(cast(value) ?: throw RuntimeException("Unable to convert '$value' to '$name' attribute value"))
+
+    override fun canBeUsedOnQueryTo(other: DynamoDBAttribute<*>) = this == other
 }
 
 private fun <T : Comparable<T>> compare(a: T?, b: T?) =
@@ -201,10 +204,12 @@ class ListStringAttribute(name: String) : BaseAttribute<Collection<String>>(name
 }
 
 // An attribute that is composed by two values
-class StringCompositeAttribute2(name: String, private val template: (String, String)->String)
-    : BaseAttribute<Pair<String, String>>(name, AttributeType.S)
+class StringCompositeAttribute2(name: String, private val template: (String, String) -> String) :
+    BaseAttribute<Pair<String, String>>(name, AttributeType.S)
 {
-    override fun toAttrValue(value: Pair<String, String>): AttributeValue = AttributeValue.builder().s(template(value.first, value.second)).build()
+    override fun toAttrValue(value: Pair<String, String>): AttributeValue =
+        AttributeValue.builder().s(template(value.first, value.second)).build()
+
     fun toNameValuePair(first: String, second: String) = name to toAttrValue(Pair(first, second))
     override fun from(attrValue: AttributeValue) = throw UnsupportedOperationException("Cannot read a composite value")
     override fun cast(value: Any) = throw UnsupportedOperationException("Cannot cast a composite value")
@@ -248,6 +253,36 @@ class BooleanAttribute(name: String) : BaseAttribute<Boolean>(name, AttributeTyp
     override fun from(attrValue: AttributeValue): Boolean = attrValue.bool()
     override fun cast(value: Any) = value as? Boolean
     override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
+}
+
+/**
+ * This attribute type is used when building index objects that are based on duplicate item per entity (and not on
+ * DynamoDB local or global secondary indexes).
+ * This typically happens when a table has multiple items per entity, because of multiple uniqueness restrictions
+ * or strong consistency read requirements.
+ */
+class UniquenessBasedIndexStringAttribute(
+    // The attribute representing the primary key
+    private val _primaryKeyAttribute: DynamoDBAttribute<String>,
+    // The attribute that is added as primary key on a secondary item
+    private val _uniqueAttribute: UniqueAttribute<String>
+)
+// the attribute name is the name of the primary key attribute
+    : BaseAttribute<String>(_primaryKeyAttribute.name, AttributeType.S)
+{
+
+    // the attribute name comes from the primary key, however the value uses the unique attribute mapping function
+    override fun toAttrValue(value: String) = _primaryKeyAttribute.toAttrValue(
+        _uniqueAttribute.uniquenessValueFrom(value)
+    );
+
+    override fun from(attrValue: AttributeValue) = _primaryKeyAttribute.from(attrValue)
+
+    override fun cast(value: Any) = _uniqueAttribute.cast(value)
+
+    override fun comparator() = _uniqueAttribute.comparator()
+
+    override fun canBeUsedOnQueryTo(other: DynamoDBAttribute<*>) = _uniqueAttribute == other
 }
 
 class ExpressionBuilder(

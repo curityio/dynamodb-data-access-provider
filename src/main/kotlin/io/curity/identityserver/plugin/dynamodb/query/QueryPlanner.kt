@@ -65,7 +65,7 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities)
     {
         _logger.debug("Checking if index '{}' can be used on term {}", index.indexName, product)
         val partitionKeyExpressions = product.terms
-            .filter { term -> term.attribute == index.partitionAttribute }
+            .filter { term -> index.partitionAttribute.canBeUsedOnQueryTo(term.attribute) }
         if (partitionKeyExpressions.isEmpty())
         {
             _logger.debug("Index cannot be used: partition key is not used")
@@ -86,11 +86,17 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities)
         }
         if (index.sortAttribute == null)
         {
-            return listOf(QueryPlan.KeyCondition(index, partitionKeyExpression))
+            return listOf(
+                QueryPlan.KeyCondition(
+                    index, BinaryAttributeExpression(
+                        index.partitionAttribute, BinaryAttributeOperator.Eq, partitionKeyExpression.value
+                    )
+                )
+            )
         }
         _logger.debug("Computing sort condition for index '{}'", index.indexName)
         val sortKeyExpressions = product.terms
-            .filter { term -> term.attribute == index.sortAttribute }
+            .filter { term -> index.sortAttribute.canBeUsedOnQueryTo(term.attribute) }
         if (sortKeyExpressions.isEmpty())
         {
             _logger.debug("No sort conditions will be used on index '{}'", index.indexName)

@@ -48,7 +48,7 @@ data class Index(
         Product(
             product.terms
                 .filter {
-                    it.attribute != partitionAttribute &&
+                    !partitionAttribute.canBeUsedOnQueryTo(it.attribute) &&
                             (sortAttribute == null || it.attribute != sortAttribute)
                 }.toSet()
         )

@@ -43,7 +43,7 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
         {
             if (after != null)
             {
-                // Even if the value doesn't change, we still need to update the item's version.
+                // Even if the key value doesn't change, we still need to update the item's data.
                 updateSecondaryItem(attribute.uniquenessValueFrom(after))
             }
         } else if (after != null)

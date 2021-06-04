@@ -17,6 +17,7 @@ package io.curity.identityserver.plugin.dynamodb
 
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import io.curity.identityserver.plugin.dynamodb.query.DynamoDBQueryBuilder
+import io.curity.identityserver.plugin.dynamodb.query.Index
 import io.curity.identityserver.plugin.dynamodb.query.QueryPlan
 import io.curity.identityserver.plugin.dynamodb.query.QueryPlanner
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
@@ -57,27 +58,30 @@ import java.time.ZonedDateTime
  * - The optional `email` must be unique.
  * - The optional `phone` must be unique.
  * The users table uses the following design to support these additional uniqueness constraints
- * [https://aws.amazon.com/blogs/database/simulating-amazon-dynamodb-unique-constraints-using-transactions/]
+ * [https://aws.amazon.com/blogs/database/simulating-amazon-dynamodb-unique-constraints-using-transactions/],
+ * which is based on adding multiple items per "entity", which in this case is an account.
+ *
+ * Also, getting by `userName`, `email`, and `phone` number should use reads with strong consistency guarantees.
+ * Since strong consistency reads are not supported by Global Secondary Indexes, the design used here replicates all the data
+ * into all the items inserted for the same entity.
  *
  * Example:
  *
  * | pk                    | version | accountId  | userName | email             | phone     | other attributes
  * | ai#1234               | 12      | 1234       | alice    | alice@example.com | 123456789 | ...      // main item
- * | un#alice              | 12      | 1234       | (absent) | (absent)          | (absent)  | (absent) // secondary item
- * | em#alice@example.com  | 12      | 1234       | (absent) | (absent)          | (absent)  | (absent) // secondary item
- * | pn#123456789          | 12      | 1234       | (absent) | (absent)          | (absent)  | (absent) // secondary item
+ * | un#alice              | 12      | 1234       | alice    | alice@example.com | 123456789 | ...      // secondary item
+ * | em#alice@example.com  | 12      | 1234       | alice    | alice@example.com | 123456789 | ...      // secondary item
+ * | pn#123456789          | 12      | 1234       | alice    | alice@example.com | 123456789 | ...      // secondary item
  *
  * In the following we call "main item" to the item using the `accountId` for the partition key.
- * This is also the item containing all the user account attributes.
  * We call "secondary item" to the items using the `userName`, `email`, and `phone` for the partition key.
- * These secondary items only exist to ensure uniqueness. They don't carry other relevant information.
+ * Both the main item and the secondary items carry all the information.
+ * - This means that a `getByEmail` can use the email secondary item without needing an additional index and therefore
+ * allowing for strong consistent reads.
+ * - However, this also means that any change to an account must be reflected in the main item and all the secondary items.
  *
  * There is a version attribute to support optimistic concurrency when updating or deleting the multiple item from an user
  * on a transaction.
- *
- * The `userName`, `email`, and `phone` attributes:
- * - Are also included in the main item.
- * - Are used as secondary global indexes, to support the `getByNnnn` methods.
  *
  */
 class DynamoDBUserAccountDataAccessProvider(
@@ -160,6 +164,8 @@ class DynamoDBUserAccountDataAccessProvider(
         _logger.debug("Received request to create account with data : {}", accountAttributes)
         val accountId = generateRandomId()
         val now = Instant.now().epochSecond
+
+        // the commonItem contains the attributes that will be on both the primary and secondary items.
         val commonItem = accountAttributes.toItem(accountId, now, now)
 
         val userName = accountAttributes.userName
@@ -389,8 +395,19 @@ class DynamoDBUserAccountDataAccessProvider(
         val newVersion = observedVersion + 1
 
         val updated = Instant.now().epochSecond
+
+        // The created attribute is not updated
         val created = AccountsTable.created.from(observedItem)
-        val commonItem = accountAttributes.toItem(accountId, created, updated) + AccountsTable.version.toNameValuePair(newVersion)
+        val commonItem = accountAttributes.toItem(accountId, created, updated)
+        commonItem[AccountsTable.version.name] = AccountsTable.version.toAttrValue(newVersion)
+        val maybePassword = AccountsTable.password.optionalFrom(observedItem)
+
+        // The password attribute is not updated
+        commonItem.remove(AccountsTable.password.name)
+        if (maybePassword != null)
+        {
+            commonItem[AccountsTable.password.name] = AccountsTable.password.toAttrValue(maybePassword)
+        }
 
         val updateBuilder = UpdateBuilderWithMultipleUniquenessConstraints(
             AccountsTable,
@@ -401,8 +418,8 @@ class DynamoDBUserAccountDataAccessProvider(
 
         updateBuilder.handleUniqueAttribute(
             AccountsTable.accountId,
-            AccountsTable.accountId.from(observedItem),
-            accountAttributes.id
+            accountId,
+            accountId
         )
 
         updateBuilder.handleUniqueAttribute(
@@ -483,7 +500,8 @@ class DynamoDBUserAccountDataAccessProvider(
         retry("updatePassword", N_OF_ATTEMPTS)
         {
             val observedItem = getItemByUsername(username)
-            if(observedItem == null) {
+            if (observedItem == null)
+            {
                 _logger.debug("Unable to update password because there isn't an account with the given userName")
                 return@retry TransactionAttemptResult.Success(null)
             }
@@ -560,7 +578,8 @@ class DynamoDBUserAccountDataAccessProvider(
             .key(
                 mapOf(
                     AccountsTable.pk.uniqueKeyEntryFor(
-                        AccountsTable.userName, userName)
+                        AccountsTable.userName, userName
+                    )
                 )
             )
             .projectionExpression(
@@ -680,6 +699,7 @@ class DynamoDBUserAccountDataAccessProvider(
         val request = GetItemRequest.builder()
             .tableName(LinksTable.name)
             .key(mapOf(LinksTable.pk.toNameValuePair(foreignAccountId, foreignDomainName)))
+            .consistentRead(true)
             .build()
 
         val response = _client.getItem(request)
@@ -873,7 +893,11 @@ class DynamoDBUserAccountDataAccessProvider(
         return ResourceQueryResult(paginatedItems, allItems.count().toLong(), startIndex, count)
     }
 
-    private fun AccountAttributes.toItem(accountId: String, created: Long, updated: Long): MutableMap<String, AttributeValue>
+    private fun AccountAttributes.toItem(
+        accountId: String,
+        created: Long,
+        updated: Long
+    ): MutableMap<String, AttributeValue>
     {
         val item = mutableMapOf<String, AttributeValue>()
         item.addAttr(AccountsTable.userName, userName)
@@ -1032,7 +1056,10 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val queryCapabilities = TableQueryCapabilities(
             indexes = listOf(
-                // TODO
+                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, accountId))),
+                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, userName))),
+                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, email))),
+                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, phone)))
             ),
             attributeMap = mapOf(
                 AccountAttributes.USER_NAME to userName,
