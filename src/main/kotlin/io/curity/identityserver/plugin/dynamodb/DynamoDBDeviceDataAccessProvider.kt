@@ -25,7 +25,15 @@ import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes
-import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.*
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.ACCOUNT_ID
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.ALIAS
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.DEVICE_ID
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.DEVICE_TYPE
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.EXPIRES_AT
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.FORM_FACTOR
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.META
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.OWNER
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DeviceAttributes.RESOURCE_TYPE
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.data.query.ResourceQueryResult
 import se.curity.identityserver.sdk.datasource.DeviceDataAccessProvider
@@ -518,7 +526,7 @@ class DynamoDBDeviceDataAccessProvider(
     companion object {
         private val _logger: Logger = LoggerFactory.getLogger(DynamoDBDeviceDataAccessProvider::class.java)
 
-        private const val SK_FOR_ID_ITEM = "item-with-id"
+        private const val SK_FOR_ID_ITEM = "sk"
 
         private fun computePkFromId(id: String) = "id#$id"
 
