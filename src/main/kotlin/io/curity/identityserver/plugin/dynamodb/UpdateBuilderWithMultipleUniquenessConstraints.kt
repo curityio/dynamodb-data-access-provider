@@ -44,40 +44,40 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
             if (after != null)
             {
                 // Even if the key value doesn't change, we still need to update the item's data.
-                updateSecondaryItem(attribute.uniquenessValueFrom(after))
+                updateItem(attribute.uniquenessValueFrom(after))
             }
         } else if (after != null)
         {
             if (before != null)
             {
-                removeSecondaryItem(attribute.uniquenessValueFrom(before))
+                removeItem(attribute.uniquenessValueFrom(before))
             }
-            insertSecondaryItem(attribute.uniquenessValueFrom(after))
+            insertItem(attribute.uniquenessValueFrom(after))
         } else
         {
             if (before != null)
             {
-                removeSecondaryItem(attribute.uniquenessValueFrom(before))
+                removeItem(attribute.uniquenessValueFrom(before))
             }
         }
     }
 
-    private fun removeSecondaryItem(before: String)
+    private fun removeItem(pkValue: String)
     {
         _transactionItems.add(
             TransactWriteItem.builder()
                 .delete {
                     it.tableName(_table.name)
-                    it.key(mapOf(_keyAttribute.toNameValuePair(before)))
+                    it.key(mapOf(_keyAttribute.toNameValuePair(pkValue)))
                     it.conditionExpression(_conditionExpression)
                 }
                 .build()
         )
     }
 
-    private fun insertSecondaryItem(after: String)
+    private fun insertItem(pkValue: String)
     {
-        val secondaryItem = _commonItem + setOf(_keyAttribute.toNameValuePair(after))
+        val secondaryItem = _commonItem + setOf(_keyAttribute.toNameValuePair(pkValue))
         _transactionItems.add(
             TransactWriteItem.builder()
                 .put {
@@ -91,9 +91,9 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
         )
     }
 
-    private fun updateSecondaryItem(after: String)
+    private fun updateItem(pkValue: String)
     {
-        val secondaryItem = _commonItem + setOf(_keyAttribute.toNameValuePair(after))
+        val secondaryItem = _commonItem + setOf(_keyAttribute.toNameValuePair(pkValue))
         _transactionItems.add(
             TransactWriteItem.builder()
                 .put {

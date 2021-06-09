@@ -64,6 +64,7 @@ import java.time.ZonedDateTime
  * Also, getting by `userName`, `email`, and `phone` number should use reads with strong consistency guarantees.
  * Since strong consistency reads are not supported by Global Secondary Indexes, the design used here replicates all the data
  * into all the items inserted for the same entity.
+ * The cost should be similar to having the indexes, because those also replicate the data.
  *
  * Example:
  *
@@ -78,7 +79,8 @@ import java.time.ZonedDateTime
  * Both the main item and the secondary items carry all the information.
  * - This means that a `getByEmail` can use the email secondary item without needing an additional index and therefore
  * allowing for strong consistent reads.
- * - However, this also means that any change to an account must be reflected in the main item and all the secondary items.
+ * - However, this also means that any change to an account must be reflected in the main item and all the secondary items
+ * (account updates are not frequent).
  *
  * There is a version attribute to support optimistic concurrency when updating or deleting the multiple item from an user
  * on a transaction.
@@ -143,7 +145,7 @@ class DynamoDBUserAccountDataAccessProvider(
     {
         val requestBuilder = GetItemRequest.builder()
             .tableName(AccountsTable.name)
-            .key(mapOf(AccountsTable.pk.toNameValuePair(key.uniquenessValueFrom(keyValue))))
+            .key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(key, keyValue)))
             .consistentRead(true)
 
         val request = requestBuilder.build()
@@ -169,8 +171,7 @@ class DynamoDBUserAccountDataAccessProvider(
         val commonItem = accountAttributes.toItem(accountId, now, now)
 
         val userName = accountAttributes.userName
-        commonItem[AccountsTable.accountId.name] = AccountsTable.accountId.toAttrValue(accountId)
-        commonItem[AccountsTable.version.name] = AccountsTable.version.toAttrValue(0)
+        commonItem.addAttr(AccountsTable.version, 0)
 
         val transactionItems = mutableListOf<TransactWriteItem>()
 
@@ -399,7 +400,7 @@ class DynamoDBUserAccountDataAccessProvider(
         // The created attribute is not updated
         val created = AccountsTable.created.from(observedItem)
         val commonItem = accountAttributes.toItem(accountId, created, updated)
-        commonItem[AccountsTable.version.name] = AccountsTable.version.toAttrValue(newVersion)
+        commonItem.addAttr(AccountsTable.version, newVersion)
         val maybePassword = AccountsTable.password.optionalFrom(observedItem)
 
         // The password attribute is not updated
@@ -825,15 +826,15 @@ class DynamoDBUserAccountDataAccessProvider(
                 .filterWith(queryPlan.expression.products)
         } else
         {
-            scanRequestBuilder.configureWith(scanFilter)
+            scanRequestBuilder.configureWith(filterForItemsWithAccountIdPk)
             scanSequence(scanRequestBuilder.build(), _client)
         }
     }
 
     private fun DynamoDBScan.addPkFiltering() = DynamoDBScan(
-        filterExpression = "${scanFilter.filterExpression} AND (${this.filterExpression})",
-        valueMap = scanFilter.valueMap + this.valueMap,
-        nameMap = scanFilter.nameMap + this.nameMap
+        filterExpression = "${filterForItemsWithAccountIdPk.filterExpression} AND (${this.filterExpression})",
+        valueMap = filterForItemsWithAccountIdPk.valueMap + this.valueMap,
+        nameMap = filterForItemsWithAccountIdPk.nameMap + this.nameMap
     )
 
     private fun query(queryPlan: QueryPlan.UsingQueries): Sequence<DynamoDBItem>
@@ -1035,11 +1036,11 @@ class DynamoDBUserAccountDataAccessProvider(
     object AccountsTable : Table("curity-accounts")
     {
         val pk = KeyStringAttribute("pk")
-        val accountId = UniqueStringAttribute("accountId") { value -> "ai#$value" }
+        val accountId = UniqueStringAttribute("accountId", "ai#")
         val version = NumberLongAttribute("version")
-        val userName = UniqueStringAttribute("userName") { value -> "un#$value" }
-        val email = UniqueStringAttribute("email") { value -> "em#$value" }
-        val phone = UniqueStringAttribute("phone") { value -> "pn#$value" }
+        val userName = UniqueStringAttribute("userName", "un#")
+        val email = UniqueStringAttribute("email", "em#")
+        val phone = UniqueStringAttribute("phone", "pn#")
         val password = StringAttribute("password")
         val active = BooleanAttribute("active")
         val attributes = StringAttribute("attributes")
@@ -1155,9 +1156,9 @@ class DynamoDBUserAccountDataAccessProvider(
                     AccountsTable.accountId
                 )
 
-        private val scanFilter = DynamoDBScan(
+        private val filterForItemsWithAccountIdPk = DynamoDBScan(
             filterExpression = "begins_with(pk, :pkPrefix)",
-            valueMap = mapOf(":pkPrefix" to AttributeValue.builder().s("ai#").build()),
+            valueMap = mapOf(":pkPrefix" to AttributeValue.builder().s(AccountsTable.accountId.prefix).build()),
             nameMap = mapOf()
         )
 

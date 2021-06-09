@@ -216,12 +216,13 @@ class StringCompositeAttribute2(name: String, private val template: (String, Str
     override fun comparator(): Comparator<Map<String, AttributeValue>>? = null
 }
 
-class UniqueStringAttribute(name: String, val _f: (String) -> String) : BaseAttribute<String>(name, AttributeType.S),
+class UniqueStringAttribute(name: String, val prefix: String) : BaseAttribute<String>(name, AttributeType.S),
     UniqueAttribute<String>
 {
+    private fun getUniquePkValue(value: String) = "$prefix$value"
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
     override fun from(attrValue: AttributeValue): String = attrValue.s()
-    override fun uniquenessValueFrom(value: String) = _f(value)
+    override fun uniquenessValueFrom(value: String) = getUniquePkValue(value)
     override fun cast(value: Any) = value as? String
     override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
 }
@@ -263,7 +264,7 @@ class BooleanAttribute(name: String) : BaseAttribute<Boolean>(name, AttributeTyp
  */
 class UniquenessBasedIndexStringAttribute(
     // The attribute representing the primary key
-    private val _primaryKeyAttribute: DynamoDBAttribute<String>,
+    private val _primaryKeyAttribute: KeyStringAttribute,
     // The attribute that is added as primary key on a secondary item
     private val _uniqueAttribute: UniqueAttribute<String>
 )
