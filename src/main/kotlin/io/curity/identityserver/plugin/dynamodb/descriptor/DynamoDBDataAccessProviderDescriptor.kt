@@ -37,7 +37,7 @@ import java.util.Optional
 
 class DynamoDBDataAccessProviderDescriptor: DataAccessProviderPluginDescriptor<DynamoDBDataAccessProviderConfiguration>
 {
-    override fun getPluginImplementationType() = "dynamodb-dataaccess-provider"
+    override fun getPluginImplementationType() = "dynamodb"
 
     override fun getConfigurationType() = DynamoDBDataAccessProviderConfiguration::class.java
 

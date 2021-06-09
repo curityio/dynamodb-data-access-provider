@@ -18,8 +18,6 @@ package io.curity.identityserver.plugin.dynamodb
 
 import org.slf4j.LoggerFactory
 import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException
-import java.security.SecureRandom
-import java.util.Base64
 
 private val _logger = LoggerFactory.getLogger("utils")
 
@@ -79,11 +77,3 @@ fun Long.toIntOrThrow(name: String) =
     } else {
         this.toInt()
     }
-
-
-// FIXME improve (e.g. use a guaranteed unique UUID)
-fun generateRandomId(): String = SecureRandom().let {
-    val bytes = ByteArray(128)
-    it.nextBytes(bytes)
-    Base64.getUrlEncoder().encodeToString(bytes)
-}
