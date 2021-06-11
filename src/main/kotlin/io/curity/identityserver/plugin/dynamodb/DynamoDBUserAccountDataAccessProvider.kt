@@ -818,7 +818,7 @@ class DynamoDBUserAccountDataAccessProvider(
         val scanRequestBuilder = ScanRequest.builder()
             .tableName(AccountsTable.name)
 
-        return if (queryPlan != null)
+        return if (queryPlan != null && queryPlan.expression.products.isNotEmpty())
         {
             val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression).addPkFiltering()
             scanRequestBuilder.configureWith(dynamoDBScan)
