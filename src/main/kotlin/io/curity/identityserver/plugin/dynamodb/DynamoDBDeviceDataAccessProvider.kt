@@ -453,7 +453,6 @@ class DynamoDBDeviceDataAccessProvider(
     {
         _logger.debug("Received request to get device by deviceId: {} and accountId: {}", deviceId, accountId)
 
-        // Uses the secondary index
         val requestBuilder = GetItemRequest.builder()
             .tableName(DeviceTable.name)
             .key(
@@ -511,10 +510,6 @@ class DynamoDBDeviceDataAccessProvider(
         val validatedStartIndex = startIndex.toIntOrThrow("startIndex")
         val validatedCount = count.toIntOrThrow("count")
 
-        // The index is required because this table has both main items (with all columns) and secondary items
-        // with just the id and deletableAt columns (this is done to ensure two uniqueness constraints).
-        // Due to this a scan without index would return both item types.
-        // By using the index we only get the main items because the secondary items don’t have the indexed columns.
         val request = ScanRequest.builder()
             .tableName(DeviceTable.name)
             .filterExpression("begins_with(${DeviceTable.pk}, ${DeviceTable.pk.colonName})")

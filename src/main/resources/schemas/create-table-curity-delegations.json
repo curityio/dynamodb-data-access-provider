@@ -30,26 +30,6 @@
   ],
   "GlobalSecondaryIndexes": [
     {
-      "IndexName": "id-status-index",
-      "Projection": {
-        "ProjectionType": "ALL"
-      },
-      "ProvisionedThroughput": {
-        "WriteCapacityUnits": 5,
-        "ReadCapacityUnits": 10
-      },
-      "KeySchema": [
-        {
-          "KeyType": "HASH",
-          "AttributeName": "id"
-        },
-        {
-          "KeyType": "RANGE",
-          "AttributeName": "status"
-        }
-      ]
-    },
-    {
       "IndexName": "owner-status-index",
       "Projection": {
         "ProjectionType": "ALL"

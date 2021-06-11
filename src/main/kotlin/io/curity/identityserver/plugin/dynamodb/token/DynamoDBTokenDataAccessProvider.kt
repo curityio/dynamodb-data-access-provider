@@ -19,11 +19,9 @@ import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.DynamoDBItem
 import io.curity.identityserver.plugin.dynamodb.ListStringAttribute
 import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
-import io.curity.identityserver.plugin.dynamodb.PartitionOnlyIndex
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import io.curity.identityserver.plugin.dynamodb.Table
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
-import io.curity.identityserver.plugin.dynamodb.useIndexAndKey
 import se.curity.identityserver.sdk.data.authorization.Token
 import se.curity.identityserver.sdk.data.authorization.TokenStatus
 import se.curity.identityserver.sdk.data.tokens.DefaultStringOrArray
@@ -33,7 +31,6 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
-import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ReturnValue
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 
@@ -71,7 +68,6 @@ class DynamoDBTokenDataAccessProvider(
             tokenHash.toNameValuePair(hash)
         )
 
-        val idIndex = PartitionOnlyIndex("id-index", id)
     }
 
     private fun Token.toItem() = mutableMapOf<String, AttributeValue>().also { item ->
@@ -140,24 +136,6 @@ class DynamoDBTokenDataAccessProvider(
         return response.item().toToken()
     }
 
-    override fun getById(id: String): Token?
-    {
-        val request = QueryRequest.builder()
-            .tableName(TokenTable.name)
-            .useIndexAndKey(TokenTable.idIndex, id)
-            .limit(1)
-            .build()
-
-        val response = _dynamoDBClient.query(request)
-
-        if (!response.hasItems() || response.items().isEmpty())
-        {
-            return null
-        }
-
-        return response.items().first().toToken()
-    }
-
     override fun create(token: Token)
     {
         val request = PutItemRequest.builder()
@@ -213,8 +191,7 @@ class DynamoDBTokenDataAccessProvider(
 
     override fun setStatus(tokenId: String, newStatus: TokenStatus): Long
     {
-        val token = getById(tokenId) ?: return 0L
-
-        return setStatusByTokenHash(token.tokenHash, newStatus)
+        // This method is not implemented because it isn't used and will be deprecated.
+        throw UnsupportedOperationException()
     }
 }

@@ -4,34 +4,12 @@
     {
       "AttributeName": "tokenHash",
       "AttributeType": "S"
-    },
-    {
-      "AttributeName": "id",
-      "AttributeType": "S"
     }
   ],
   "KeySchema": [
     {
       "AttributeName": "tokenHash",
       "KeyType": "HASH"
-    }
-  ],
-  "GlobalSecondaryIndexes": [
-    {
-      "IndexName": "id-index",
-      "Projection": {
-        "ProjectionType": "ALL"
-      },
-      "ProvisionedThroughput": {
-        "WriteCapacityUnits": 5,
-        "ReadCapacityUnits": 10
-      },
-      "KeySchema": [
-        {
-          "KeyType": "HASH",
-          "AttributeName": "id"
-        }
-      ]
     }
   ],
   "ProvisionedThroughput": {

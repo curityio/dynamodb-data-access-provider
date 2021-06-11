@@ -51,6 +51,7 @@ import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import java.util.UUID
 
 /**
  * The users table has three additional uniqueness restrictions, other than the accountId:
@@ -164,7 +165,8 @@ class DynamoDBUserAccountDataAccessProvider(
     override fun create(accountAttributes: AccountAttributes): AccountAttributes
     {
         _logger.debug("Received request to create account with data : {}", accountAttributes)
-        val accountId = generateRandomId()
+
+        val accountId = UUID.randomUUID().toString()
         val now = Instant.now().epochSecond
 
         // the commonItem contains the attributes that will be on both the primary and secondary items.
@@ -277,7 +279,8 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val item = getItemResponse.item()
         val version =
-            AccountsTable.version.optionalFrom(item) ?: throw SchemaErrorException(AccountsTable, AccountsTable.version)
+            AccountsTable.version.optionalFrom(item)
+                ?: throw SchemaErrorException(AccountsTable, AccountsTable.version)
         val userName =
             AccountsTable.userName.optionalFrom(item) ?: throw SchemaErrorException(
                 AccountsTable,
