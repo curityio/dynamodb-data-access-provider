@@ -6,11 +6,7 @@
       "AttributeType": "S"
     },
     {
-      "AttributeName": "accountId",
-      "AttributeType": "S"
-    },
-    {
-      "AttributeName": "deviceId",
+      "AttributeName": "sk",
       "AttributeType": "S"
     }
   ],
@@ -18,28 +14,10 @@
     {
       "AttributeName": "pk",
       "KeyType": "HASH"
-    }
-  ],
-  "GlobalSecondaryIndexes": [
+    },
     {
-      "IndexName": "accountId-deviceId-index",
-      "Projection": {
-        "ProjectionType": "ALL"
-      },
-      "ProvisionedThroughput": {
-        "WriteCapacityUnits": 5,
-        "ReadCapacityUnits": 10
-      },
-      "KeySchema": [
-        {
-          "KeyType": "HASH",
-          "AttributeName": "accountId"
-        },
-        {
-          "KeyType": "RANGE",
-          "AttributeName": "deviceId"
-        }
-      ]
+      "KeyType": "RANGE",
+      "AttributeName": "sk"
     }
   ],
   "ProvisionedThroughput": {
