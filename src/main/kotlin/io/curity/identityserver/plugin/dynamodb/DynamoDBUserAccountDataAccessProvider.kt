@@ -28,12 +28,16 @@ import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.attribute.AccountAttributes
 import se.curity.identityserver.sdk.attribute.Attribute
 import se.curity.identityserver.sdk.attribute.Attributes
+import se.curity.identityserver.sdk.attribute.AuthenticationAttributes
+import se.curity.identityserver.sdk.attribute.ContextAttributes
+import se.curity.identityserver.sdk.attribute.SubjectAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.LinkedAccount
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.data.query.ResourceQueryResult
 import se.curity.identityserver.sdk.data.update.AttributeUpdate
+import se.curity.identityserver.sdk.datasource.CredentialDataAccessProvider
 import se.curity.identityserver.sdk.datasource.UserAccountDataAccessProvider
 import se.curity.identityserver.sdk.errors.ConflictException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
@@ -54,33 +58,38 @@ import java.time.ZonedDateTime
  * - The optional `email` must be unique.
  * - The optional `phone` must be unique.
  * The users table uses the following design to support these additional uniqueness constraints
- * [https://aws.amazon.com/blogs/database/simulating-amazon-dynamodb-unique-constraints-using-transactions/]
+ * [https://aws.amazon.com/blogs/database/simulating-amazon-dynamodb-unique-constraints-using-transactions/],
+ * which is based on adding multiple items per "entity", which in this case is an account.
+ *
+ * Also, getting by `userName`, `email`, and `phone` number should use reads with strong consistency guarantees.
+ * Since strong consistency reads are not supported by Global Secondary Indexes, the design used here replicates all the data
+ * into all the items inserted for the same entity.
+ * The cost should be similar to having the indexes, because those also replicate the data.
  *
  * Example:
  *
  * | pk                    | version | accountId  | userName | email             | phone     | other attributes
  * | ai#1234               | 12      | 1234       | alice    | alice@example.com | 123456789 | ...      // main item
- * | un#alice              | 12      | 1234       | (absent) | (absent)          | (absent)  | (absent) // secondary item
- * | em#alice@example.com  | 12      | 1234       | (absent) | (absent)          | (absent)  | (absent) // secondary item
- * | pn#123456789          | 12      | 1234       | (absent) | (absent)          | (absent)  | (absent) // secondary item
+ * | un#alice              | 12      | 1234       | alice    | alice@example.com | 123456789 | ...      // secondary item
+ * | em#alice@example.com  | 12      | 1234       | alice    | alice@example.com | 123456789 | ...      // secondary item
+ * | pn#123456789          | 12      | 1234       | alice    | alice@example.com | 123456789 | ...      // secondary item
  *
  * In the following we call "main item" to the item using the `accountId` for the partition key.
- * This is also the item containing all the user account attributes.
  * We call "secondary item" to the items using the `userName`, `email`, and `phone` for the partition key.
- * These secondary items only exist to ensure uniqueness. They don't carry other relevant information.
+ * Both the main item and the secondary items carry all the information.
+ * - This means that a `getByEmail` can use the email secondary item without needing an additional index and therefore
+ * allowing for strong consistent reads.
+ * - However, this also means that any change to an account must be reflected in the main item and all the secondary items
+ * (account updates are not frequent).
  *
  * There is a version attribute to support optimistic concurrency when updating or deleting the multiple item from an user
  * on a transaction.
- *
- * The `userName`, `email`, and `phone` attributes:
- * - Are also included in the main item.
- * - Are used as secondary global indexes, to support the `getByNnnn` methods.
  *
  */
 class DynamoDBUserAccountDataAccessProvider(
     private val _client: DynamoDBClient,
     private val _configuration: DynamoDBDataAccessProviderConfiguration
-) : UserAccountDataAccessProvider
+) : UserAccountDataAccessProvider, CredentialDataAccessProvider
 {
     private val jsonHandler = _configuration.getJsonHandler()
 
@@ -95,9 +104,49 @@ class DynamoDBUserAccountDataAccessProvider(
     {
         _logger.debug("Received request to get account by ID : {}", accountId)
 
+        return retrieveByUniqueAttribute(AccountsTable.accountId, accountId, attributesEnumeration)
+    }
+
+    override fun getByUserName(
+        userName: String,
+        attributesEnumeration: ResourceQuery.AttributesEnumeration
+    ): ResourceAttributes<*>?
+    {
+        _logger.debug("Received request to get account by userName : {}", userName)
+
+        return retrieveByUniqueAttribute(AccountsTable.userName, userName, attributesEnumeration)
+    }
+
+    override fun getByEmail(
+        email: String,
+        attributesEnumeration: ResourceQuery.AttributesEnumeration
+    ): ResourceAttributes<*>?
+    {
+        _logger.debug("Received request to get account by email : {}", email)
+
+        return retrieveByUniqueAttribute(AccountsTable.email, email, attributesEnumeration)
+    }
+
+    override fun getByPhone(
+        phone: String,
+        attributesEnumeration: ResourceQuery.AttributesEnumeration
+    ): ResourceAttributes<*>?
+    {
+        _logger.debug("Received request to get account by phone number : {}", phone)
+
+        return retrieveByUniqueAttribute(AccountsTable.phone, phone, attributesEnumeration)
+    }
+
+    private fun retrieveByUniqueAttribute(
+        key: UniqueAttribute<String>,
+        keyValue: String,
+        attributesEnumeration: ResourceQuery.AttributesEnumeration?
+    ): ResourceAttributes<*>?
+    {
         val requestBuilder = GetItemRequest.builder()
             .tableName(AccountsTable.name)
-            .key(AccountsTable.key(accountId))
+            .key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(key, keyValue)))
+            .consistentRead(true)
 
         val request = requestBuilder.build()
 
@@ -112,74 +161,17 @@ class DynamoDBUserAccountDataAccessProvider(
         }
     }
 
-    override fun getByUserName(
-        userName: String,
-        attributesEnumeration: ResourceQuery.AttributesEnumeration
-    ): ResourceAttributes<*>?
-    {
-        _logger.debug("Received request to get account by userName : {}", userName)
-
-        return retrieveByIndexQuery(AccountsTable.userNameIndex, userName, attributesEnumeration)
-    }
-
-    override fun getByEmail(
-        email: String,
-        attributesEnumeration: ResourceQuery.AttributesEnumeration
-    ): ResourceAttributes<*>?
-    {
-        _logger.debug("Received request to get account by email : {}", email)
-
-        return retrieveByIndexQuery(AccountsTable.emailIndex, email, attributesEnumeration)
-    }
-
-    override fun getByPhone(
-        phone: String,
-        attributesEnumeration: ResourceQuery.AttributesEnumeration
-    ): ResourceAttributes<*>?
-    {
-        _logger.debug("Received request to get account by phone number : {}", phone)
-
-        return retrieveByIndexQuery(AccountsTable.phoneIndex, phone, attributesEnumeration)
-    }
-
-    private fun retrieveByIndexQuery(
-        index: PartitionOnlyIndex<String>,
-        keyValue: String,
-        attributesEnumeration: ResourceQuery.AttributesEnumeration?
-    ): ResourceAttributes<*>?
-    {
-        val keyAttribute = index.attribute
-        val requestBuilder = QueryRequest.builder()
-            .tableName(AccountsTable.name)
-            .indexName(index.name)
-            .keyConditionExpression("${keyAttribute.hashName} = ${keyAttribute.colonName}")
-            .expressionAttributeNames(index.expressionNameMap)
-            .expressionAttributeValues(mapOf(keyAttribute.toExpressionNameValuePair(keyValue)))
-            .limit(1)
-
-        val request = requestBuilder.build()
-
-        val response = _client.query(request)
-
-        return if (response.hasItems() && response.items().isNotEmpty())
-        {
-            response.items().first().toAccountAttributes(attributesEnumeration)
-        } else
-        {
-            null
-        }
-    }
-
     override fun create(accountAttributes: AccountAttributes): AccountAttributes
     {
         _logger.debug("Received request to create account with data : {}", accountAttributes)
-        val item = accountAttributes.toItem()
         val accountId = generateRandomId()
-        val accountIdPk = AccountsTable.accountId.uniquenessValueFrom(accountId)
+        val now = Instant.now().epochSecond
+
+        // the commonItem contains the attributes that will be on both the primary and secondary items.
+        val commonItem = accountAttributes.toItem(accountId, now, now)
+
         val userName = accountAttributes.userName
-        item[AccountsTable.pk.name] = AccountsTable.pk.toAttrValue(accountIdPk)
-        item[AccountsTable.accountId.name] = AccountsTable.accountId.toAttrValue(accountId)
-        item[AccountsTable.version.name] = AccountsTable.version.toAttrValue(0)
+        commonItem.addAttr(AccountsTable.version, 0)
 
         val transactionItems = mutableListOf<TransactWriteItem>()
 
@@ -187,68 +179,54 @@ class DynamoDBUserAccountDataAccessProvider(
         val writeConditionExpression = "attribute_not_exists(${AccountsTable.pk.name})"
 
         // Add main item
+        val mainItem = commonItem + mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.accountId, accountId))
         transactionItems.add(
             TransactWriteItem.builder()
                 .put {
                     it.tableName(AccountsTable.name)
                     it.conditionExpression(writeConditionExpression)
-                    it.item(item)
+                    it.item(mainItem)
                 }
                 .build()
         )
 
-        val accountIdAttr = AccountsTable.accountId.toNameValuePair(accountId)
-        val versionAttr = AccountsTable.version.toNameValuePair(0)
-
         // Add secondary item with userName
+        val userNameItem = commonItem + mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, userName))
         transactionItems.add(
             TransactWriteItem.builder()
                 .put {
                     it.tableName(AccountsTable.name)
                     it.conditionExpression(writeConditionExpression)
-                    it.item(
-                        mapOf(
-                            AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, userName),
-                            accountIdAttr,
-                            versionAttr
-                        )
-                    )
+                    it.item(userNameItem)
                 }
                 .build()
         )
 
         // Add secondary item with email, if email is present
-        item[AccountsTable.email.name]?.also { emailAttr ->
+        commonItem[AccountsTable.email.name]?.also { emailAttr ->
+            val emailItem = commonItem + mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.email, emailAttr.s()))
             transactionItems.add(
                 TransactWriteItem.builder()
                     .put {
                         it.tableName(AccountsTable.name)
                         it.conditionExpression(writeConditionExpression)
-                        it.item(
-                            mapOf(
-                                AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.email, emailAttr.s()),
-                                accountIdAttr,
-                                versionAttr
-                            )
-                        )
+                        it.item(emailItem)
                     }
                     .build()
             )
         }
 
         // Add secondary item with phone, if phone is present
-        item[AccountsTable.phone.name]?.also { phoneNumberAttr ->
+        commonItem[AccountsTable.phone.name]?.also { phoneNumberAttr ->
+            val phoneItem =
+                commonItem + mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.phone, phoneNumberAttr.s()))
             transactionItems.add(
                 TransactWriteItem.builder()
                     .put {
                         it.tableName(AccountsTable.name)
                         it.conditionExpression(writeConditionExpression)
                         it.item(
-                            mapOf(
-                                AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.phone, phoneNumberAttr.s()),
-                                accountIdAttr,
-                                versionAttr
-                            )
+                            phoneItem
                         )
                     }
                     .build()
@@ -273,7 +251,7 @@ class DynamoDBUserAccountDataAccessProvider(
             throw ex
         }
 
-        return item.toAccountAttributes()
+        return commonItem.toAccountAttributes()
     }
 
     override fun delete(accountId: String) = retry("delete", N_OF_ATTEMPTS) { tryDelete(accountId) }
@@ -288,7 +266,7 @@ class DynamoDBUserAccountDataAccessProvider(
         val getItemResponse = _client.getItem(
             GetItemRequest.builder()
                 .tableName(AccountsTable.name)
-                .key(AccountsTable.key(accountId))
+                .key(AccountsTable.keyFromAccountId(accountId))
                 .build()
         )
 
@@ -319,7 +297,7 @@ class DynamoDBUserAccountDataAccessProvider(
             TransactWriteItem.builder()
                 .delete {
                     it.tableName(AccountsTable.name)
-                    it.key(AccountsTable.key(accountId))
+                    it.key(AccountsTable.keyFromAccountId(accountId))
                     it.conditionExpression(conditionExpression)
                 }
                 .build()
@@ -414,23 +392,35 @@ class DynamoDBUserAccountDataAccessProvider(
     private fun tryUpdateAccount(accountId: String, accountAttributes: AccountAttributes, observedItem: DynamoDBItem)
             : TransactionAttemptResult<Unit>
     {
-        val key = AccountsTable.key(accountId)
         val observedVersion = observedItem.version()
         val newVersion = observedVersion + 1
-        val now = Instant.now().epochSecond
+
+        val updated = Instant.now().epochSecond
+
+        // The created attribute is not updated
+        val created = AccountsTable.created.from(observedItem)
+        val commonItem = accountAttributes.toItem(accountId, created, updated)
+        commonItem.addAttr(AccountsTable.version, newVersion)
+        val maybePassword = AccountsTable.password.optionalFrom(observedItem)
+
+        // The password attribute is not updated
+        commonItem.remove(AccountsTable.password.name)
+        if (maybePassword != null)
+        {
+            commonItem[AccountsTable.password.name] = AccountsTable.password.toAttrValue(maybePassword)
+        }
 
         val updateBuilder = UpdateBuilderWithMultipleUniquenessConstraints(
             AccountsTable,
-            key,
+            commonItem,
             AccountsTable.pk,
-            versionAndAccountIdConditionExpression(observedVersion, accountId),
-            newVersion,
-            AccountsTable.version,
-            arrayOf(
-                AccountsTable.version.toNameValuePair(newVersion),
-                AccountsTable.accountId.toNameValuePair(accountId)
-            )
+            versionAndAccountIdConditionExpression(observedVersion, accountId)
+        )
 
+        updateBuilder.handleUniqueAttribute(
+            AccountsTable.accountId,
+            accountId,
+            accountId
         )
 
         updateBuilder.handleUniqueAttribute(
@@ -449,32 +439,6 @@ class DynamoDBUserAccountDataAccessProvider(
             AccountsTable.phone,
             AccountsTable.phone.optionalFrom(observedItem),
             accountAttributes.phoneNumbers.primaryOrFirst?.significantValue
-        )
-
-        updateBuilder.handleNonUniqueAttribute(
-            AccountsTable.active,
-            AccountsTable.active.optionalFrom(observedItem),
-            accountAttributes.isActive
-        )
-
-        val attributesToPersist = serialize(accountAttributes)
-
-        updateBuilder.handleNonUniqueAttribute(
-            AccountsTable.attributes,
-            AccountsTable.attributes.optionalFrom(observedItem),
-            attributesToPersist
-        )
-
-        updateBuilder.handleNonUniqueAttribute(
-            AccountsTable.updated,
-            null,
-            now
-        )
-
-        updateBuilder.handleNonUniqueAttribute(
-            AccountsTable.version,
-            observedVersion,
-            newVersion
         )
 
         try
@@ -527,11 +491,157 @@ class DynamoDBUserAccountDataAccessProvider(
         return getById(accountId, attributesEnumeration)
     }
 
+    override fun updatePassword(accountAttributes: AccountAttributes)
+    {
+        val username = accountAttributes.userName
+        val password = accountAttributes.password
+
+        _logger.debug("Received request to update password for username : {}", username)
+
+        retry("updatePassword", N_OF_ATTEMPTS)
+        {
+            val observedItem = getItemByUsername(username)
+            if (observedItem == null)
+            {
+                _logger.debug("Unable to update password because there isn't an account with the given userName")
+                return@retry TransactionAttemptResult.Success(null)
+            }
+
+            val accountId = observedItem.accountId()
+            val observedVersion = observedItem.version()
+            val newVersion = observedVersion + 1
+
+            val updated = Instant.now().epochSecond
+            val commonItem = observedItem + mapOf(
+                AccountsTable.updated.toNameValuePair(updated),
+                AccountsTable.password.toNameValuePair(password),
+                AccountsTable.version.toNameValuePair(newVersion)
+            )
+
+            val updateBuilder = UpdateBuilderWithMultipleUniquenessConstraints(
+                AccountsTable,
+                commonItem,
+                AccountsTable.pk,
+                versionAndAccountIdConditionExpression(observedVersion, accountId)
+            )
+
+            updateBuilder.handleUniqueAttribute(
+                AccountsTable.accountId,
+                accountId,
+                accountId
+            )
+
+            updateBuilder.handleUniqueAttribute(
+                AccountsTable.userName,
+                username,
+                username
+            )
+
+            val maybeEmail = AccountsTable.email.optionalFrom(observedItem)
+
+            updateBuilder.handleUniqueAttribute(
+                AccountsTable.email,
+                maybeEmail,
+                maybeEmail
+            )
+
+            val maybePhone = AccountsTable.phone.optionalFrom(observedItem)
+
+            updateBuilder.handleUniqueAttribute(
+                AccountsTable.phone,
+                maybePhone,
+                maybePhone
+            )
+
+            try
+            {
+                _client.transactionWriteItems(updateBuilder.build())
+                return@retry TransactionAttemptResult.Success(Unit)
+            } catch (ex: Exception)
+            {
+                if (ex.isTransactionCancelledDueToConditionFailure())
+                {
+                    return@retry TransactionAttemptResult.Failure(ex)
+                }
+                throw ex
+            }
+
+        }
+    }
+
+    override fun verifyPassword(userName: String, password: String): AuthenticationAttributes?
+    {
+        _logger.debug("Received request to verify password for username : {}", userName)
+
+        val request = GetItemRequest.builder()
+            .tableName(AccountsTable.name)
+            // 'password' is not a DynamoDB reserved word
+            .key(
+                mapOf(
+                    AccountsTable.pk.uniqueKeyEntryFor(
+                        AccountsTable.userName, userName
+                    )
+                )
+            )
+            .projectionExpression(
+                "${AccountsTable.accountId.name}, ${AccountsTable.userName.name}, " +
+                        "${AccountsTable.password.name}, ${AccountsTable.active.name}"
+            )
+            .build()
+
+        val response = _client.getItem(request)
+
+        if (!response.hasItem())
+        {
+            return null
+        }
+
+        val item = response.item()
+        val active = AccountsTable.active.optionalFrom(item) ?: false
+
+        if (!active)
+        {
+            return null
+        }
+
+        // Password is not verified by this DAP, which is aligned with customQueryVerifiesPassword returning false
+        return AuthenticationAttributes.of(
+            SubjectAttributes.of(
+                userName,
+                Attributes.of(
+                    Attribute.of("password", AccountsTable.password.optionalFrom(item)),
+                    Attribute.of("accountId", AccountsTable.accountId.optionalFrom(item)),
+                    Attribute.of("userName", AccountsTable.userName.optionalFrom(item))
+                )
+            ),
+            ContextAttributes.empty()
+        )
+    }
+
+    override fun customQueryVerifiesPassword(): Boolean
+    {
+        return false
+    }
+
     private fun getItemByAccountId(accountId: String): DynamoDBItem?
     {
         val requestBuilder = GetItemRequest.builder()
             .tableName(AccountsTable.name)
-            .key(AccountsTable.key(accountId))
+            .key(AccountsTable.keyFromAccountId(accountId))
+            .consistentRead(true)
+
+        val request = requestBuilder.build()
+
+        val response = _client.getItem(request)
+        return if (response.hasItem()) response.item() else null
+    }
+
+    private fun getItemByUsername(userName: String): DynamoDBItem?
+    {
+        val requestBuilder = GetItemRequest.builder()
+            .tableName(AccountsTable.name)
+            .key(AccountsTable.keyFromUserName(userName))
+            .consistentRead(true)
 
         val request = requestBuilder.build()
 
@@ -590,6 +700,7 @@ class DynamoDBUserAccountDataAccessProvider(
         val request = GetItemRequest.builder()
             .tableName(LinksTable.name)
             .key(mapOf(LinksTable.pk.toNameValuePair(foreignAccountId, foreignDomainName)))
+            .consistentRead(true)
             .build()
 
         val response = _client.getItem(request)
@@ -706,19 +817,25 @@ class DynamoDBUserAccountDataAccessProvider(
     {
         val scanRequestBuilder = ScanRequest.builder()
             .tableName(AccountsTable.name)
-            .indexName(AccountsTable.userNameIndex.name)
 
-        return if (queryPlan != null)
+        return if (queryPlan != null && queryPlan.expression.products.isNotEmpty())
         {
-            val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression)
+            val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression).addPkFiltering()
             scanRequestBuilder.configureWith(dynamoDBScan)
             scanSequence(scanRequestBuilder.build(), _client)
                 .filterWith(queryPlan.expression.products)
         } else
         {
+            scanRequestBuilder.configureWith(filterForItemsWithAccountIdPk)
             scanSequence(scanRequestBuilder.build(), _client)
         }
     }
+
+    private fun DynamoDBScan.addPkFiltering() = DynamoDBScan(
+        filterExpression = "${filterForItemsWithAccountIdPk.filterExpression} AND (${this.filterExpression})",
+        valueMap = filterForItemsWithAccountIdPk.valueMap + this.valueMap,
+        nameMap = filterForItemsWithAccountIdPk.nameMap + this.nameMap
+    )
 
     private fun query(queryPlan: QueryPlan.UsingQueries): Sequence<DynamoDBItem>
     {
@@ -777,16 +894,19 @@ class DynamoDBUserAccountDataAccessProvider(
         return ResourceQueryResult(paginatedItems, allItems.count().toLong(), startIndex, count)
     }
 
-    private fun AccountAttributes.toItem(): MutableMap<String, AttributeValue>
+    private fun AccountAttributes.toItem(
+        accountId: String,
+        created: Long,
+        updated: Long
+    ): MutableMap<String, AttributeValue>
     {
         val item = mutableMapOf<String, AttributeValue>()
-
         item.addAttr(AccountsTable.userName, userName)
         item.addAttr(AccountsTable.active, isActive)
-        val now = Instant.now().epochSecond
-        item.addAttr(AccountsTable.created, now)
-        item.addAttr(AccountsTable.updated, now)
 
+        item.addAttr(AccountsTable.accountId, accountId)
+        item.addAttr(AccountsTable.created, created)
+        item.addAttr(AccountsTable.updated, updated)
 
         if (!password.isNullOrEmpty())
         {
@@ -916,32 +1036,31 @@ class DynamoDBUserAccountDataAccessProvider(
     object AccountsTable : Table("curity-accounts")
     {
         val pk = KeyStringAttribute("pk")
-        val accountId = UniqueStringAttribute("accountId") { value -> "ai#$value" }
+        val accountId = UniqueStringAttribute("accountId", "ai#")
         val version = NumberLongAttribute("version")
-        val userName = UniqueStringAttribute("userName") { value -> "un#$value" }
-        val email = UniqueStringAttribute("email") { value -> "em#$value" }
-        val phone = UniqueStringAttribute("phone") { value -> "pn#$value" }
+        val userName = UniqueStringAttribute("userName", "un#")
+        val email = UniqueStringAttribute("email", "em#")
+        val phone = UniqueStringAttribute("phone", "pn#")
         val password = StringAttribute("password")
         val active = BooleanAttribute("active")
         val attributes = StringAttribute("attributes")
         val created = NumberLongAttribute("created")
         val updated = NumberLongAttribute("updated")
 
-        fun key(accountIdValue: String) = mapOf(
+        fun keyFromAccountId(accountIdValue: String) = mapOf(
             pk.name to pk.toAttrValue(accountId.uniquenessValueFrom(accountIdValue))
         )
 
-        val userNameIndex = PartitionOnlyIndex("userName-index", userName)
-
-        val emailIndex = PartitionOnlyIndex("email-index", email)
-
-        val phoneIndex = PartitionOnlyIndex("phone-index", phone)
+        fun keyFromUserName(userNameValue: String) = mapOf(
+            pk.name to pk.toAttrValue(userName.uniquenessValueFrom(userNameValue))
+        )
 
         val queryCapabilities = TableQueryCapabilities(
             indexes = listOf(
-                Index.from(userNameIndex),
-                Index.from(emailIndex),
-                Index.from(phoneIndex)
+                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, accountId))),
+                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, userName))),
+                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, email))),
+                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, phone)))
             ),
             attributeMap = mapOf(
                 AccountAttributes.USER_NAME to userName,
@@ -1029,6 +1148,19 @@ class DynamoDBUserAccountDataAccessProvider(
                     AccountsTable,
                     AccountsTable.version
                 )
+
+        private fun DynamoDBItem.accountId(): String =
+            AccountsTable.accountId.optionalFrom(this)
+                ?: throw SchemaErrorException(
+                    AccountsTable,
+                    AccountsTable.accountId
+                )
+
+        private val filterForItemsWithAccountIdPk = DynamoDBScan(
+            filterExpression = "begins_with(pk, :pkPrefix)",
+            valueMap = mapOf(":pkPrefix" to AttributeValue.builder().s(AccountsTable.accountId.prefix).build()),
+            nameMap = mapOf()
+        )
 
         private const val MAX_QUERIES = 8
     }

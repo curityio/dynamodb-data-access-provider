@@ -246,6 +246,6 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
 
     companion object
     {
-        private val logger: Logger = LoggerFactory.getLogger(DynamoDBCredentialDataAccessProvider::class.java)
+        private val logger: Logger = LoggerFactory.getLogger(DynamoDBDynamicallyRegisteredClientDataAccessProvider::class.java)
     }
 }

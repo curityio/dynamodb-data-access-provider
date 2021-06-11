@@ -16,13 +16,12 @@
 package io.curity.identityserver.plugin.dynamodb.descriptor
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBAttributeDataAccessProvider
-import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.DynamoDBBucketDataAccessProvider
-import io.curity.identityserver.plugin.dynamodb.DynamoDBCredentialDataAccessProvider
+import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.DynamoDBDeviceDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBDynamicallyRegisteredClientDataAccessProvider
-import io.curity.identityserver.plugin.dynamodb.DynamoDBUserAccountDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBSessionDataAccessProvider
+import io.curity.identityserver.plugin.dynamodb.DynamoDBUserAccountDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import io.curity.identityserver.plugin.dynamodb.token.DynamoDBDelegationDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.token.DynamoDBNonceDataAccessProvider
@@ -42,7 +41,7 @@ class DynamoDBDataAccessProviderDescriptor: DataAccessProviderPluginDescriptor<D
 
     override fun getConfigurationType() = DynamoDBDataAccessProviderConfiguration::class.java
 
-    override fun getCredentialDataAccessProvider() = DynamoDBCredentialDataAccessProvider::class.java
+    override fun getCredentialDataAccessProvider() = DynamoDBUserAccountDataAccessProvider::class.java
 
     override fun getUserAccountDataAccessProvider() = DynamoDBUserAccountDataAccessProvider::class.java
 

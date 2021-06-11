@@ -19,7 +19,6 @@ package io.curity.identityserver.plugin.dynamodb
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
-import software.amazon.awssdk.services.dynamodb.model.Update
 
 /**
  * Helper class to build the transaction request that updates the main and secondary items
@@ -29,36 +28,13 @@ import software.amazon.awssdk.services.dynamodb.model.Update
  */
 class UpdateBuilderWithMultipleUniquenessConstraints(
     private val _table: Table,
-    private val _key: Map<String, AttributeValue>,
+    private val _commonItem: Map<String, AttributeValue>,
     private val _keyAttribute: DynamoDBAttribute<String>,
-    private val _conditionExpression: Expression,
-    private val _newVersion: Long,
-    private val _versionAttribute: DynamoDBAttribute<Long>,
-    private val _uniquenessItemAttributes: Array<Pair<String, AttributeValue>>
+    private val _conditionExpression: Expression
 )
 {
-    private val _attributesToUpdate = mutableMapOf<String, AttributeValue>()
-    private val _attributesToRemoveFromItem = mutableListOf<String>()
-    private val _updateExpressionParts = mutableListOf<String>()
-    private val _transactionItems = mutableListOf<TransactWriteItem>()
 
-    // Handles the update of a non-unique attribute
-    fun <T> handleNonUniqueAttribute(attribute: DynamoDBAttribute<T>, before: T?, after: T?)
-    {
-        if (before == after)
-        {
-            // nothing to do since the attribute doesn't change
-            return
-        }
-        if (after != null)
-        {
-            _updateExpressionParts.add("${attribute.name} = ${attribute.colonName}")
-            _attributesToUpdate[attribute.colonName] = attribute.toAttrValue(after)
-        } else
-        {
-            _attributesToRemoveFromItem.add(attribute.name)
-        }
-    }
+    private val _transactionItems = mutableListOf<TransactWriteItem>()
 
     // Handles the update of an unique attribute
     fun <T> handleUniqueAttribute(attribute: UniqueAttribute<T>, before: T?, after: T?)
@@ -67,56 +43,47 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
         {
             if (after != null)
             {
-                // Even if the value doesn't change, we still need to update the item's version.
-                updateSecondaryItem(attribute.uniquenessValueFrom(after))
+                // Even if the key value doesn't change, we still need to update the item's data.
+                updateItem(attribute.uniquenessValueFrom(after))
             }
         } else if (after != null)
         {
-            _updateExpressionParts.add("${attribute.name} = ${attribute.colonName}")
-            _attributesToUpdate[attribute.colonName] = attribute.toAttrValue(after)
             if (before != null)
             {
-                removeSecondaryItem(attribute.uniquenessValueFrom(before))
+                removeItem(attribute.uniquenessValueFrom(before))
             }
-            insertSecondaryItem(attribute.uniquenessValueFrom(after))
+            insertItem(attribute.uniquenessValueFrom(after))
         } else
         {
-            _attributesToRemoveFromItem.add(attribute.name)
             if (before != null)
             {
-                removeSecondaryItem(attribute.uniquenessValueFrom(before))
+                removeItem(attribute.uniquenessValueFrom(before))
             }
         }
     }
 
-    // Removes a secondary item (i.e. an item that only exists to ensure uniqueness on an attribute)
-    // See [https://aws.amazon.com/blogs/database/simulating-amazon-dynamodb-unique-constraints-using-transactions/]
-    private fun removeSecondaryItem(before: String)
+    private fun removeItem(pkValue: String)
     {
-
         _transactionItems.add(
             TransactWriteItem.builder()
                 .delete {
                     it.tableName(_table.name)
-                    it.key(mapOf(_keyAttribute.toNameValuePair(before)))
+                    it.key(mapOf(_keyAttribute.toNameValuePair(pkValue)))
                     it.conditionExpression(_conditionExpression)
                 }
                 .build()
         )
     }
 
-    // Inserts a secondary item (i.e. an item that only exists to ensure uniqueness on an attribute)
-    private fun insertSecondaryItem(after: String)
+    private fun insertItem(pkValue: String)
     {
+        val secondaryItem = _commonItem + setOf(_keyAttribute.toNameValuePair(pkValue))
         _transactionItems.add(
             TransactWriteItem.builder()
                 .put {
                     it.tableName(_table.name)
                     it.item(
-                        mapOf(
-                            _keyAttribute.toNameValuePair(after),
-                            *_uniquenessItemAttributes
-                        )
+                        secondaryItem
                     )
                     it.conditionExpression("attribute_not_exists(${_keyAttribute.name})")
                 }
@@ -124,23 +91,17 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
         )
     }
 
-    // Updates a secondary item (i.e. an item that only exists to ensure uniqueness on an attribute)
-    private fun updateSecondaryItem(value: String)
+    private fun updateItem(pkValue: String)
     {
+        val secondaryItem = _commonItem + setOf(_keyAttribute.toNameValuePair(pkValue))
         _transactionItems.add(
             TransactWriteItem.builder()
-                .update {
+                .put {
                     it.tableName(_table.name)
-                    it.key(mapOf(_keyAttribute.toNameValuePair(value)))
-                    it.updateExpression("SET ${_versionAttribute.hashName} = ${_versionAttribute.colonName}")
-                    it.expressionAttributeNames(
-                        _conditionExpression.attributeNames + _versionAttribute.toNamePair()
+                    it.item(
+                        secondaryItem
                     )
-                    it.expressionAttributeValues(
-                        _conditionExpression.values +
-                                mapOf(_versionAttribute.toExpressionNameValuePair(_newVersion))
-                    )
-                    it.conditionExpression(_conditionExpression.expression)
+                    it.conditionExpression(_conditionExpression)
                 }
                 .build()
         )
@@ -148,34 +109,6 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
 
     fun build(): TransactWriteItemsRequest
     {
-        val updateBuilder = Update.builder()
-            .tableName(_table.name)
-            .key(_key)
-            .conditionExpression(_conditionExpression.expression)
-
-        val updateExpressionBuilder = StringBuilder()
-        if (_updateExpressionParts.isNotEmpty())
-        {
-            updateExpressionBuilder.append("SET ${_updateExpressionParts.joinToString(", ")} ")
-            updateBuilder
-                .expressionAttributeValues(_conditionExpression.values + _attributesToUpdate)
-        } else
-        {
-            updateBuilder.expressionAttributeValues(_conditionExpression.values)
-        }
-        if (_attributesToRemoveFromItem.isNotEmpty())
-        {
-            updateExpressionBuilder.append("REMOVE ${_attributesToRemoveFromItem.joinToString(", ")} ")
-        }
-        updateBuilder.expressionAttributeNames(_conditionExpression.attributeNames)
-
-        updateBuilder.updateExpression(updateExpressionBuilder.toString())
-        _transactionItems.add(
-            TransactWriteItem.builder()
-                .update(updateBuilder.build())
-                .build()
-        )
-
         return TransactWriteItemsRequest.builder()
             .transactItems(_transactionItems)
             .build()
