@@ -56,115 +56,102 @@ import java.util.*
 
 class DynamoDBClient(private val config: DynamoDBDataAccessProviderDataAccessProviderConfig) : ManagedObject<DynamoDBDataAccessProviderDataAccessProviderConfig>(config) {
     private val _awsRegion = Region.of(config.getAwsRegion().awsRegion)
-    private val client: Optional<DynamoDbClient> = initializeDynamoDBClient()
+    private val client: DynamoDbClient? = initializeDynamoDBClient()
 
-    private fun initializeDynamoDBClient(): Optional<DynamoDbClient> {
+    private fun initializeDynamoDBClient(): DynamoDbClient? {
         val accessMethod = config.getDynamodbAccessMethod()
-        /*Use Instance Profile from IAM Role applied to EC2 instance*/
-        var creds: Optional<AwsCredentialsProvider>
 
-        logger.info("AWS Direct DbClient?: {}", accessMethod.aWSDirect.isPresent)
-        logger.info("AWS EC2Instance?: {}", accessMethod.isEC2InstanceProfile.isPresent)
-        logger.info("AWS awsProfile?: {}", accessMethod.aWSProfile.isPresent)
+        var creds: AwsCredentialsProvider?
+
         try {
             if (accessMethod.aWSDirect.isPresent) {
-                logger.info("AWS Direct DbClient?: hostname {}, ", accessMethod.aWSDirect.get().hostname)
-                logger.info("AWS Direct DbClient?: access-key-id {}, ", accessMethod.aWSDirect.get().accessKeyId)
-                logger.info("AWS Direct DbClient?: access-key-secret {}, ", accessMethod.aWSDirect.get().accessKeySecret)
+                logger.debug("AWS Direct DbClient?: hostname {}, ", accessMethod.aWSDirect.get().hostname)
             }
-            logger.warn("above ")
-            if (accessMethod.isEC2InstanceProfile.isPresent) {
-                logger.warn("EC2 Instance ")
-                creds = Optional.of(InstanceProfileCredentialsProvider.builder().build())
-            } else if (accessMethod.accessKeyIdAndSecret.isPresent) {
-                logger.warn("Access Key")
-                val keyIdAndSecret = accessMethod.accessKeyIdAndSecret.get()
-                creds = Optional.of(StaticCredentialsProvider.create(AwsBasicCredentials.create(keyIdAndSecret.accessKeyId.get(), keyIdAndSecret.accessKeySecret.get())))
 
+            creds = if (accessMethod.isEC2InstanceProfile.isPresent) {
+                InstanceProfileCredentialsProvider.builder().build()
+            } else if (accessMethod.accessKeyIdAndSecret.isPresent) {
+                val keyIdAndSecret = accessMethod.accessKeyIdAndSecret.get()
+                val staticCreds = StaticCredentialsProvider.create(AwsBasicCredentials.create(keyIdAndSecret.accessKeyId.get(), keyIdAndSecret.accessKeySecret.get()))
                 /* roleARN is present, get temporary credentials through AssumeRole */
                 if (keyIdAndSecret.awsRoleARN.isPresent) {
-                    creds = Optional.of(getNewCredentialsFromAssumeRole(creds.get(), keyIdAndSecret.awsRoleARN.get()))
+                    getNewCredentialsFromAssumeRole(staticCreds, keyIdAndSecret.awsRoleARN.get())
+                } else {
+                    staticCreds
                 }
             } else if (accessMethod.aWSProfile.isPresent && accessMethod.aWSProfile.get().awsProfileName.isPresent) {
-                logger.warn("AWS Profile")
                 val awsProfile = accessMethod.aWSProfile.get()
-                creds = Optional.of(ProfileCredentialsProvider.builder()
-                        .profileName(awsProfile.awsProfileName.get())
-                        .build())
-
                 /* roleARN is present, get temporary credentials through AssumeRole */
+                val profileCreds = ProfileCredentialsProvider.builder()
+                    .profileName(awsProfile.awsProfileName.get())
+                    .build()
                 if (awsProfile.awsRoleARN.isPresent) {
-                    creds = Optional.of(getNewCredentialsFromAssumeRole(creds.get(), awsProfile.awsRoleARN.get()))
+                    getNewCredentialsFromAssumeRole(profileCreds, awsProfile.awsRoleARN.get())
+                } else {
+                    profileCreds
                 }
             } else if (accessMethod.aWSDirect.isPresent) {
-                logger.info("Configuring Direct connection")
                 val aWSDirect = accessMethod.aWSDirect.get()
-                creds = Optional.of(StaticCredentialsProvider.create(AwsBasicCredentials.create(aWSDirect.accessKeyId, aWSDirect.accessKeySecret)))
+                StaticCredentialsProvider.create(AwsBasicCredentials.create(aWSDirect.accessKeyId, aWSDirect.accessKeySecret))
             } else {
-                logger.info("empty - configuration issue")
-                creds = Optional.empty<AwsCredentialsProvider>()
+                logger.debug("empty - configuration issue")
+                throw config.getExceptionFactory().internalServerException(ErrorCode.EXTERNAL_SERVICE_ERROR)
             }
         } catch (e: Exception) {
-            logger.info("Failed to process config credentials: {}", e.message)
+            logger.debug("Failed to process config credentials: {}", e.message)
             throw config.getExceptionFactory().internalServerException(ErrorCode.EXTERNAL_SERVICE_ERROR)
         }
 
-
-        logger.info("return -- ")
         return try {
-            if (accessMethod.aWSDirect.isPresent and creds.isPresent) {
-                logger.info("aWSDirect method")
+            if (accessMethod.aWSDirect.isPresent && creds != null) {
                 val aWSDirect = accessMethod.aWSDirect.get()
                 val hostname: String = aWSDirect.hostname
                 val endpoint = URI(hostname)
 
-                logger.info("AWS Direct endpointOverride, hostname: {}", endpoint.toString())
-                Optional.of(DynamoDbClient.builder()
-                        .region(_awsRegion)
-                        .credentialsProvider(creds.get())
-                        .endpointOverride(endpoint)
-                        .build()
-                )
-            } else if (creds.isPresent) {
-                logger.info("Credentials only ")
-                Optional.of(
-                        DynamoDbClient.builder()
-                                .region(_awsRegion)
-                                .credentialsProvider(creds.get())
-                                .build()
-                )
+                DynamoDbClient.builder()
+                    .region(_awsRegion)
+                    .credentialsProvider(creds)
+                    .endpointOverride(endpoint)
+                    .build()
+            } else if (creds != null) {
+
+                DynamoDbClient.builder()
+                    .region(_awsRegion)
+                    .credentialsProvider(creds)
+                    .build()
             } else {
-                Optional.empty<DynamoDbClient>()
+                null
             }
         } catch (e: Exception) {
-            logger.info("Failed to Create Db Client: {}", e.message)
+            logger.debug("Failed to Create Db Client: {}", e.message)
             throw config.getExceptionFactory().internalServerException(ErrorCode.EXTERNAL_SERVICE_ERROR)
         }
     }
 
-
     private fun getNewCredentialsFromAssumeRole(creds: AwsCredentialsProvider, roleARN: String): AwsCredentialsProvider {
         val stsClient: StsClient = StsClient.builder()
-                .region(_awsRegion)
-                .credentialsProvider(creds)
-                .build()
+            .region(_awsRegion)
+            .credentialsProvider(creds)
+            .build()
         val assumeRoleRequest: AssumeRoleRequest = AssumeRoleRequest.builder()
-                .durationSeconds(3600)
-                .roleArn(roleARN)
-                .roleSessionName("curity-dynamodb-data-access")
-                .build()
+            .durationSeconds(3600)
+            .roleArn(roleARN)
+            .roleSessionName("curity-dynamodb-data-access")
+            .build()
 
         return try {
             val assumeRoleResult: AssumeRoleResponse = stsClient.assumeRole(assumeRoleRequest)
             if (!assumeRoleResult.sdkHttpResponse().isSuccessful) {
-                logger.warn("AssumeRole Request sent but was not successful: {}",
-                        assumeRoleResult.sdkHttpResponse().statusText().get())
-                creds //Returning the original credentials
+                logger.debug(
+                    "AssumeRole Request sent but was not successful: {}",
+                    assumeRoleResult.sdkHttpResponse().statusText().get()
+                )
+                creds // original credentials
             } else {
                 val credentials: Credentials = assumeRoleResult.credentials()
                 val asc: AwsSessionCredentials = AwsSessionCredentials.create(credentials.accessKeyId(), credentials.secretAccessKey(), credentials.sessionToken())
                 logger.debug("AssumeRole Request successful: {}", assumeRoleResult.sdkHttpResponse().statusText())
-                StaticCredentialsProvider.create(asc) //returning temp credentials from the assumed role
+                StaticCredentialsProvider.create(asc) // returning temp credentials from the assumed role
             }
         } catch (e: Exception) {
             logger.debug("AssumeRole Request failed: {}", e.message)
@@ -182,12 +169,12 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderDataAccessPro
     private fun callClient(method: ClientMethod, request: DynamoDbRequest): DynamoDbResponse? {
         return try {
             when (method) {
-                ClientMethod.GetItem -> client.get().getItem(request as GetItemRequest)
-                ClientMethod.PutItem -> client.get().putItem(request as PutItemRequest)
-                ClientMethod.UpdateItem -> client.get().updateItem(request as UpdateItemRequest)
-                ClientMethod.DeleteItem -> client.get().deleteItem(request as DeleteItemRequest)
-                ClientMethod.Query -> client.get().query(request as QueryRequest)
-                ClientMethod.Scan -> client.get().scan(request as ScanRequest)
+                ClientMethod.GetItem -> client?.getItem(request as GetItemRequest)
+                ClientMethod.PutItem -> client?.putItem(request as PutItemRequest)
+                ClientMethod.UpdateItem -> client?.updateItem(request as UpdateItemRequest)
+                ClientMethod.DeleteItem -> client?.deleteItem(request as DeleteItemRequest)
+                ClientMethod.Query -> client?.query(request as QueryRequest)
+                ClientMethod.Scan -> client?.scan(request as ScanRequest)
             }
         } catch (e: DynamoDbException) {
             when {
@@ -196,7 +183,6 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderDataAccessPro
                 e.statusCode() >= 500 -> throw ExternalServiceFailedConnectionAlarmException(e)
                 else -> throw ExternalServiceFailedCommunicationAlarmException(e)
             }
-
         } catch (e: SdkException) {
             throw ExternalServiceFailedCommunicationAlarmException(e)
         }

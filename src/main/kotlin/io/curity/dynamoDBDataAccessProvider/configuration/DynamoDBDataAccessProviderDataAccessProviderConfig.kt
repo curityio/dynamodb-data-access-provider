@@ -33,9 +33,9 @@ interface DynamoDBDataAccessProviderDataAccessProviderConfig: Configuration
 
     interface AWSAccessMethod : OneOf
     {
-        val accessKeyIdAndSecret: Optional<AccessKeyIdAndSecret>
-        val aWSProfile: Optional<AWSProfile>
-        val aWSDirect: Optional<AWSDirect>
+        val accessKeyIdAndSecret: AccessKeyIdAndSecret?
+        val aWSProfile: AWSProfile?
+        val aWSDirect: AWSDirect?
 
         interface AWSDirect
         {
