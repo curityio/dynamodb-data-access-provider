@@ -78,8 +78,8 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
             val keyIdAndSecret = accessMethod.accessKeyIdAndSecret.get()
             credentials = StaticCredentialsProvider.create(
                 AwsBasicCredentials.create(
-                    keyIdAndSecret.accessKeyId.get(),
-                    keyIdAndSecret.accessKeySecret.get()
+                    keyIdAndSecret.accessKeyId,
+                    keyIdAndSecret.accessKeySecret
                 )
             )
 
