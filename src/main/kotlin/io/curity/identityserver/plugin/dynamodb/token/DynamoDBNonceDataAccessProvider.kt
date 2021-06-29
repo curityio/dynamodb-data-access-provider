@@ -73,7 +73,9 @@ class DynamoDBNonceDataAccessProvider(
         val ttl = NonceTable.nonceTtl.from(item)
         val now = Instant.now().epochSecond
 
-        if (createdAt + ttl < now)
+        _logger.trace("Nonce createdAt: {}, ttl: {}, now: {}", createdAt, ttl, now)
+
+        if (createdAt + ttl <= now)
         {
             expireNonce(nonce)
             return null
