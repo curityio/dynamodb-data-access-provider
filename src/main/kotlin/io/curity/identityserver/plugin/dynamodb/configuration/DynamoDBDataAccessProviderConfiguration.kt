@@ -57,8 +57,8 @@ interface DynamoDBDataAccessProviderConfiguration : Configuration
 
         interface AWSProfile
         {
-            @get:Description("AWS Profile name. Retrieves credentials from the system (~/.aws/credentials). If empty, the default profile is used.")
-            val awsProfileName: Optional<String>
+            @get:Description("AWS Profile name. Retrieves credentials from the system (~/.aws/credentials).")
+            val awsProfileName: String
 
             @get:Description("Optional role ARN used when requesting temporary credentials, ex. arn:aws:iam::123456789012:role/dynamodb-role")
             val awsRoleARN: Optional<String>
