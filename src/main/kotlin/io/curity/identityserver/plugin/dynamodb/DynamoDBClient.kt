@@ -62,48 +62,29 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
     ManagedObject<DynamoDBDataAccessProviderConfiguration>(config)
 {
     private val _awsRegion = Region.of(config.getAwsRegion().awsRegion)
-    private val client: DynamoDbClient = initializeDynamoDBClient()
+    private val client = createClient()
 
-    private fun initializeDynamoDBClient(): DynamoDbClient
+    private fun createClient(): DynamoDbClient
     {
         val accessMethod = config.getDynamodbAccessMethod()
-        /*Use Instance Profile from IAM Role applied to EC2 instance*/
-        var credentials: AwsCredentialsProvider?
+        val credentials: AwsCredentialsProvider =
 
-        if (accessMethod.isEC2InstanceProfile.isPresent && accessMethod.isEC2InstanceProfile.get())
-        {
-            credentials = InstanceProfileCredentialsProvider.builder().build()
-        } else if (accessMethod.accessKeyIdAndSecret.isPresent)
-        {
-            val keyIdAndSecret = accessMethod.accessKeyIdAndSecret.get()
-            credentials = StaticCredentialsProvider.create(
-                AwsBasicCredentials.create(
-                    keyIdAndSecret.accessKeyId.get(),
-                    keyIdAndSecret.accessKeySecret.get()
-                )
-            )
-
-            /* roleARN is present, get temporary credentials through AssumeRole */
-            if (keyIdAndSecret.awsRoleARN.isPresent)
+            if (accessMethod.isEC2InstanceProfile.isPresent && accessMethod.isEC2InstanceProfile.get())
             {
-                credentials = getNewCredentialsFromAssumeRole(credentials, keyIdAndSecret.awsRoleARN.get())
-            }
-        } else if (accessMethod.aWSProfile.get().awsProfileName.isPresent)
-        {
-            val awsProfile = accessMethod.aWSProfile.get()
-            credentials = ProfileCredentialsProvider.builder()
-                .profileName(awsProfile.awsProfileName.get())
-                .build()
-
-            /* roleARN is present, get temporary credentials through AssumeRole */
-            if (awsProfile.awsRoleARN.isPresent)
+                logger.debug("Using EC2 instance profile to configure DynamoDB client")
+                InstanceProfileCredentialsProvider.builder().build()
+            } else if (accessMethod.accessKeyIdAndSecret.isPresent)
             {
-                credentials = getNewCredentialsFromAssumeRole(credentials, awsProfile.awsRoleARN.get())
+                logger.debug("Using access key ID and secret to configure DynamoDB client")
+                getUsingAccessKeyIdAndSecret(accessMethod.accessKeyIdAndSecret.get())
+            } else if (accessMethod.aWSProfile.isPresent)
+            {
+                logger.debug("Using local profile to configure DynamoDB client")
+                getUsingProfile(accessMethod.aWSProfile.get())
+            } else
+            {
+                throw IllegalStateException("DynamoDB configuration's access method is not valid")
             }
-        } else
-        {
-            credentials = null
-        }
 
         val builder = DynamoDbClient.builder()
             .credentialsProvider(credentials)
@@ -121,6 +102,45 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
         }
 
         return builder.build()
+    }
+
+    private fun getUsingProfile(
+        awsProfile: DynamoDBDataAccessProviderConfiguration.AWSAccessMethod.AWSProfile
+    ): AwsCredentialsProvider
+    {
+        val profileCredentials = ProfileCredentialsProvider.builder()
+            .profileName(awsProfile.awsProfileName)
+            .build()
+
+        /* roleARN is present, get temporary credentials through AssumeRole */
+        return if (awsProfile.awsRoleARN.isPresent)
+        {
+            getNewCredentialsFromAssumeRole(profileCredentials, awsProfile.awsRoleARN.get())
+        } else
+        {
+            profileCredentials
+        }
+    }
+
+    private fun getUsingAccessKeyIdAndSecret(
+        keyIdAndSecret: DynamoDBDataAccessProviderConfiguration.AWSAccessMethod.AccessKeyIdAndSecret
+    ): AwsCredentialsProvider
+    {
+        val staticCredentials = StaticCredentialsProvider.create(
+            AwsBasicCredentials.create(
+                keyIdAndSecret.accessKeyId,
+                keyIdAndSecret.accessKeySecret
+            )
+        )
+
+        /* roleARN is present, get temporary credentials through AssumeRole */
+        return if (keyIdAndSecret.awsRoleARN.isPresent)
+        {
+            getNewCredentialsFromAssumeRole(staticCredentials, keyIdAndSecret.awsRoleARN.get())
+        } else
+        {
+            staticCredentials
+        }
     }
 
     private fun getNewCredentialsFromAssumeRole(

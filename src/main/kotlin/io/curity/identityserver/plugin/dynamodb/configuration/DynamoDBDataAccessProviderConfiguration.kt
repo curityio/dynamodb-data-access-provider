@@ -33,32 +33,38 @@ interface DynamoDBDataAccessProviderConfiguration : Configuration
     @Description("Override the endpoint used to connect to DynamoDB. Useful for testing.")
     fun getEndpointOverride(): Optional<String>
 
-    @Description("Choose how to access DynamoDB")
+    @Description("Choose how to access DynamoDB.")
     fun getDynamodbAccessMethod(): AWSAccessMethod
 
     interface AWSAccessMethod : OneOf
     {
+        // option: access key ID and secret
         val accessKeyIdAndSecret: Optional<AccessKeyIdAndSecret>
-        val aWSProfile: Optional<AWSProfile>
-
         interface AccessKeyIdAndSecret
         {
-            val accessKeyId: Optional<String>
-            val accessKeySecret: Optional<String>
+            @get:Description("AWS Access Key ID.")
+            val accessKeyId: String
+
+            @get:Description("AWS Access Key Secret.")
+            val accessKeySecret: String
 
             @get:Description("Optional role ARN used when requesting temporary credentials, ex. arn:aws:iam::123456789012:role/dynamodb-role")
             val awsRoleARN: Optional<String>
         }
+
+        // option: locally stored profile
+        val aWSProfile: Optional<AWSProfile>
 
         interface AWSProfile
         {
-            @get:Description("AWS Profile name. Retrieves credentials from the system (~/.aws/credentials)")
-            val awsProfileName: Optional<String>
+            @get:Description("AWS Profile name. Retrieves credentials from the system (~/.aws/credentials).")
+            val awsProfileName: String
 
             @get:Description("Optional role ARN used when requesting temporary credentials, ex. arn:aws:iam::123456789012:role/dynamodb-role")
             val awsRoleARN: Optional<String>
         }
 
+        // option: ambient authority on an EC instance
         @get:Description("EC2 instance that the Curity Identity Server is running on has been assigned an IAM Role with permissions to DynamoDB.")
         val isEC2InstanceProfile: Optional<Boolean>
     }
