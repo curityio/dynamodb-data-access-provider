@@ -1,0 +1,21 @@
+{
+  "TableName": "curity-nonces",
+  "AttributeDefinitions": [
+    {
+      "AttributeName": "nonce",
+      "AttributeType": "S"
+    }
+  ],
+  "KeySchema": [
+    {
+      "AttributeName": "nonce",
+      "KeyType": "HASH"
+    }
+  ],
+  "ProvisionedThroughput": {
+    "WriteCapacityUnits": 5,
+    "ReadCapacityUnits": 10
+  }
+}
+
+

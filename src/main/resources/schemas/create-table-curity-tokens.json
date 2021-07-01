@@ -1,0 +1,21 @@
+{
+  "TableName": "curity-tokens",
+  "AttributeDefinitions": [
+    {
+      "AttributeName": "tokenHash",
+      "AttributeType": "S"
+    }
+  ],
+  "KeySchema": [
+    {
+      "AttributeName": "tokenHash",
+      "KeyType": "HASH"
+    }
+  ],
+  "ProvisionedThroughput": {
+    "WriteCapacityUnits": 5,
+    "ReadCapacityUnits": 10
+  }
+}
+
+

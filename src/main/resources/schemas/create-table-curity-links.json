@@ -1,0 +1,49 @@
+{
+  "TableName": "curity-links",
+  "AttributeDefinitions": [
+    {
+      "AttributeName": "linkedAccountId_linkedAccountDomainName",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "accountId",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "linkingAccountManager",
+      "AttributeType": "S"
+    }
+  ],
+  "KeySchema": [
+    {
+      "AttributeName": "linkedAccountId_linkedAccountDomainName",
+      "KeyType": "HASH"
+    }
+  ],
+  "GlobalSecondaryIndexes": [
+    {
+      "IndexName": "list-links-index",
+      "Projection": {
+        "ProjectionType": "ALL"
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName": "accountId"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "linkingAccountManager"
+        }
+      ]
+    }
+  ],
+  "ProvisionedThroughput": {
+    "WriteCapacityUnits": 5,
+    "ReadCapacityUnits": 10
+  }
+}

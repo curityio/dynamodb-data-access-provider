@@ -1,0 +1,21 @@
+{
+  "TableName": "curity-dynamic-clients",
+  "AttributeDefinitions": [
+    {
+      "AttributeName": "clientId",
+      "AttributeType": "S"
+    }
+  ],
+  "KeySchema": [
+    {
+      "AttributeName": "clientId",
+      "KeyType": "HASH"
+    }
+  ],
+  "ProvisionedThroughput": {
+    "WriteCapacityUnits": 5,
+    "ReadCapacityUnits": 10
+  }
+}
+
+
