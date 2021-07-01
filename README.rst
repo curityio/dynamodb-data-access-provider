@@ -1,10 +1,10 @@
 DynamoDB Data Access Provider Plugin
 ====================================
 
-.. image:: https://img.shields.io/badge/quality-demo-red
+.. image:: https://img.shields.io/badge/quality-production-green
     :target: https://curity.io/resources/code-examples/status/
 
-.. image:: https://img.shields.io/badge/availability-source-blue
+.. image:: https://img.shields.io/badge/availability-bundled-green
     :target: https://curity.io/resources/code-examples/status/
 
 A custom, Kotlin-based data access provider plugin for the Curity Identity Server.
