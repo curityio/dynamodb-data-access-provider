@@ -34,6 +34,10 @@ class DynamoDBNonceDataAccessProvider(
     private val _configuration: DynamoDBDataAccessProviderConfiguration
 ) : NonceDataAccessProvider
 {
+    private val _nonceTableName = _configuration.getNonceTableNameOverride()
+    init {
+        NonceTable.name = _nonceTableName
+    }
     object NonceTable : Table("curity-nonces")
     {
         val nonce = StringAttribute("nonce")

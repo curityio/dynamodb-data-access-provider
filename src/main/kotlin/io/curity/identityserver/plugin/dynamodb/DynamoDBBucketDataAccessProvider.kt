@@ -89,6 +89,11 @@ class DynamoDBBucketDataAccessProvider(
         return response.hasAttributes()
     }
 
+    private val _bucketsTableName: String = _config.getBucketsTableNameOverride()
+    
+    init {
+        BucketsTable.name = _bucketsTableName
+    }
     private object BucketsTable : Table("curity-bucket")
     {
         val subject = StringAttribute("subject")

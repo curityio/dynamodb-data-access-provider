@@ -68,6 +68,10 @@ class DynamoDBDelegationDataAccessProvider(
      * - The "scopeClaims" property is not stored, since it is deprecated and this DAP doesn't need to support legacy
      * delegation formats.
      */
+    private val _delegationTableName = _configuration.getDelegationTableNameOverride()
+    init {
+        DelegationTable.name = _delegationTableName
+    }
     object DelegationTable : Table("curity-delegations")
     {
         val version = StringAttribute("version")

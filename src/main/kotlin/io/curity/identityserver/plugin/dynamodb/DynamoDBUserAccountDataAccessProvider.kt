@@ -1036,6 +1036,14 @@ class DynamoDBUserAccountDataAccessProvider(
             "meta"
         ))
 
+
+    private val _accountsTableName: String = _configuration.getAccountsTableNameOverride()
+    private val _linksTableName: String = _configuration.getLinksTableNameOverride()
+    
+    init {
+        AccountsTable.name = _accountsTableName
+        LinksTable.name = _linksTableName
+    }
     object AccountsTable : Table("curity-accounts")
     {
         val pk = KeyStringAttribute("pk")

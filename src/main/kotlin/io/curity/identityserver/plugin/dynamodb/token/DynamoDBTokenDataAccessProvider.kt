@@ -41,6 +41,10 @@ class DynamoDBTokenDataAccessProvider(
 {
     private val _jsonHandler = _configuration.getJsonHandler()
 
+    private val _tokenTableName = _configuration.getTokenTableNameOverride()
+    init {
+        TokenTable.name = _tokenTableName
+    }
     object TokenTable : Table("curity-tokens")
     {
         val tokenHash = StringAttribute("tokenHash")

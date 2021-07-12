@@ -52,6 +52,11 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
 {
     private val _jsonHandler = configuration.getJsonHandler()
 
+    private val _dcrTableName: String = configuration.getDcrTableNameOverride()
+    
+    init {
+        DcrTable.name = _dcrTableName
+    }
     private object DcrTable : Table("curity-dynamic-clients")
     {
         val clientId = StringAttribute("clientId")
