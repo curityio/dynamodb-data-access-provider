@@ -32,6 +32,11 @@ class DynamoDBSessionDataAccessProvider(
     private val _configuration: DynamoDBDataAccessProviderConfiguration
 ) : SessionDataAccessProvider
 {
+    private val _sessionTableName: String = _configuration.getSessionTableNameOverride()
+    
+    init {
+        SessionTable.name = _sessionTableName
+    }
     object SessionTable : Table("curity-sessions")
     {
         val id = StringAttribute("id")

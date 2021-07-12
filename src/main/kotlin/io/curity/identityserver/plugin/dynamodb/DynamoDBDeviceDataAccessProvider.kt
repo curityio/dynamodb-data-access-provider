@@ -67,6 +67,11 @@ class DynamoDBDeviceDataAccessProvider(
 {
     private val _jsonHandler = _configuration.getJsonHandler()
 
+    private val _deviceTableName: String = _configuration.getDeviceTableNameOverride()
+    init {
+        deviceTableName = _deviceTableName
+    }
+
     object DeviceTable : Table("curity-devices")
     {
         // Each device has two items in the table, with the following primary key structure
@@ -530,6 +535,8 @@ class DynamoDBDeviceDataAccessProvider(
 
     companion object
     {
+        lateinit var deviceTableName: String
+
         private val _logger: Logger = LoggerFactory.getLogger(DynamoDBDeviceDataAccessProvider::class.java)
 
         private const val SK_FOR_ID_ITEM = "sk"

@@ -18,6 +18,7 @@ package io.curity.identityserver.plugin.dynamodb.configuration
 import se.curity.identityserver.sdk.config.Configuration
 import se.curity.identityserver.sdk.config.OneOf
 import se.curity.identityserver.sdk.config.annotation.DefaultBoolean
+import se.curity.identityserver.sdk.config.annotation.DefaultString
 import se.curity.identityserver.sdk.config.annotation.DefaultLong
 import se.curity.identityserver.sdk.config.annotation.Description
 import se.curity.identityserver.sdk.config.annotation.RangeConstraint
@@ -111,4 +112,42 @@ interface DynamoDBDataAccessProviderConfiguration : Configuration
     fun getExceptionFactory(): ExceptionFactory
 
     fun getJsonHandler(): Json
+
+    // TableNames
+    @Description("Override Device Table Name")
+    @DefaultString("curity-devices")
+    fun getDeviceTableNameOverride(): String
+
+    @Description("Override Buckets Table Name")
+    @DefaultString("curity-bucket")
+    fun getBucketsTableNameOverride(): String
+
+    @Description("Override Dynamic Clients Table Name")
+    @DefaultString("curity-dynamic-clients")
+    fun getDcrTableNameOverride(): String
+
+    @Description("Override Accounts Table Name")
+    @DefaultString("curity-accounts")
+    fun getAccountsTableNameOverride(): String
+
+    @Description("Override Sessions Table Name")
+    @DefaultString("curity-sessions")
+    fun getSessionTableNameOverride(): String
+
+    @Description("Override Links Table Name")
+    @DefaultString("curity-links")
+    fun getLinksTableNameOverride(): String
+
+    @Description("Override Delegations Table Name")
+    @DefaultString("curity-delegations")
+    fun getDelegationTableNameOverride(): String
+
+    @Description("Override Nonce Table Name")
+    @DefaultString("curity-nonces")
+    fun getNonceTableNameOverride(): String
+
+    @Description("Override Token Table Name")
+    @DefaultString("curity-tokens")
+    fun getTokenTableNameOverride(): String
+
 }

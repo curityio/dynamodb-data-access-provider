@@ -42,7 +42,7 @@ enum class AttributeType(val typeName: String)
 }
 
 // A DynamoDB table
-abstract class Table(val name: String)
+abstract class Table(var name: String)
 {
     override fun toString() = name
 }
