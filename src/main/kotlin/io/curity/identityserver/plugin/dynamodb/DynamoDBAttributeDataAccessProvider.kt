@@ -15,18 +15,22 @@
  */
 package io.curity.identityserver.plugin.dynamodb
 
+import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import se.curity.identityserver.sdk.attribute.AttributeTableView
 import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.datasource.AttributeDataAccessProvider
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 
-class DynamoDBAttributeDataAccessProvider(private val dynamoDBClient: DynamoDBClient) : AttributeDataAccessProvider
+class DynamoDBAttributeDataAccessProvider(
+    private val dynamoDBClient: DynamoDBClient,
+    private val config: DynamoDBDataAccessProviderConfiguration
+    ) : AttributeDataAccessProvider
 {
     override fun getAttributes(subject: String): AttributeTableView
     {
         val accountQuery = GetItemRequest.builder()
-            .tableName(AccountsTable.name)
+            .tableName(AccountsTable.name(config))
             .key(
                 mapOf(
                     AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, subject)
@@ -44,7 +48,7 @@ class DynamoDBAttributeDataAccessProvider(private val dynamoDBClient: DynamoDBCl
             ?: throw SchemaErrorException(AccountsTable, AccountsTable.accountId)
 
         val linksQueryRequest = QueryRequest.builder()
-            .tableName(LinksTable.name)
+            .tableName(LinksTable.name(config))
             .indexName(LinksTable.listLinksIndex.name)
             .keyConditionExpression("${LinksTable.localAccountId.name} = ${LinksTable.localAccountId.colonName}")
             .expressionAttributeValues(mapOf(LinksTable.localAccountId.toExpressionNameValuePair(accountId)))

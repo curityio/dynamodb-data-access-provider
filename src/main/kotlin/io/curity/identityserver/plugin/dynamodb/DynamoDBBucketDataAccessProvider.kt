@@ -35,7 +35,7 @@ class DynamoDBBucketDataAccessProvider(
         _logger.debug("getAttributes with subject: {} , purpose : {}", subject, purpose)
 
         val request = GetItemRequest.builder()
-            .tableName(BucketsTable.name)
+            .tableName(BucketsTable.name(_config))
             .key(BucketsTable.key(subject, purpose))
             .consistentRead(true)
             .build()
@@ -66,7 +66,7 @@ class DynamoDBBucketDataAccessProvider(
         val now = Instant.now().epochSecond
 
         val request = UpdateItemRequest.builder()
-            .tableName(BucketsTable.name)
+            .tableName(BucketsTable.name(_config))
             .key(BucketsTable.key(subject, purpose))
             .updateExpression(updateExpression(attributesString, now, now))
             .build()
@@ -79,7 +79,7 @@ class DynamoDBBucketDataAccessProvider(
     override fun clearBucket(subject: String, purpose: String): Boolean
     {
         val request = DeleteItemRequest.builder()
-            .tableName(BucketsTable.name)
+            .tableName(BucketsTable.name(_config))
             .key(BucketsTable.key(subject, purpose))
             .returnValues(ReturnValue.ALL_OLD)
             .build()
