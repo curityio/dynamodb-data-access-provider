@@ -50,7 +50,7 @@ class DynamoDBNonceDataAccessProvider(
     override fun get(nonce: String): String?
     {
         val request = GetItemRequest.builder()
-            .tableName(NonceTable.name)
+            .tableName(NonceTable.name(_configuration))
             .key(NonceTable.key(nonce))
             .consistentRead(true)
             .build()
@@ -96,7 +96,7 @@ class DynamoDBNonceDataAccessProvider(
         )
 
         val request = PutItemRequest.builder()
-            .tableName(NonceTable.name)
+            .tableName(NonceTable.name(_configuration))
             .item(item)
             .conditionExpression("attribute_not_exists(${NonceTable.nonce})")
             .build()
@@ -129,7 +129,7 @@ class DynamoDBNonceDataAccessProvider(
     private fun changeStatus(nonce: String, status: NonceStatus, maybeConsumedAt: Long?)
     {
         val requestBuilder = UpdateItemRequest.builder()
-            .tableName(NonceTable.name)
+            .tableName(NonceTable.name(_configuration))
             .conditionExpression("attribute_exists(${NonceTable.nonce.name})")
             .key(NonceTable.key(nonce))
 

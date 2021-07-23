@@ -88,7 +88,7 @@ import java.util.UUID
  *
  */
 class DynamoDBUserAccountDataAccessProvider(
-    private val _client: DynamoDBClient,
+    private val _dynamoDBClient: DynamoDBClient,
     private val _configuration: DynamoDBDataAccessProviderConfiguration
 ) : UserAccountDataAccessProvider, CredentialDataAccessProvider
 {
@@ -145,13 +145,13 @@ class DynamoDBUserAccountDataAccessProvider(
     ): ResourceAttributes<*>?
     {
         val requestBuilder = GetItemRequest.builder()
-            .tableName(AccountsTable.name)
+            .tableName(AccountsTable.name(_configuration))
             .key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(key, keyValue)))
             .consistentRead(true)
 
         val request = requestBuilder.build()
 
-        val response = _client.getItem(request)
+        val response = _dynamoDBClient.getItem(request)
 
         return if (response.hasItem())
         {
@@ -185,7 +185,7 @@ class DynamoDBUserAccountDataAccessProvider(
         transactionItems.add(
             TransactWriteItem.builder()
                 .put {
-                    it.tableName(AccountsTable.name)
+                    it.tableName(AccountsTable.name(_configuration))
                     it.conditionExpression(writeConditionExpression)
                     it.item(mainItem)
                 }
@@ -197,7 +197,7 @@ class DynamoDBUserAccountDataAccessProvider(
         transactionItems.add(
             TransactWriteItem.builder()
                 .put {
-                    it.tableName(AccountsTable.name)
+                    it.tableName(AccountsTable.name(_configuration))
                     it.conditionExpression(writeConditionExpression)
                     it.item(userNameItem)
                 }
@@ -210,7 +210,7 @@ class DynamoDBUserAccountDataAccessProvider(
             transactionItems.add(
                 TransactWriteItem.builder()
                     .put {
-                        it.tableName(AccountsTable.name)
+                        it.tableName(AccountsTable.name(_configuration))
                         it.conditionExpression(writeConditionExpression)
                         it.item(emailItem)
                     }
@@ -225,7 +225,7 @@ class DynamoDBUserAccountDataAccessProvider(
             transactionItems.add(
                 TransactWriteItem.builder()
                     .put {
-                        it.tableName(AccountsTable.name)
+                        it.tableName(AccountsTable.name(_configuration))
                         it.conditionExpression(writeConditionExpression)
                         it.item(
                             phoneItem
@@ -241,7 +241,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
         try
         {
-            _client.transactionWriteItems(request)
+            _dynamoDBClient.transactionWriteItems(request)
         } catch (ex: Exception)
         {
             if (ex.isTransactionCancelledDueToConditionFailure())
@@ -265,9 +265,9 @@ class DynamoDBUserAccountDataAccessProvider(
         // Deleting an account requires the deletion of the main item and all the secondary items.
         // A `getItem` is needed to obtain the `userName`, `email`, and `phone` required to compute the
         // secondary item keys.
-        val getItemResponse = _client.getItem(
+        val getItemResponse = _dynamoDBClient.getItem(
             GetItemRequest.builder()
-                .tableName(AccountsTable.name)
+                .tableName(AccountsTable.name(_configuration))
                 .key(AccountsTable.keyFromAccountId(accountId))
                 .build()
         )
@@ -299,7 +299,7 @@ class DynamoDBUserAccountDataAccessProvider(
         transactionItems.add(
             TransactWriteItem.builder()
                 .delete {
-                    it.tableName(AccountsTable.name)
+                    it.tableName(AccountsTable.name(_configuration))
                     it.key(AccountsTable.keyFromAccountId(accountId))
                     it.conditionExpression(conditionExpression)
                 }
@@ -308,7 +308,7 @@ class DynamoDBUserAccountDataAccessProvider(
         transactionItems.add(
             TransactWriteItem.builder()
                 .delete {
-                    it.tableName(AccountsTable.name)
+                    it.tableName(AccountsTable.name(_configuration))
                     it.key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, userName)))
                     it.conditionExpression(conditionExpression)
                 }
@@ -319,7 +319,7 @@ class DynamoDBUserAccountDataAccessProvider(
             transactionItems.add(
                 TransactWriteItem.builder()
                     .delete {
-                        it.tableName(AccountsTable.name)
+                        it.tableName(AccountsTable.name(_configuration))
                         it.key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.email, email)))
                         it.conditionExpression(conditionExpression)
                     }
@@ -331,7 +331,7 @@ class DynamoDBUserAccountDataAccessProvider(
             transactionItems.add(
                 TransactWriteItem.builder()
                     .delete {
-                        it.tableName(AccountsTable.name)
+                        it.tableName(AccountsTable.name(_configuration))
                         it.key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.phone, phone)))
                         it.conditionExpression(conditionExpression)
                     }
@@ -345,7 +345,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
         try
         {
-            _client.transactionWriteItems(request)
+            _dynamoDBClient.transactionWriteItems(request)
             return TransactionAttemptResult.Success(Unit)
         } catch (ex: Exception)
         {
@@ -414,6 +414,7 @@ class DynamoDBUserAccountDataAccessProvider(
         }
 
         val updateBuilder = UpdateBuilderWithMultipleUniquenessConstraints(
+            _configuration,
             AccountsTable,
             commonItem,
             AccountsTable.pk,
@@ -446,7 +447,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
         try
         {
-            _client.transactionWriteItems(updateBuilder.build())
+            _dynamoDBClient.transactionWriteItems(updateBuilder.build())
             return TransactionAttemptResult.Success(Unit)
         } catch (ex: Exception)
         {
@@ -522,6 +523,7 @@ class DynamoDBUserAccountDataAccessProvider(
             )
 
             val updateBuilder = UpdateBuilderWithMultipleUniquenessConstraints(
+                _configuration,
                 AccountsTable,
                 commonItem,
                 AccountsTable.pk,
@@ -558,7 +560,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
             try
             {
-                _client.transactionWriteItems(updateBuilder.build())
+                _dynamoDBClient.transactionWriteItems(updateBuilder.build())
                 return@retry TransactionAttemptResult.Success(Unit)
             } catch (ex: Exception)
             {
@@ -577,7 +579,7 @@ class DynamoDBUserAccountDataAccessProvider(
         _logger.debug("Received request to verify password for username : {}", userName)
 
         val request = GetItemRequest.builder()
-            .tableName(AccountsTable.name)
+            .tableName(AccountsTable.name(_configuration))
             // 'password' is not a DynamoDB reserved word
             .key(
                 mapOf(
@@ -592,7 +594,7 @@ class DynamoDBUserAccountDataAccessProvider(
             )
             .build()
 
-        val response = _client.getItem(request)
+        val response = _dynamoDBClient.getItem(request)
 
         if (!response.hasItem())
         {
@@ -629,26 +631,26 @@ class DynamoDBUserAccountDataAccessProvider(
     private fun getItemByAccountId(accountId: String): DynamoDBItem?
     {
         val requestBuilder = GetItemRequest.builder()
-            .tableName(AccountsTable.name)
+            .tableName(AccountsTable.name(_configuration))
             .key(AccountsTable.keyFromAccountId(accountId))
             .consistentRead(true)
 
         val request = requestBuilder.build()
 
-        val response = _client.getItem(request)
+        val response = _dynamoDBClient.getItem(request)
         return if (response.hasItem()) response.item() else null
     }
 
     private fun getItemByUsername(userName: String): DynamoDBItem?
     {
         val requestBuilder = GetItemRequest.builder()
-            .tableName(AccountsTable.name)
+            .tableName(AccountsTable.name(_configuration))
             .key(AccountsTable.keyFromUserName(userName))
             .consistentRead(true)
 
         val request = requestBuilder.build()
 
-        val response = _client.getItem(request)
+        val response = _dynamoDBClient.getItem(request)
         return if (response.hasItem()) response.item() else null
     }
 
@@ -660,17 +662,17 @@ class DynamoDBUserAccountDataAccessProvider(
     )
     {
         val request = PutItemRequest.builder()
-            .tableName(LinksTable.name)
+            .tableName(LinksTable.name(_configuration))
             .item(LinksTable.createItem(linkingAccountManager, localAccountId, foreignDomainName, foreignUserName))
             .build()
 
-        _client.putItem(request)
+        _dynamoDBClient.putItem(request)
     }
 
     override fun listLinks(linkingAccountManager: String, localAccountId: String): Collection<LinkedAccount>
     {
         val request = QueryRequest.builder()
-            .tableName(LinksTable.name)
+            .tableName(LinksTable.name(_configuration))
             .indexName(LinksTable.listLinksIndex.name)
             .keyConditionExpression(LinksTable.listLinksIndex.keyConditionExpression)
             .expressionAttributeValues(
@@ -682,7 +684,7 @@ class DynamoDBUserAccountDataAccessProvider(
             .expressionAttributeNames(LinksTable.listLinksIndex.expressionNameMap)
             .build()
 
-        return querySequence(request, _client)
+        return querySequence(request, _dynamoDBClient)
             .map { item ->
                 LinkedAccount.of(
                     LinksTable.linkedAccountDomainName.from(item),
@@ -701,12 +703,12 @@ class DynamoDBUserAccountDataAccessProvider(
     ): AccountAttributes?
     {
         val request = GetItemRequest.builder()
-            .tableName(LinksTable.name)
+            .tableName(LinksTable.name(_configuration))
             .key(mapOf(LinksTable.pk.toNameValuePair(foreignAccountId, foreignDomainName)))
             .consistentRead(true)
             .build()
 
-        val response = _client.getItem(request)
+        val response = _dynamoDBClient.getItem(request)
 
         if (!response.hasItem() || response.item().isEmpty())
         {
@@ -737,7 +739,7 @@ class DynamoDBUserAccountDataAccessProvider(
     ): Boolean
     {
         val request = DeleteItemRequest.builder()
-            .tableName(LinksTable.name)
+            .tableName(LinksTable.name(_configuration))
             .key(mapOf(LinksTable.pk.toNameValuePair(foreignAccountId, foreignDomainName)))
             .conditionExpression(
                 "${LinksTable.localAccountId.name} = ${LinksTable.localAccountId.colonName} AND "
@@ -751,7 +753,7 @@ class DynamoDBUserAccountDataAccessProvider(
             )
             .build()
 
-        val response = _client.deleteItem(request)
+        val response = _dynamoDBClient.deleteItem(request)
 
         return response.sdkHttpResponse().isSuccessful
     }
@@ -819,18 +821,18 @@ class DynamoDBUserAccountDataAccessProvider(
     private fun scan(queryPlan: QueryPlan.UsingScan?): Sequence<DynamoDBItem>
     {
         val scanRequestBuilder = ScanRequest.builder()
-            .tableName(AccountsTable.name)
+            .tableName(AccountsTable.name(_configuration))
 
         return if (queryPlan != null && queryPlan.expression.products.isNotEmpty())
         {
             val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression).addPkFiltering()
             scanRequestBuilder.configureWith(dynamoDBScan)
-            scanSequence(scanRequestBuilder.build(), _client)
+            scanSequence(scanRequestBuilder.build(), _dynamoDBClient)
                 .filterWith(queryPlan.expression.products)
         } else
         {
             scanRequestBuilder.configureWith(filterForItemsWithAccountIdPk)
-            scanSequence(scanRequestBuilder.build(), _client)
+            scanSequence(scanRequestBuilder.build(), _dynamoDBClient)
         }
     }
 
@@ -852,11 +854,11 @@ class DynamoDBUserAccountDataAccessProvider(
             val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(query.key, query.value)
 
             val queryRequest = QueryRequest.builder()
-                .tableName(AccountsTable.name)
+                .tableName(AccountsTable.name(_configuration))
                 .configureWith(dynamoDBQuery)
                 .build()
 
-            querySequence(queryRequest, _client)
+            querySequence(queryRequest, _dynamoDBClient)
                 .filterWith(query.value)
                 .forEach {
                     result[AccountsTable.accountId.from(it)] = it

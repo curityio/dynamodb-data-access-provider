@@ -45,7 +45,7 @@ class DynamoDBSessionDataAccessProvider(
     override fun getSessionById(id: String): Session?
     {
         val request = GetItemRequest.builder()
-            .tableName(SessionTable.name)
+            .tableName(SessionTable.name(_configuration))
             .key(SessionTable.key(id))
             .consistentRead(true)
             .build()
@@ -76,7 +76,7 @@ class DynamoDBSessionDataAccessProvider(
         )
 
         val request = PutItemRequest.builder()
-            .tableName(SessionTable.name)
+            .tableName(SessionTable.name(_configuration))
             .item(item)
             .conditionExpression("attribute_not_exists(${SessionTable.id})")
             .build()
@@ -102,7 +102,7 @@ class DynamoDBSessionDataAccessProvider(
         // - if the item already exists, it will be completely overwritten
         // - otherwise, a new item will be created
         val request = PutItemRequest.builder()
-            .tableName(SessionTable.name)
+            .tableName(SessionTable.name(_configuration))
             .item(item)
             .build()
 
@@ -112,7 +112,7 @@ class DynamoDBSessionDataAccessProvider(
     override fun updateSessionExpiration(id: String, expiresAt: Instant)
     {
         val request = UpdateItemRequest.builder()
-            .tableName(SessionTable.name)
+            .tableName(SessionTable.name(_configuration))
             .key(SessionTable.key(id))
             .conditionExpression("attribute_exists(${SessionTable.id})")
             .updateExpression(
@@ -140,7 +140,7 @@ class DynamoDBSessionDataAccessProvider(
     override fun deleteSessionState(id: String)
     {
         val request = DeleteItemRequest.builder()
-            .tableName(SessionTable.name)
+            .tableName(SessionTable.name(_configuration))
             .key(SessionTable.key(id))
             .build()
 

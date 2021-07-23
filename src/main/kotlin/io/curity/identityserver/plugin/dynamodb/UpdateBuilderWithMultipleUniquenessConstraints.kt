@@ -16,6 +16,7 @@
 
 package io.curity.identityserver.plugin.dynamodb
 
+import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
@@ -27,6 +28,7 @@ import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
  * See comments on [DynamoDBUserAccountDataAccessProvider] to see how multiple uniqueness requirements are handled.
  */
 class UpdateBuilderWithMultipleUniquenessConstraints(
+    private val _configuration: DynamoDBDataAccessProviderConfiguration,
     private val _table: Table,
     private val _commonItem: Map<String, AttributeValue>,
     private val _keyAttribute: DynamoDBAttribute<String>,
@@ -67,7 +69,7 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
         _transactionItems.add(
             TransactWriteItem.builder()
                 .delete {
-                    it.tableName(_table.name)
+                    it.tableName(_table.name(_configuration))
                     it.key(mapOf(_keyAttribute.toNameValuePair(pkValue)))
                     it.conditionExpression(_conditionExpression)
                 }
@@ -81,7 +83,7 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
         _transactionItems.add(
             TransactWriteItem.builder()
                 .put {
-                    it.tableName(_table.name)
+                    it.tableName(_table.name(_configuration))
                     it.item(
                         secondaryItem
                     )
@@ -97,7 +99,7 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
         _transactionItems.add(
             TransactWriteItem.builder()
                 .put {
-                    it.tableName(_table.name)
+                    it.tableName(_table.name(_configuration))
                     it.item(
                         secondaryItem
                     )
