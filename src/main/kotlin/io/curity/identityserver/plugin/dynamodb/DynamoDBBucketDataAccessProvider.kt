@@ -26,8 +26,8 @@ import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 import java.time.Instant
 
 class DynamoDBBucketDataAccessProvider(
-    private val _config: DynamoDBDataAccessProviderConfiguration,
-    private val _client: DynamoDBClient
+    private val _configuration: DynamoDBDataAccessProviderConfiguration,
+    private val _dynamoDBClient: DynamoDBClient
 ) : BucketDataAccessProvider
 {
     override fun getAttributes(subject: String, purpose: String): Map<String, Any>
@@ -35,11 +35,11 @@ class DynamoDBBucketDataAccessProvider(
         _logger.debug("getAttributes with subject: {} , purpose : {}", subject, purpose)
 
         val request = GetItemRequest.builder()
-            .tableName(BucketsTable.name(_config))
+            .tableName(BucketsTable.name(_configuration))
             .key(BucketsTable.key(subject, purpose))
             .consistentRead(true)
             .build()
-        val response = _client.getItem(request)
+        val response = _dynamoDBClient.getItem(request)
 
         if (!response.hasItem())
         {
@@ -50,7 +50,7 @@ class DynamoDBBucketDataAccessProvider(
                 BucketsTable,
                 BucketsTable.attributes
             )
-        return _config.getJsonHandler().fromJson(attributesString)
+        return _configuration.getJsonHandler().fromJson(attributesString)
     }
 
     override fun storeAttributes(subject: String, purpose: String, dataMap: Map<String, Any>): Map<String, Any>
@@ -62,16 +62,16 @@ class DynamoDBBucketDataAccessProvider(
             dataMap
         )
 
-        val attributesString = _config.getJsonHandler().toJson(dataMap)
+        val attributesString = _configuration.getJsonHandler().toJson(dataMap)
         val now = Instant.now().epochSecond
 
         val request = UpdateItemRequest.builder()
-            .tableName(BucketsTable.name(_config))
+            .tableName(BucketsTable.name(_configuration))
             .key(BucketsTable.key(subject, purpose))
             .updateExpression(updateExpression(attributesString, now, now))
             .build()
 
-        _client.updateItem(request)
+        _dynamoDBClient.updateItem(request)
 
         return dataMap
     }
@@ -79,12 +79,12 @@ class DynamoDBBucketDataAccessProvider(
     override fun clearBucket(subject: String, purpose: String): Boolean
     {
         val request = DeleteItemRequest.builder()
-            .tableName(BucketsTable.name(_config))
+            .tableName(BucketsTable.name(_configuration))
             .key(BucketsTable.key(subject, purpose))
             .returnValues(ReturnValue.ALL_OLD)
             .build()
 
-        val response = _client.deleteItem(request)
+        val response = _dynamoDBClient.deleteItem(request)
 
         return response.hasAttributes()
     }

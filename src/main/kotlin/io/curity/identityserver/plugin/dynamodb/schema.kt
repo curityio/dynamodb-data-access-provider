@@ -47,7 +47,7 @@ abstract class Table(
     private val suffixName: String
 )
 {
-    fun name(config: DynamoDBDataAccessProviderConfiguration) = config.getTableNamePrefix()
+    fun name(configuration: DynamoDBDataAccessProviderConfiguration) = configuration.getTableNamePrefix()
         .map { prefix -> "$prefix$suffixName" }
         .orElse(suffixName)
 
