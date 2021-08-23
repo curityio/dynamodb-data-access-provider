@@ -27,17 +27,14 @@ class QueryPlanTests(
     private val indexes: List<Index>,
     private val inputExpression: Expression,
     private val expectedQueryPlan: QueryPlan
-)
-{
+) {
     @Test
-    fun testQueryPlan()
-    {
+    fun testQueryPlan() {
         val queryPlanner = QueryPlanner(TableQueryCapabilities(indexes, mapOf()))
         assertEquals(expectedQueryPlan, queryPlanner.build(inputExpression))
     }
 
-    companion object
-    {
+    companion object {
         private val emailIndex = Index("email-index", EMAIL)
         private val userNameIndex = Index("userName-index", USER_NAME)
 
@@ -56,10 +53,32 @@ class QueryPlanTests(
                 ),
                 QueryPlan.UsingQueries(
                     mapOf(
-                        QueryPlan.KeyCondition(emailIndex, BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com"))
-                                to listOf(Product.of(BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "valid"))),
-                        QueryPlan.KeyCondition(userNameIndex, BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice"))
-                                to listOf(Product.of(BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "valid")))
+                        QueryPlan.KeyCondition(
+                            emailIndex,
+                            BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com")
+                        )
+                                to listOf(
+                            Product.of(
+                                BinaryAttributeExpression(
+                                    STATUS,
+                                    BinaryAttributeOperator.Eq,
+                                    "valid"
+                                )
+                            )
+                        ),
+                        QueryPlan.KeyCondition(
+                            userNameIndex,
+                            BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice")
+                        )
+                                to listOf(
+                            Product.of(
+                                BinaryAttributeExpression(
+                                    STATUS,
+                                    BinaryAttributeOperator.Eq,
+                                    "valid"
+                                )
+                            )
+                        )
 
                     )
                 )
@@ -79,12 +98,18 @@ class QueryPlanTests(
                 ),
                 QueryPlan.UsingQueries(
                     mapOf(
-                        QueryPlan.KeyCondition(emailIndex, BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com"))
+                        QueryPlan.KeyCondition(
+                            emailIndex,
+                            BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com")
+                        )
                                 to listOf(
                             Product.of(BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "expired")),
                             Product.of(BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "revoked"))
                         ),
-                        QueryPlan.KeyCondition(userNameIndex, BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice"))
+                        QueryPlan.KeyCondition(
+                            userNameIndex,
+                            BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice")
+                        )
                                 to listOf(
                             Product.of(BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "expired")),
                             Product.of(BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "revoked"))

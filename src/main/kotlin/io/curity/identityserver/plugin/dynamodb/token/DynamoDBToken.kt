@@ -41,8 +41,7 @@ class DynamoDBToken(
     private val audience: StringOrArray,
     private val data: Map<String, Any>
 
-) : Token
-{
+) : Token {
     override fun getTokenHash() = tokenHash
 
     override fun getId() = id

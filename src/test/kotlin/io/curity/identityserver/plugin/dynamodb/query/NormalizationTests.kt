@@ -23,19 +23,19 @@ import org.junit.runners.Parameterized
 
 @RunWith(Parameterized::class)
 class NormalizationTests(
-    private val description:String,
+    private val description: String,
     private val inputExpression: Expression,
-    private val expectedNormalizedExpression: DisjunctiveNormalForm)
-{
+    private val expectedNormalizedExpression: DisjunctiveNormalForm
+) {
 
     @Test
-    fun testNormalization(){
+    fun testNormalization() {
         assertEquals(expectedNormalizedExpression, normalize(inputExpression))
     }
 
     companion object {
         @JvmStatic
-        @Parameterized.Parameters(name="{index}: {0}")
+        @Parameterized.Parameters(name = "{index}: {0}")
         fun where() = listOf(
             arrayOf(
                 "(A || B) && C",
@@ -46,16 +46,18 @@ class NormalizationTests(
                     ),
                     BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "valid")
                 ),
-                DisjunctiveNormalForm(setOf(
-                    Product.of(
-                        BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com"),
-                        BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "valid")
-                    ),
-                    Product.of(
-                        BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice"),
-                        BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "valid")
+                DisjunctiveNormalForm(
+                    setOf(
+                        Product.of(
+                            BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com"),
+                            BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "valid")
+                        ),
+                        Product.of(
+                            BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice"),
+                            BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "valid")
+                        )
                     )
-                ))
+                )
             ),
 
             arrayOf(
@@ -67,16 +69,18 @@ class NormalizationTests(
                     ),
                     negate(BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "valid"))
                 ),
-                DisjunctiveNormalForm(setOf(
-                    Product.of(
-                        BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com"),
-                        BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Ne, "valid")
-                    ),
-                    Product.of(
-                        BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice"),
-                        BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Ne, "valid")
+                DisjunctiveNormalForm(
+                    setOf(
+                        Product.of(
+                            BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com"),
+                            BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Ne, "valid")
+                        ),
+                        Product.of(
+                            BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice"),
+                            BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Ne, "valid")
+                        )
                     )
-                ))
+                )
             ),
             arrayOf(
                 "(A || B) && (C || D)",
@@ -90,24 +94,26 @@ class NormalizationTests(
                         BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "revoked")
                     )
                 ),
-                DisjunctiveNormalForm(setOf(
-                    Product.of(
-                        BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com"),
-                        BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "expired")
-                    ),
-                    Product.of(
-                        BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com"),
-                        BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "revoked")
-                    ),
-                    Product.of(
-                        BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice"),
-                        BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "expired")
-                    ),
-                    Product.of(
-                        BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice"),
-                        BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "revoked")
+                DisjunctiveNormalForm(
+                    setOf(
+                        Product.of(
+                            BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com"),
+                            BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "expired")
+                        ),
+                        Product.of(
+                            BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com"),
+                            BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "revoked")
+                        ),
+                        Product.of(
+                            BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice"),
+                            BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "expired")
+                        ),
+                        Product.of(
+                            BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice"),
+                            BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "revoked")
+                        )
                     )
-                ))
+                )
             ),
 
             arrayOf(
@@ -117,23 +123,27 @@ class NormalizationTests(
                         BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com"),
                         BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice")
                     ),
-                    negate(or(
-                        BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "expired"),
-                        BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "revoked")
-                    ))
-                ),
-                DisjunctiveNormalForm(setOf(
-                    Product.of(
-                        BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com"),
-                        BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Ne, "expired"),
-                        BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Ne, "revoked")
-                    ),
-                    Product.of(
-                        BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice"),
-                        BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Ne, "expired"),
-                        BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Ne, "revoked")
+                    negate(
+                        or(
+                            BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "expired"),
+                            BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Eq, "revoked")
+                        )
                     )
-                ))
+                ),
+                DisjunctiveNormalForm(
+                    setOf(
+                        Product.of(
+                            BinaryAttributeExpression(EMAIL, BinaryAttributeOperator.Eq, "alice@gmail.com"),
+                            BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Ne, "expired"),
+                            BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Ne, "revoked")
+                        ),
+                        Product.of(
+                            BinaryAttributeExpression(USER_NAME, BinaryAttributeOperator.Eq, "alice"),
+                            BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Ne, "expired"),
+                            BinaryAttributeExpression(STATUS, BinaryAttributeOperator.Ne, "revoked")
+                        )
+                    )
+                )
             )
         )
     }

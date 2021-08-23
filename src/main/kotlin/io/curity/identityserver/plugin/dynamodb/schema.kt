@@ -35,8 +35,7 @@ typealias MutableDynamoDBItem = MutableMap<String, AttributeValue>
  * Set of types and functions to represent and work with tables and table attributes
  */
 
-enum class AttributeType(val typeName: String)
-{
+enum class AttributeType(val typeName: String) {
     S("S"),
     N("N"),
     L("L")
@@ -45,8 +44,7 @@ enum class AttributeType(val typeName: String)
 // A DynamoDB table
 abstract class Table(
     private val suffixName: String
-)
-{
+) {
     fun name(configuration: DynamoDBDataAccessProviderConfiguration) = configuration.getTableNamePrefix()
         .map { prefix -> "$prefix$suffixName" }
         .orElse(suffixName)
@@ -55,8 +53,7 @@ abstract class Table(
 }
 
 // A DynamoDB attribute
-interface DynamoDBAttribute<T>
-{
+interface DynamoDBAttribute<T> {
     val name: String
     val type: AttributeType
     fun toNamePair(): Pair<String, String>
@@ -81,8 +78,7 @@ interface DynamoDBAttribute<T>
 
 // A DynamoDB attribute that must also be unique
 // See [https://aws.amazon.com/blogs/database/simulating-amazon-dynamodb-unique-constraints-using-transactions/]
-interface UniqueAttribute<T> : DynamoDBAttribute<T>
-{
+interface UniqueAttribute<T> : DynamoDBAttribute<T> {
     // The value to use on the partition key
     fun uniquenessValueFrom(value: T): String
 }
@@ -90,35 +86,28 @@ interface UniqueAttribute<T> : DynamoDBAttribute<T>
 abstract class BaseAttribute<T>(
     final override val name: String,
     override val type: AttributeType
-) : DynamoDBAttribute<T>
-{
+) : DynamoDBAttribute<T> {
     override fun toNamePair() = "#${name}" to name
     override fun toString() = name
     override fun toNameValuePair(value: T) = name to toAttrValue(value)
     override fun toExpressionNameValuePair(value: T) = ":${name}" to toAttrValue(value)
     override fun optionalFrom(map: Map<String, AttributeValue>): T? = map[name]?.let { from(it) }
     override fun from(map: Map<String, AttributeValue>) = optionalFrom(map) ?: throw SchemaErrorException(this)
-    override fun addTo(map: MutableMap<String, AttributeValue>, value: T)
-    {
+    override fun addTo(map: MutableMap<String, AttributeValue>, value: T) {
         map[name] = toAttrValue(value)
     }
 
-    override fun addToNullable(map: MutableMap<String, AttributeValue>, value: T?)
-    {
-        if (value != null)
-        {
+    override fun addToNullable(map: MutableMap<String, AttributeValue>, value: T?) {
+        if (value != null) {
             map[name] = toAttrValue(value)
         }
     }
 
-    override fun addToAny(map: MutableMap<String, AttributeValue>, value: Any)
-    {
+    override fun addToAny(map: MutableMap<String, AttributeValue>, value: Any) {
         val castedValue = cast(value)
-        if (castedValue != null)
-        {
+        if (castedValue != null) {
             addTo(map, castedValue)
-        } else
-        {
+        } else {
             throw RuntimeException("Unable to convert '$value' to '$name' attribute value")
         }
     }
@@ -137,22 +126,17 @@ abstract class BaseAttribute<T>(
 }
 
 private fun <T : Comparable<T>> compare(a: T?, b: T?) =
-    if (a == null && b == null)
-    {
+    if (a == null && b == null) {
         0
-    } else if (a == null)
-    {
+    } else if (a == null) {
         -1
-    } else if (b == null)
-    {
+    } else if (b == null) {
         1
-    } else
-    {
+    } else {
         a.compareTo(b)
     }
 
-class StringAttribute(name: String) : BaseAttribute<String>(name, AttributeType.S)
-{
+class StringAttribute(name: String) : BaseAttribute<String>(name, AttributeType.S) {
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
     override fun from(attrValue: AttributeValue): String = attrValue.s()
     override fun cast(value: Any) = value as? String
@@ -163,24 +147,20 @@ class EnumAttribute<T : Enum<T>>(
     name: String,
     private val enumClass: Class<T>,
     private val valuesMap: Map<String, T>
-) : BaseAttribute<T>(name, AttributeType.S)
-{
+) : BaseAttribute<T>(name, AttributeType.S) {
     override fun toAttrValue(value: T): AttributeValue = AttributeValue.builder().s(value.name).build()
     override fun from(attrValue: AttributeValue): T = valuesMap[attrValue.s()]
         ?: throw SchemaErrorException(this, attrValue.s())
 
-    override fun cast(value: Any) = if (enumClass.isInstance(value))
-    {
+    override fun cast(value: Any) = if (enumClass.isInstance(value)) {
         enumClass.cast(value)
-    } else
-    {
+    } else {
         null
     }
 
     override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
 
-    companion object
-    {
+    companion object {
         inline fun <reified T : Enum<T>> of(name: String) = EnumAttribute<T>(
             name,
             T::class.java,
@@ -189,8 +169,7 @@ class EnumAttribute<T : Enum<T>>(
     }
 }
 
-class ListStringAttribute(name: String) : BaseAttribute<Collection<String>>(name, AttributeType.L)
-{
+class ListStringAttribute(name: String) : BaseAttribute<Collection<String>>(name, AttributeType.L) {
     override fun toAttrValue(value: Collection<String>): AttributeValue = AttributeValue.builder()
         .l(value.map { AttributeValue.builder().s(it).build() })
         .build()
@@ -198,11 +177,9 @@ class ListStringAttribute(name: String) : BaseAttribute<Collection<String>>(name
     override fun from(attrValue: AttributeValue): Collection<String> = attrValue.l()
         .map { it.s() }
 
-    override fun cast(value: Any) = if (value is Collection<*> && value.all { it is String })
-    {
+    override fun cast(value: Any) = if (value is Collection<*> && value.all { it is String }) {
         value.map { it as String }
-    } else
-    {
+    } else {
         null
     }
 
@@ -212,8 +189,7 @@ class ListStringAttribute(name: String) : BaseAttribute<Collection<String>>(name
 
 // An attribute that is composed by two values
 class StringCompositeAttribute2(name: String, private val template: (String, String) -> String) :
-    BaseAttribute<Pair<String, String>>(name, AttributeType.S)
-{
+    BaseAttribute<Pair<String, String>>(name, AttributeType.S) {
     override fun toAttrValue(value: Pair<String, String>): AttributeValue =
         AttributeValue.builder().s(template(value.first, value.second)).build()
 
@@ -224,8 +200,7 @@ class StringCompositeAttribute2(name: String, private val template: (String, Str
 }
 
 class UniqueStringAttribute(name: String, val prefix: String) : BaseAttribute<String>(name, AttributeType.S),
-    UniqueAttribute<String>
-{
+    UniqueAttribute<String> {
     private fun getUniquePkValue(value: String) = "$prefix$value"
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
     override fun from(attrValue: AttributeValue): String = attrValue.s()
@@ -234,8 +209,7 @@ class UniqueStringAttribute(name: String, val prefix: String) : BaseAttribute<St
     override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
 }
 
-class KeyStringAttribute(name: String) : BaseAttribute<String>(name, AttributeType.S)
-{
+class KeyStringAttribute(name: String) : BaseAttribute<String>(name, AttributeType.S) {
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
     override fun from(attrValue: AttributeValue): String = attrValue.s()
 
@@ -247,16 +221,14 @@ class KeyStringAttribute(name: String) : BaseAttribute<String>(name, AttributeTy
     override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
 }
 
-class NumberLongAttribute(name: String) : BaseAttribute<Long>(name, AttributeType.N)
-{
+class NumberLongAttribute(name: String) : BaseAttribute<Long>(name, AttributeType.N) {
     override fun toAttrValue(value: Long): AttributeValue = AttributeValue.builder().n(value.toString()).build()
     override fun from(attrValue: AttributeValue): Long = attrValue.n().toLong()
     override fun cast(value: Any) = value as? Long ?: (value as? Int)?.toLong()
     override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
 }
 
-class BooleanAttribute(name: String) : BaseAttribute<Boolean>(name, AttributeType.N)
-{
+class BooleanAttribute(name: String) : BaseAttribute<Boolean>(name, AttributeType.N) {
     override fun toAttrValue(value: Boolean): AttributeValue = AttributeValue.builder().bool(value).build()
     override fun from(attrValue: AttributeValue): Boolean = attrValue.bool()
     override fun cast(value: Any) = value as? Boolean
@@ -276,8 +248,7 @@ class UniquenessBasedIndexStringAttribute(
     private val _uniqueAttribute: UniqueAttribute<String>
 )
 // the attribute name is the name of the primary key attribute
-    : BaseAttribute<String>(_primaryKeyAttribute.name, AttributeType.S)
-{
+    : BaseAttribute<String>(_primaryKeyAttribute.name, AttributeType.S) {
 
     // the attribute name comes from the primary key, however the value uses the unique attribute mapping function
     override fun toAttrValue(value: String) = _primaryKeyAttribute.toAttrValue(
@@ -295,8 +266,7 @@ class UniquenessBasedIndexStringAttribute(
 
 class ExpressionBuilder(
     val expression: String, vararg attributes: DynamoDBAttribute<*>
-)
-{
+) {
     val attributeNames = attributes
         .map {
             it.toNamePair()
@@ -306,8 +276,7 @@ class ExpressionBuilder(
 
 abstract class Expression(
     builder: ExpressionBuilder
-)
-{
+) {
     val expression = builder.expression
     val attributeNames = builder.attributeNames
     abstract val values: Map<String, AttributeValue>
@@ -315,8 +284,7 @@ abstract class Expression(
 
 // Extension functions that apply expressions to request builders
 fun UpdateItemRequest.Builder.updateExpression(expression: Expression)
-        : UpdateItemRequest.Builder
-{
+        : UpdateItemRequest.Builder {
     this.updateExpression(expression.expression)
     this.expressionAttributeNames(expression.attributeNames)
     this.expressionAttributeValues(expression.values)
@@ -324,8 +292,7 @@ fun UpdateItemRequest.Builder.updateExpression(expression: Expression)
 }
 
 fun Delete.Builder.conditionExpression(expression: Expression)
-        : Delete.Builder
-{
+        : Delete.Builder {
     this.conditionExpression(expression.expression)
     this.expressionAttributeNames(expression.attributeNames)
     this.expressionAttributeValues(expression.values)
@@ -333,8 +300,7 @@ fun Delete.Builder.conditionExpression(expression: Expression)
 }
 
 fun Put.Builder.conditionExpression(expression: Expression)
-        : Put.Builder
-{
+        : Put.Builder {
     this.conditionExpression(expression.expression)
     this.expressionAttributeNames(expression.attributeNames)
     this.expressionAttributeValues(expression.values)
@@ -349,16 +315,14 @@ class PrimaryKey<T>(
 class PartitionOnlyIndex<T>(
     val name: String,
     val attribute: DynamoDBAttribute<T>
-)
-{
+) {
     override fun toString() = name
     val expression = "${attribute.hashName} = ${attribute.colonName}"
     fun expressionValueMap(value: T) = mapOf(attribute.toExpressionNameValuePair(value))
     val expressionNameMap = mapOf(attribute.hashName to attribute.name)
 }
 
-fun <T> QueryRequest.Builder.useIndexAndKey(index: PartitionOnlyIndex<T>, value: T): QueryRequest.Builder
-{
+fun <T> QueryRequest.Builder.useIndexAndKey(index: PartitionOnlyIndex<T>, value: T): QueryRequest.Builder {
     this.indexName(index.name)
     this.keyConditionExpression(index.expression)
     this.expressionAttributeNames(index.expressionNameMap)
@@ -371,8 +335,7 @@ class PartitionAndSortIndex<T1, T2>(
     val name: String,
     val partitionAttribute: DynamoDBAttribute<T1>,
     val sortAttribute: DynamoDBAttribute<T2>
-)
-{
+) {
     override fun toString() = name
     fun expressionValueMap(first: T1, second: T2) = mapOf(
         partitionAttribute.toExpressionNameValuePair(first),
@@ -388,7 +351,6 @@ class PartitionAndSortIndex<T1, T2>(
         "${partitionAttribute.hashName} = ${partitionAttribute.colonName} AND ${sortAttribute.hashName} = ${sortAttribute.colonName}"
 }
 
-fun <T> MutableMap<String, AttributeValue>.addAttr(attribute: DynamoDBAttribute<T>, value: T)
-{
+fun <T> MutableMap<String, AttributeValue>.addAttr(attribute: DynamoDBAttribute<T>, value: T) {
     this[attribute.name] = attribute.toAttrValue(value)
 }

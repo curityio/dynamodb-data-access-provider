@@ -21,19 +21,14 @@ import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledExcepti
 
 private val _logger = LoggerFactory.getLogger("utils")
 
-fun Exception.isTransactionCancelledDueToConditionFailure(): Boolean
-{
-    val transactionCanceledException = if (this is TransactionCanceledException)
-    {
+fun Exception.isTransactionCancelledDueToConditionFailure(): Boolean {
+    val transactionCanceledException = if (this is TransactionCanceledException) {
         this
-    } else
-    {
+    } else {
         val cause = this.cause
-        if (cause is TransactionCanceledException)
-        {
+        if (cause is TransactionCanceledException) {
             cause
-        } else
-        {
+        } else {
             return false
         }
     }
@@ -43,23 +38,18 @@ fun Exception.isTransactionCancelledDueToConditionFailure(): Boolean
     }
 }
 
-sealed class TransactionAttemptResult<out T>
-{
+sealed class TransactionAttemptResult<out T> {
     class Success<T>(val value: T) : TransactionAttemptResult<T>()
     class Failure(val exception: Exception) : TransactionAttemptResult<Nothing>()
 }
 
-fun <T> retry(name: String, tries: Int, action: () -> TransactionAttemptResult<T>): T
-{
+fun <T> retry(name: String, tries: Int, action: () -> TransactionAttemptResult<T>): T {
     var attempt = 0
-    while (true)
-    {
-        when (val res = action())
-        {
+    while (true) {
+        when (val res = action()) {
             is TransactionAttemptResult.Success -> return res.value
             is TransactionAttemptResult.Failure ->
-                if (attempt + 1 == tries)
-                {
+                if (attempt + 1 == tries) {
                     _logger.debug("Transactional operation '{}' failed, giving up after '{}' attempts", name, tries)
                     throw res.exception
                 }
@@ -71,8 +61,7 @@ fun <T> retry(name: String, tries: Int, action: () -> TransactionAttemptResult<T
 }
 
 fun Long.toIntOrThrow(name: String) =
-    if(this > Int.MAX_VALUE || this < 0)
-    {
+    if (this > Int.MAX_VALUE || this < 0) {
         throw IllegalArgumentException("Argument $name is negative or exceeds maximum allowed value")
     } else {
         this.toInt()

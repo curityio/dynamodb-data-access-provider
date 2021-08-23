@@ -90,8 +90,7 @@ import java.util.UUID
 class DynamoDBUserAccountDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient,
     private val _configuration: DynamoDBDataAccessProviderConfiguration
-) : UserAccountDataAccessProvider, CredentialDataAccessProvider
-{
+) : UserAccountDataAccessProvider, CredentialDataAccessProvider {
     private val jsonHandler = _configuration.getJsonHandler()
 
     override fun getById(
@@ -101,8 +100,7 @@ class DynamoDBUserAccountDataAccessProvider(
     override fun getById(
         accountId: String,
         attributesEnumeration: ResourceQuery.AttributesEnumeration
-    ): ResourceAttributes<*>?
-    {
+    ): ResourceAttributes<*>? {
         _logger.debug("Received request to get account by ID : {}", accountId)
 
         return retrieveByUniqueAttribute(AccountsTable.accountId, accountId, attributesEnumeration)
@@ -111,8 +109,7 @@ class DynamoDBUserAccountDataAccessProvider(
     override fun getByUserName(
         userName: String,
         attributesEnumeration: ResourceQuery.AttributesEnumeration
-    ): ResourceAttributes<*>?
-    {
+    ): ResourceAttributes<*>? {
         _logger.debug("Received request to get account by userName : {}", userName)
 
         return retrieveByUniqueAttribute(AccountsTable.userName, userName, attributesEnumeration)
@@ -121,8 +118,7 @@ class DynamoDBUserAccountDataAccessProvider(
     override fun getByEmail(
         email: String,
         attributesEnumeration: ResourceQuery.AttributesEnumeration
-    ): ResourceAttributes<*>?
-    {
+    ): ResourceAttributes<*>? {
         _logger.debug("Received request to get account by email : {}", email)
 
         return retrieveByUniqueAttribute(AccountsTable.email, email, attributesEnumeration)
@@ -131,8 +127,7 @@ class DynamoDBUserAccountDataAccessProvider(
     override fun getByPhone(
         phone: String,
         attributesEnumeration: ResourceQuery.AttributesEnumeration
-    ): ResourceAttributes<*>?
-    {
+    ): ResourceAttributes<*>? {
         _logger.debug("Received request to get account by phone number : {}", phone)
 
         return retrieveByUniqueAttribute(AccountsTable.phone, phone, attributesEnumeration)
@@ -142,8 +137,7 @@ class DynamoDBUserAccountDataAccessProvider(
         key: UniqueAttribute<String>,
         keyValue: String,
         attributesEnumeration: ResourceQuery.AttributesEnumeration?
-    ): ResourceAttributes<*>?
-    {
+    ): ResourceAttributes<*>? {
         val requestBuilder = GetItemRequest.builder()
             .tableName(AccountsTable.name(_configuration))
             .key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(key, keyValue)))
@@ -153,17 +147,14 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val response = _dynamoDBClient.getItem(request)
 
-        return if (response.hasItem())
-        {
+        return if (response.hasItem()) {
             response.item().toAccountAttributes(attributesEnumeration)
-        } else
-        {
+        } else {
             null
         }
     }
 
-    override fun create(accountAttributes: AccountAttributes): AccountAttributes
-    {
+    override fun create(accountAttributes: AccountAttributes): AccountAttributes {
         _logger.debug("Received request to create account with data : {}", accountAttributes)
 
         val accountId = UUID.randomUUID().toString()
@@ -239,13 +230,10 @@ class DynamoDBUserAccountDataAccessProvider(
             .transactItems(transactionItems)
             .build()
 
-        try
-        {
+        try {
             _dynamoDBClient.transactionWriteItems(request)
-        } catch (ex: Exception)
-        {
-            if (ex.isTransactionCancelledDueToConditionFailure())
-            {
+        } catch (ex: Exception) {
+            if (ex.isTransactionCancelledDueToConditionFailure()) {
                 throw ConflictException(
                     "Unable to create user with username '${accountAttributes.userName}' as uniqueness check failed"
                 )
@@ -258,8 +246,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
     override fun delete(accountId: String) = retry("delete", N_OF_ATTEMPTS) { tryDelete(accountId) }
 
-    private fun tryDelete(accountId: String): TransactionAttemptResult<Unit>
-    {
+    private fun tryDelete(accountId: String): TransactionAttemptResult<Unit> {
         _logger.debug("Received request to delete account with accountId: {}", accountId)
 
         // Deleting an account requires the deletion of the main item and all the secondary items.
@@ -272,8 +259,7 @@ class DynamoDBUserAccountDataAccessProvider(
                 .build()
         )
 
-        if (!getItemResponse.hasItem() || getItemResponse.item().isEmpty())
-        {
+        if (!getItemResponse.hasItem() || getItemResponse.item().isEmpty()) {
             return TransactionAttemptResult.Success(Unit)
         }
 
@@ -314,8 +300,7 @@ class DynamoDBUserAccountDataAccessProvider(
                 }
                 .build()
         )
-        if (email != null)
-        {
+        if (email != null) {
             transactionItems.add(
                 TransactWriteItem.builder()
                     .delete {
@@ -326,8 +311,7 @@ class DynamoDBUserAccountDataAccessProvider(
                     .build()
             )
         }
-        if (phone != null)
-        {
+        if (phone != null) {
             transactionItems.add(
                 TransactWriteItem.builder()
                     .delete {
@@ -343,14 +327,11 @@ class DynamoDBUserAccountDataAccessProvider(
             .transactItems(transactionItems)
             .build()
 
-        try
-        {
+        try {
             _dynamoDBClient.transactionWriteItems(request)
             return TransactionAttemptResult.Success(Unit)
-        } catch (ex: Exception)
-        {
-            if (ex.isTransactionCancelledDueToConditionFailure())
-            {
+        } catch (ex: Exception) {
+            if (ex.isTransactionCancelledDueToConditionFailure()) {
                 return TransactionAttemptResult.Failure(
                     ConflictException("Unable to delete user")
                 )
@@ -362,8 +343,7 @@ class DynamoDBUserAccountDataAccessProvider(
     override fun update(
         accountAttributes: AccountAttributes,
         attributesEnumeration: ResourceQuery.AttributesEnumeration
-    ): ResourceAttributes<*>?
-    {
+    ): ResourceAttributes<*>? {
         _logger.debug("Received request to update account with data : {}", accountAttributes)
 
         val id = accountAttributes.id
@@ -376,8 +356,7 @@ class DynamoDBUserAccountDataAccessProvider(
     override fun update(
         accountId: String, map: Map<String, Any>,
         attributesEnumeration: ResourceQuery.AttributesEnumeration
-    ): ResourceAttributes<*>?
-    {
+    ): ResourceAttributes<*>? {
         _logger.debug("Received request to update account with id:{} and data : {}", accountId, map)
 
         updateAccount(accountId, AccountAttributes.fromMap(map))
@@ -393,8 +372,7 @@ class DynamoDBUserAccountDataAccessProvider(
         }
 
     private fun tryUpdateAccount(accountId: String, accountAttributes: AccountAttributes, observedItem: DynamoDBItem)
-            : TransactionAttemptResult<Unit>
-    {
+            : TransactionAttemptResult<Unit> {
         val observedVersion = observedItem.version()
         val newVersion = observedVersion + 1
 
@@ -408,8 +386,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
         // The password attribute is not updated
         commonItem.remove(AccountsTable.password.name)
-        if (maybePassword != null)
-        {
+        if (maybePassword != null) {
             commonItem[AccountsTable.password.name] = AccountsTable.password.toAttrValue(maybePassword)
         }
 
@@ -445,14 +422,11 @@ class DynamoDBUserAccountDataAccessProvider(
             accountAttributes.phoneNumbers.primaryOrFirst?.significantValue
         )
 
-        try
-        {
+        try {
             _dynamoDBClient.transactionWriteItems(updateBuilder.build())
             return TransactionAttemptResult.Success(Unit)
-        } catch (ex: Exception)
-        {
-            if (ex.isTransactionCancelledDueToConditionFailure())
-            {
+        } catch (ex: Exception) {
+            if (ex.isTransactionCancelledDueToConditionFailure()) {
                 return TransactionAttemptResult.Failure(ex)
             }
             throw ex
@@ -462,8 +436,7 @@ class DynamoDBUserAccountDataAccessProvider(
     override fun patch(
         accountId: String, attributeUpdate: AttributeUpdate,
         attributesEnumeration: ResourceQuery.AttributesEnumeration
-    ): ResourceAttributes<*>?
-    {
+    ): ResourceAttributes<*>? {
         retry("updateAccount", N_OF_ATTEMPTS)
         {
             val observedItem = getItemByAccountId(accountId) ?: return@retry TransactionAttemptResult.Success(null)
@@ -471,8 +444,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
             if (attributeUpdate.attributeAdditions.contains(AccountAttributes.PASSWORD) ||
                 attributeUpdate.attributeReplacements.contains(AccountAttributes.PASSWORD)
-            )
-            {
+            ) {
                 _logger.info(
                     "Received an account with a password to update. Cannot update passwords using this method, " +
                             "so the password will be ignored."
@@ -483,8 +455,7 @@ class DynamoDBUserAccountDataAccessProvider(
                 .with(Attribute.of(ResourceAttributes.ID, accountId))
                 .removeAttribute(ResourceAttributes.META)
 
-            if (newAttributes.contains(AccountAttributes.PASSWORD))
-            {
+            if (newAttributes.contains(AccountAttributes.PASSWORD)) {
                 newAttributes = newAttributes.removeAttribute(AccountAttributes.PASSWORD)
             }
 
@@ -495,8 +466,7 @@ class DynamoDBUserAccountDataAccessProvider(
         return getById(accountId, attributesEnumeration)
     }
 
-    override fun updatePassword(accountAttributes: AccountAttributes)
-    {
+    override fun updatePassword(accountAttributes: AccountAttributes) {
         val username = accountAttributes.userName
         val password = accountAttributes.password
 
@@ -505,8 +475,7 @@ class DynamoDBUserAccountDataAccessProvider(
         retry("updatePassword", N_OF_ATTEMPTS)
         {
             val observedItem = getItemByUsername(username)
-            if (observedItem == null)
-            {
+            if (observedItem == null) {
                 _logger.debug("Unable to update password because there isn't an account with the given userName")
                 return@retry TransactionAttemptResult.Success(null)
             }
@@ -558,14 +527,11 @@ class DynamoDBUserAccountDataAccessProvider(
                 maybePhone
             )
 
-            try
-            {
+            try {
                 _dynamoDBClient.transactionWriteItems(updateBuilder.build())
                 return@retry TransactionAttemptResult.Success(Unit)
-            } catch (ex: Exception)
-            {
-                if (ex.isTransactionCancelledDueToConditionFailure())
-                {
+            } catch (ex: Exception) {
+                if (ex.isTransactionCancelledDueToConditionFailure()) {
                     return@retry TransactionAttemptResult.Failure(ex)
                 }
                 throw ex
@@ -574,8 +540,7 @@ class DynamoDBUserAccountDataAccessProvider(
         }
     }
 
-    override fun verifyPassword(userName: String, password: String): AuthenticationAttributes?
-    {
+    override fun verifyPassword(userName: String, password: String): AuthenticationAttributes? {
         _logger.debug("Received request to verify password for username : {}", userName)
 
         val request = GetItemRequest.builder()
@@ -596,16 +561,14 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val response = _dynamoDBClient.getItem(request)
 
-        if (!response.hasItem())
-        {
+        if (!response.hasItem()) {
             return null
         }
 
         val item = response.item()
         val active = AccountsTable.active.optionalFrom(item) ?: false
 
-        if (!active)
-        {
+        if (!active) {
             return null
         }
 
@@ -623,13 +586,11 @@ class DynamoDBUserAccountDataAccessProvider(
         )
     }
 
-    override fun customQueryVerifiesPassword(): Boolean
-    {
+    override fun customQueryVerifiesPassword(): Boolean {
         return false
     }
 
-    private fun getItemByAccountId(accountId: String): DynamoDBItem?
-    {
+    private fun getItemByAccountId(accountId: String): DynamoDBItem? {
         val requestBuilder = GetItemRequest.builder()
             .tableName(AccountsTable.name(_configuration))
             .key(AccountsTable.keyFromAccountId(accountId))
@@ -641,8 +602,7 @@ class DynamoDBUserAccountDataAccessProvider(
         return if (response.hasItem()) response.item() else null
     }
 
-    private fun getItemByUsername(userName: String): DynamoDBItem?
-    {
+    private fun getItemByUsername(userName: String): DynamoDBItem? {
         val requestBuilder = GetItemRequest.builder()
             .tableName(AccountsTable.name(_configuration))
             .key(AccountsTable.keyFromUserName(userName))
@@ -659,8 +619,7 @@ class DynamoDBUserAccountDataAccessProvider(
         localAccountId: String,
         foreignDomainName: String,
         foreignUserName: String
-    )
-    {
+    ) {
         val request = PutItemRequest.builder()
             .tableName(LinksTable.name(_configuration))
             .item(LinksTable.createItem(linkingAccountManager, localAccountId, foreignDomainName, foreignUserName))
@@ -669,8 +628,7 @@ class DynamoDBUserAccountDataAccessProvider(
         _dynamoDBClient.putItem(request)
     }
 
-    override fun listLinks(linkingAccountManager: String, localAccountId: String): Collection<LinkedAccount>
-    {
+    override fun listLinks(linkingAccountManager: String, localAccountId: String): Collection<LinkedAccount> {
         val request = QueryRequest.builder()
             .tableName(LinksTable.name(_configuration))
             .indexName(LinksTable.listLinksIndex.name)
@@ -700,8 +658,7 @@ class DynamoDBUserAccountDataAccessProvider(
         linkingAccountManager: String,
         foreignDomainName: String,
         foreignAccountId: String
-    ): AccountAttributes?
-    {
+    ): AccountAttributes? {
         val request = GetItemRequest.builder()
             .tableName(LinksTable.name(_configuration))
             .key(mapOf(LinksTable.pk.toNameValuePair(foreignAccountId, foreignDomainName)))
@@ -710,8 +667,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val response = _dynamoDBClient.getItem(request)
 
-        if (!response.hasItem() || response.item().isEmpty())
-        {
+        if (!response.hasItem() || response.item().isEmpty()) {
             return null
         }
 
@@ -720,8 +676,7 @@ class DynamoDBUserAccountDataAccessProvider(
         val itemAccountManager = LinksTable.linkingAccountManager.optionalFrom(item)
             ?: throw SchemaErrorException(LinksTable, LinksTable.linkingAccountManager)
 
-        if (itemAccountManager != linkingAccountManager)
-        {
+        if (itemAccountManager != linkingAccountManager) {
             return null
         }
 
@@ -736,8 +691,7 @@ class DynamoDBUserAccountDataAccessProvider(
         localAccountId: String,
         foreignDomainName: String,
         foreignAccountId: String
-    ): Boolean
-    {
+    ): Boolean {
         val request = DeleteItemRequest.builder()
             .tableName(LinksTable.name(_configuration))
             .key(mapOf(LinksTable.pk.toNameValuePair(foreignAccountId, foreignDomainName)))
@@ -758,38 +712,30 @@ class DynamoDBUserAccountDataAccessProvider(
         return response.sdkHttpResponse().isSuccessful
     }
 
-    override fun getAll(resourceQuery: ResourceQuery): ResourceQueryResult = try
-    {
+    override fun getAll(resourceQuery: ResourceQuery): ResourceQueryResult = try {
         val comparator = getComparatorFor(resourceQuery)
 
-        val queryPlan = if (resourceQuery.filter != null)
-        {
+        val queryPlan = if (resourceQuery.filter != null) {
             QueryPlanner(AccountsTable.queryCapabilities).build(resourceQuery.filter)
-        } else
-        {
+        } else {
             QueryPlan.UsingScan.fullScan()
         }
 
-        val values = when (queryPlan)
-        {
+        val values = when (queryPlan) {
             is QueryPlan.UsingQueries -> query(queryPlan)
             is QueryPlan.UsingScan -> scan(queryPlan)
         }
 
         // FIXME avoid the toList
-        val sortedValues = if (comparator != null)
-        {
+        val sortedValues = if (comparator != null) {
             values.sortedWith(
-                if (resourceQuery.sorting.sortOrder == ResourceQuery.Sorting.SortOrder.ASCENDING)
-                {
+                if (resourceQuery.sorting.sortOrder == ResourceQuery.Sorting.SortOrder.ASCENDING) {
                     comparator
-                } else
-                {
+                } else {
                     comparator.reversed()
                 }
             ).toList()
-        } else
-        {
+        } else {
             values.toList()
         }
 
@@ -808,8 +754,7 @@ class DynamoDBUserAccountDataAccessProvider(
             resourceQuery.pagination.startIndex,
             resourceQuery.pagination.count
         )
-    } catch (e: UnsupportedQueryException)
-    {
+    } catch (e: UnsupportedQueryException) {
         _logger.debug(
             "Unable to process query. Reason is '{}', query = '{}",
             e.message,
@@ -818,19 +763,16 @@ class DynamoDBUserAccountDataAccessProvider(
         throw _configuration.getExceptionFactory().externalServiceException(e.message)
     }
 
-    private fun scan(queryPlan: QueryPlan.UsingScan?): Sequence<DynamoDBItem>
-    {
+    private fun scan(queryPlan: QueryPlan.UsingScan?): Sequence<DynamoDBItem> {
         val scanRequestBuilder = ScanRequest.builder()
             .tableName(AccountsTable.name(_configuration))
 
-        return if (queryPlan != null && queryPlan.expression.products.isNotEmpty())
-        {
+        return if (queryPlan != null && queryPlan.expression.products.isNotEmpty()) {
             val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression).addPkFiltering()
             scanRequestBuilder.configureWith(dynamoDBScan)
             scanSequence(scanRequestBuilder.build(), _dynamoDBClient)
                 .filterWith(queryPlan.expression.products)
-        } else
-        {
+        } else {
             scanRequestBuilder.configureWith(filterForItemsWithAccountIdPk)
             scanSequence(scanRequestBuilder.build(), _dynamoDBClient)
         }
@@ -842,11 +784,9 @@ class DynamoDBUserAccountDataAccessProvider(
         nameMap = filterForItemsWithAccountIdPk.nameMap + this.nameMap
     )
 
-    private fun query(queryPlan: QueryPlan.UsingQueries): Sequence<DynamoDBItem>
-    {
+    private fun query(queryPlan: QueryPlan.UsingQueries): Sequence<DynamoDBItem> {
         val nOfQueries = queryPlan.queries.entries.size
-        if (nOfQueries > MAX_QUERIES)
-        {
+        if (nOfQueries > MAX_QUERIES) {
             throw UnsupportedQueryException.QueryRequiresTooManyOperations(nOfQueries, MAX_QUERIES)
         }
         val result = linkedMapOf<String, Map<String, AttributeValue>>()
@@ -867,24 +807,20 @@ class DynamoDBUserAccountDataAccessProvider(
         return result.values.asSequence()
     }
 
-    private fun getComparatorFor(resourceQuery: ResourceQuery): Comparator<Map<String, AttributeValue>>?
-    {
-        return if (resourceQuery.sorting != null && resourceQuery.sorting.sortBy != null)
-        {
+    private fun getComparatorFor(resourceQuery: ResourceQuery): Comparator<Map<String, AttributeValue>>? {
+        return if (resourceQuery.sorting != null && resourceQuery.sorting.sortBy != null) {
             AccountsTable.queryCapabilities.attributeMap[resourceQuery.sorting.sortBy]
                 ?.let { attribute ->
                     attribute.comparator()
                         ?: throw UnsupportedQueryException.UnsupportedSortAttribute(resourceQuery.sorting.sortBy)
                 }
                 ?: throw UnsupportedQueryException.UnknownSortAttribute(resourceQuery.sorting.sortBy)
-        } else
-        {
+        } else {
             null
         }
     }
 
-    override fun getAll(startIndex: Long, count: Long): ResourceQueryResult
-    {
+    override fun getAll(startIndex: Long, count: Long): ResourceQueryResult {
         val validatedStartIndex = startIndex.toIntOrThrow("pagination.startIndex")
         val validatedCount = count.toIntOrThrow("pagination.count")
 
@@ -903,8 +839,7 @@ class DynamoDBUserAccountDataAccessProvider(
         accountId: String,
         created: Long,
         updated: Long
-    ): MutableMap<String, AttributeValue>
-    {
+    ): MutableMap<String, AttributeValue> {
         val item = mutableMapOf<String, AttributeValue>()
         item.addAttr(AccountsTable.userName, userName)
         item.addAttr(AccountsTable.active, isActive)
@@ -913,25 +848,20 @@ class DynamoDBUserAccountDataAccessProvider(
         item.addAttr(AccountsTable.created, created)
         item.addAttr(AccountsTable.updated, updated)
 
-        if (!password.isNullOrEmpty())
-        {
+        if (!password.isNullOrEmpty()) {
             item.addAttr(AccountsTable.password, password)
         }
 
-        if (emails != null)
-        {
+        if (emails != null) {
             val email = emails.primaryOrFirst
-            if (email != null && !email.isEmpty)
-            {
+            if (email != null && !email.isEmpty) {
                 item.addAttr(AccountsTable.email, email.significantValue)
             }
         }
 
-        if (phoneNumbers != null)
-        {
+        if (phoneNumbers != null) {
             val phone = phoneNumbers.primaryOrFirst
-            if (phone != null && !phone.isEmpty)
-            {
+            if (phone != null && !phone.isEmpty) {
                 item.addAttr(AccountsTable.phone, phone.significantValue)
             }
         }
@@ -943,8 +873,7 @@ class DynamoDBUserAccountDataAccessProvider(
         return item
     }
 
-    private fun serialize(accountAttributes: AccountAttributes): String?
-    {
+    private fun serialize(accountAttributes: AccountAttributes): String? {
         val filteredAttributes =
             Attributes.of(
                 removeLinkedAccounts(accountAttributes)
@@ -953,53 +882,42 @@ class DynamoDBUserAccountDataAccessProvider(
                     }
             )
 
-        return if (!filteredAttributes.isEmpty)
-        {
+        return if (!filteredAttributes.isEmpty) {
             jsonHandler.fromAttributes(filteredAttributes)
-        } else
-        {
+        } else {
             null
         }
     }
 
     private fun Map<String, AttributeValue>.toAccountAttributes(): AccountAttributes = toAccountAttributes(null)
-    private fun Map<String, AttributeValue>.toAccountAttributes(attributesEnumeration: ResourceQuery.AttributesEnumeration?): AccountAttributes
-    {
+    private fun Map<String, AttributeValue>.toAccountAttributes(attributesEnumeration: ResourceQuery.AttributesEnumeration?): AccountAttributes {
         val map = mutableMapOf<String, Any?>()
 
         map["id"] = AccountsTable.accountId.optionalFrom(this)
 
         forEach { (key, value) ->
-            when (key)
-            {
-                AccountsTable.pk.name ->
-                { /*ignore*/
+            when (key) {
+                AccountsTable.pk.name -> { /*ignore*/
                 }
                 AccountsTable.active.name -> map["active"] = value.bool()
-                AccountsTable.email.name ->
-                {
+                AccountsTable.email.name -> {
                 } // skip, emails are in attributes
-                AccountsTable.phone.name ->
-                {
+                AccountsTable.phone.name -> {
                 } // skip, phones are in attributes
                 AccountsTable.attributes.name -> map.putAll(
                     jsonHandler.fromJson(AccountsTable.attributes.optionalFrom(this)) ?: emptyMap<String, Any>()
                 )
-                AccountsTable.created.name ->
-                {
+                AccountsTable.created.name -> {
                 } // skip, this goes to meta
-                AccountsTable.updated.name ->
-                {
+                AccountsTable.updated.name -> {
                 } // skip, this goes to meta
-                AccountsTable.password.name ->
-                {
+                AccountsTable.password.name -> {
                 } // do not return passwords
                 else -> map[key] = value.s()
             }
         }
 
-        if (attributesEnumeration.includeMeta())
-        {
+        if (attributesEnumeration.includeMeta()) {
             val zoneId =
                 if (map["timezone"] != null) ZoneId.of(map["timezone"].toString()) else ZoneId.of("UTC")
 
@@ -1023,12 +941,10 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val accountAttributes = AccountAttributes.fromMap(map)
 
-        return if (attributesEnumeration != null)
-        {
+        return if (attributesEnumeration != null) {
             // Most of the attributes are in the "attributes" blob json, so the fields have to be filtered separately here
             AccountAttributes.of(accountAttributes.filter(attributesEnumeration))
-        } else
-        {
+        } else {
             accountAttributes
         }
     }
@@ -1038,8 +954,7 @@ class DynamoDBUserAccountDataAccessProvider(
             "meta"
         ))
 
-    object AccountsTable : Table("curity-accounts")
-    {
+    object AccountsTable : Table("curity-accounts") {
         val pk = KeyStringAttribute("pk")
         val accountId = UniqueStringAttribute("accountId", "ai#")
         val version = NumberLongAttribute("version")
@@ -1078,8 +993,7 @@ class DynamoDBUserAccountDataAccessProvider(
         )
     }
 
-    object LinksTable : Table("curity-links")
-    {
+    object LinksTable : Table("curity-links") {
         val pk =
             StringCompositeAttribute2("linkedAccountId_linkedAccountDomainName") { linkedAccountId, linkedAccountDomainName -> "$linkedAccountId@$linkedAccountDomainName" }
         val localAccountId = StringAttribute("accountId")
@@ -1107,16 +1021,14 @@ class DynamoDBUserAccountDataAccessProvider(
 
     private fun versionAndAccountIdConditionExpression(version: Long, accountId: String) = object : Expression(
         _conditionExpressionBuilder
-    )
-    {
+    ) {
         override val values = mapOf(
             ":oldVersion" to AccountsTable.version.toAttrValue(version),
             AccountsTable.accountId.toExpressionNameValuePair(accountId)
         )
     }
 
-    companion object
-    {
+    companion object {
         private val _conditionExpressionBuilder = ExpressionBuilder(
             "#version = :oldVersion AND #accountId = :accountId",
             AccountsTable.version, AccountsTable.accountId
@@ -1133,11 +1045,9 @@ class DynamoDBUserAccountDataAccessProvider(
 
         private const val N_OF_ATTEMPTS = 3
 
-        private fun removeLinkedAccounts(account: AccountAttributes): AccountAttributes
-        {
+        private fun removeLinkedAccounts(account: AccountAttributes): AccountAttributes {
             var withoutLinks = account
-            for (linkedAccount in account.linkedAccounts.toList())
-            {
+            for (linkedAccount in account.linkedAccounts.toList()) {
                 _logger.trace(
                     "Removing linked account before persisting to accounts table '{}'",
                     linkedAccount

@@ -35,8 +35,8 @@ import se.curity.identityserver.sdk.plugin.ManagedObject
 import se.curity.identityserver.sdk.plugin.descriptor.DataAccessProviderPluginDescriptor
 import java.util.Optional
 
-class DynamoDBDataAccessProviderDescriptor: DataAccessProviderPluginDescriptor<DynamoDBDataAccessProviderConfiguration>
-{
+class DynamoDBDataAccessProviderDescriptor :
+    DataAccessProviderPluginDescriptor<DynamoDBDataAccessProviderConfiguration> {
     override fun getPluginImplementationType() = "dynamodb"
 
     override fun getConfigurationType() = DynamoDBDataAccessProviderConfiguration::class.java
@@ -49,20 +49,25 @@ class DynamoDBDataAccessProviderDescriptor: DataAccessProviderPluginDescriptor<D
 
     override fun getBucketDataAccessProvider() = DynamoDBBucketDataAccessProvider::class.java
 
-    override fun getDynamicallyRegisteredClientDataAccessProvider() = DynamoDBDynamicallyRegisteredClientDataAccessProvider::class.java
+    override fun getDynamicallyRegisteredClientDataAccessProvider() =
+        DynamoDBDynamicallyRegisteredClientDataAccessProvider::class.java
 
-    override fun getTokenDataAccessProvider(): Class<out TokenDataAccessProvider> = DynamoDBTokenDataAccessProvider::class.java
+    override fun getTokenDataAccessProvider(): Class<out TokenDataAccessProvider> =
+        DynamoDBTokenDataAccessProvider::class.java
 
-    override fun getDelegationDataAccessProvider(): Class<out DelegationDataAccessProvider> = DynamoDBDelegationDataAccessProvider::class.java
+    override fun getDelegationDataAccessProvider(): Class<out DelegationDataAccessProvider> =
+        DynamoDBDelegationDataAccessProvider::class.java
 
-    override fun getNonceDataAccessProvider(): Class<out NonceDataAccessProvider> = DynamoDBNonceDataAccessProvider::class.java
+    override fun getNonceDataAccessProvider(): Class<out NonceDataAccessProvider> =
+        DynamoDBNonceDataAccessProvider::class.java
 
-    override fun getSessionDataAccessProvider(): Class<out SessionDataAccessProvider> = DynamoDBSessionDataAccessProvider::class.java
+    override fun getSessionDataAccessProvider(): Class<out SessionDataAccessProvider> =
+        DynamoDBSessionDataAccessProvider::class.java
 
-    override fun getAttributeDataAccessProvider(): Class<out AttributeDataAccessProvider> = DynamoDBAttributeDataAccessProvider::class.java
+    override fun getAttributeDataAccessProvider(): Class<out AttributeDataAccessProvider> =
+        DynamoDBAttributeDataAccessProvider::class.java
 
-    override fun createManagedObject(configuration: DynamoDBDataAccessProviderConfiguration): Optional<out ManagedObject<DynamoDBDataAccessProviderConfiguration>>
-    {
+    override fun createManagedObject(configuration: DynamoDBDataAccessProviderConfiguration): Optional<out ManagedObject<DynamoDBDataAccessProviderConfiguration>> {
         return Optional.of(DynamoDBClient(configuration))
     }
 }

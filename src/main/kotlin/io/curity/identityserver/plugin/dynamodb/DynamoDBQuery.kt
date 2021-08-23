@@ -27,23 +27,18 @@ data class DynamoDBQuery(
     val nameMap: Map<String, String>
 )
 
-fun QueryRequest.Builder.configureWith(query: DynamoDBQuery): QueryRequest.Builder
-{
-    if (query.indexName != null)
-    {
+fun QueryRequest.Builder.configureWith(query: DynamoDBQuery): QueryRequest.Builder {
+    if (query.indexName != null) {
         indexName(query.indexName)
     }
     keyConditionExpression(query.keyExpression)
-    if (query.filterExpression.isNotBlank())
-    {
+    if (query.filterExpression.isNotBlank()) {
         filterExpression(query.filterExpression)
     }
-    if (query.nameMap.isNotEmpty())
-    {
+    if (query.nameMap.isNotEmpty()) {
         expressionAttributeNames(query.nameMap)
     }
-    if (query.valueMap.isNotEmpty())
-    {
+    if (query.valueMap.isNotEmpty()) {
         expressionAttributeValues(query.valueMap)
     }
     return this

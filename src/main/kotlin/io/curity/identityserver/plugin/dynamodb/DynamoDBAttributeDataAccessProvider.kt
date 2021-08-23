@@ -25,10 +25,8 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 class DynamoDBAttributeDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient,
     private val _configuration: DynamoDBDataAccessProviderConfiguration
-    ) : AttributeDataAccessProvider
-{
-    override fun getAttributes(subject: String): AttributeTableView
-    {
+) : AttributeDataAccessProvider {
+    override fun getAttributes(subject: String): AttributeTableView {
         val accountQuery = GetItemRequest.builder()
             .tableName(AccountsTable.name(_configuration))
             .key(
@@ -39,8 +37,7 @@ class DynamoDBAttributeDataAccessProvider(
             .build()
 
         val accountQueryResult = _dynamoDBClient.getItem(accountQuery)
-        if (!accountQueryResult.hasItem())
-        {
+        if (!accountQueryResult.hasItem()) {
             return AttributeTableView.empty()
         }
         val accountQueryItem = accountQueryResult.item()
@@ -69,8 +66,7 @@ class DynamoDBAttributeDataAccessProvider(
         )
     }
 
-    companion object
-    {
+    companion object {
         private val AccountsTable = DynamoDBUserAccountDataAccessProvider.AccountsTable
         private val LinksTable = DynamoDBUserAccountDataAccessProvider.LinksTable
 

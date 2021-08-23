@@ -25,8 +25,7 @@ import se.curity.identityserver.sdk.service.ExceptionFactory
 import se.curity.identityserver.sdk.service.Json
 import java.util.Optional
 
-interface DynamoDBDataAccessProviderConfiguration : Configuration
-{
+interface DynamoDBDataAccessProviderConfiguration : Configuration {
     @Description("The AWS Region where DynamoDB is deployed.")
     fun getAwsRegion(): AWSRegion
 
@@ -36,12 +35,11 @@ interface DynamoDBDataAccessProviderConfiguration : Configuration
     @Description("Choose how to access DynamoDB.")
     fun getDynamodbAccessMethod(): AWSAccessMethod
 
-    interface AWSAccessMethod : OneOf
-    {
+    interface AWSAccessMethod : OneOf {
         // option: access key ID and secret
         val accessKeyIdAndSecret: Optional<AccessKeyIdAndSecret>
-        interface AccessKeyIdAndSecret
-        {
+
+        interface AccessKeyIdAndSecret {
             @get:Description("AWS Access Key ID.")
             val accessKeyId: String
 
@@ -55,8 +53,7 @@ interface DynamoDBDataAccessProviderConfiguration : Configuration
         // option: locally stored profile
         val aWSProfile: Optional<AWSProfile>
 
-        interface AWSProfile
-        {
+        interface AWSProfile {
             @get:Description("AWS Profile name. Retrieves credentials from the system (~/.aws/credentials).")
             val awsProfileName: String
 
@@ -101,10 +98,10 @@ interface DynamoDBDataAccessProviderConfiguration : Configuration
     fun getDevicesTtlRetainDuration(): Long
 
     @Description("Amount of time in seconds to wait for the execution of an API call to complete, including retries. If not set, DynamoDB's default is used.")
-    fun getApiCallTimeout(): Optional<@RangeConstraint(min=0.0) Long>
+    fun getApiCallTimeout(): Optional<@RangeConstraint(min = 0.0) Long>
 
     @Description("Amount of time in seconds to wait for each individual request to complete. If not set, DynamoDB's default is used.")
-    fun getApiCallAttemptTimeout(): Optional<@RangeConstraint(min=0.0) Long>
+    fun getApiCallAttemptTimeout(): Optional<@RangeConstraint(min = 0.0) Long>
 
     @Description("Table name prefix. If defined, all the DynamoDB tables used by this plugin will have this string prefixed into the name")
     fun getTableNamePrefix(): Optional<String>

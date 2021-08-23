@@ -33,39 +33,30 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
     private val _commonItem: Map<String, AttributeValue>,
     private val _keyAttribute: DynamoDBAttribute<String>,
     private val _conditionExpression: Expression
-)
-{
+) {
 
     private val _transactionItems = mutableListOf<TransactWriteItem>()
 
     // Handles the update of an unique attribute
-    fun <T> handleUniqueAttribute(attribute: UniqueAttribute<T>, before: T?, after: T?)
-    {
-        if (before == after)
-        {
-            if (after != null)
-            {
+    fun <T> handleUniqueAttribute(attribute: UniqueAttribute<T>, before: T?, after: T?) {
+        if (before == after) {
+            if (after != null) {
                 // Even if the key value doesn't change, we still need to update the item's data.
                 updateItem(attribute.uniquenessValueFrom(after))
             }
-        } else if (after != null)
-        {
-            if (before != null)
-            {
+        } else if (after != null) {
+            if (before != null) {
                 removeItem(attribute.uniquenessValueFrom(before))
             }
             insertItem(attribute.uniquenessValueFrom(after))
-        } else
-        {
-            if (before != null)
-            {
+        } else {
+            if (before != null) {
                 removeItem(attribute.uniquenessValueFrom(before))
             }
         }
     }
 
-    private fun removeItem(pkValue: String)
-    {
+    private fun removeItem(pkValue: String) {
         _transactionItems.add(
             TransactWriteItem.builder()
                 .delete {
@@ -77,8 +68,7 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
         )
     }
 
-    private fun insertItem(pkValue: String)
-    {
+    private fun insertItem(pkValue: String) {
         val secondaryItem = _commonItem + setOf(_keyAttribute.toNameValuePair(pkValue))
         _transactionItems.add(
             TransactWriteItem.builder()
@@ -93,8 +83,7 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
         )
     }
 
-    private fun updateItem(pkValue: String)
-    {
+    private fun updateItem(pkValue: String) {
         val secondaryItem = _commonItem + setOf(_keyAttribute.toNameValuePair(pkValue))
         _transactionItems.add(
             TransactWriteItem.builder()
@@ -109,8 +98,7 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
         )
     }
 
-    fun build(): TransactWriteItemsRequest
-    {
+    fun build(): TransactWriteItemsRequest {
         return TransactWriteItemsRequest.builder()
             .transactItems(_transactionItems)
             .build()

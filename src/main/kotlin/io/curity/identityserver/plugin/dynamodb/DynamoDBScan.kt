@@ -25,18 +25,14 @@ class DynamoDBScan(
     val nameMap: Map<String, String>
 )
 
-fun ScanRequest.Builder.configureWith(query: DynamoDBScan): ScanRequest.Builder
-{
-    if (query.filterExpression.isNotBlank())
-    {
+fun ScanRequest.Builder.configureWith(query: DynamoDBScan): ScanRequest.Builder {
+    if (query.filterExpression.isNotBlank()) {
         filterExpression(query.filterExpression)
     }
-    if (query.nameMap.isNotEmpty())
-    {
+    if (query.nameMap.isNotEmpty()) {
         expressionAttributeNames(query.nameMap)
     }
-    if (query.valueMap.isNotEmpty())
-    {
+    if (query.valueMap.isNotEmpty()) {
         expressionAttributeValues(query.valueMap)
     }
     return this
