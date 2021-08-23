@@ -121,7 +121,7 @@ class DynamoDBTokenDataAccessProvider(
     override fun getByHash(hash: String): Token?
     {
         val request = GetItemRequest.builder()
-            .tableName(TokenTable.name)
+            .tableName(TokenTable.name(_configuration))
             .key(TokenTable.keyFromHash(hash))
             .consistentRead(true)
             .build()
@@ -139,7 +139,7 @@ class DynamoDBTokenDataAccessProvider(
     override fun create(token: Token)
     {
         val request = PutItemRequest.builder()
-            .tableName(TokenTable.name)
+            .tableName(TokenTable.name(_configuration))
             .conditionExpression("attribute_not_exists(${TokenTable.tokenHash.name})")
             .item(token.toItem())
             .build()
@@ -163,7 +163,7 @@ class DynamoDBTokenDataAccessProvider(
     override fun setStatusByTokenHash(tokenHash: String, newStatus: TokenStatus): Long
     {
         val request = UpdateItemRequest.builder()
-            .tableName(TokenTable.name)
+            .tableName(TokenTable.name(_configuration))
             .key(TokenTable.keyFromHash(tokenHash))
             .conditionExpression("attribute_exists(${TokenTable.tokenHash})")
             .updateExpression("SET ${TokenTable.status.hashName} = ${TokenTable.status.colonName}")

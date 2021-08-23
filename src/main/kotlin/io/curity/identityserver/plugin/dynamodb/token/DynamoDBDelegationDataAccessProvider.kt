@@ -186,7 +186,7 @@ class DynamoDBDelegationDataAccessProvider(
     override fun getById(id: String): Delegation?
     {
         val request = GetItemRequest.builder()
-            .tableName(DelegationTable.name)
+            .tableName(DelegationTable.name(_configuration))
             .key(mapOf(DelegationTable.id.toNameValuePair(id)))
             .consistentRead(true)
             .build()
@@ -213,7 +213,7 @@ class DynamoDBDelegationDataAccessProvider(
     {
         val index = DelegationTable.authorizationCodeIndex
         val request = QueryRequest.builder()
-            .tableName(DelegationTable.name)
+            .tableName(DelegationTable.name(_configuration))
             .indexName(index.name)
             .keyConditionExpression(index.expression)
             .expressionAttributeValues(index.expressionValueMap(authorizationCodeHash))
@@ -234,7 +234,7 @@ class DynamoDBDelegationDataAccessProvider(
     override fun create(delegation: Delegation)
     {
         val request = PutItemRequest.builder()
-            .tableName(DelegationTable.name)
+            .tableName(DelegationTable.name(_configuration))
             .item(delegation.toItem())
             .build()
 
@@ -244,7 +244,7 @@ class DynamoDBDelegationDataAccessProvider(
     override fun setStatus(id: String, newStatus: DelegationStatus): Long
     {
         val request = UpdateItemRequest.builder()
-            .tableName(DelegationTable.name)
+            .tableName(DelegationTable.name(_configuration))
             .key(mapOf(DelegationTable.id.toNameValuePair(id)))
             .conditionExpression(updateConditionExpression)
             .updateExpression("SET ${DelegationTable.status.hashName} = ${DelegationTable.status.colonName}")
@@ -269,7 +269,7 @@ class DynamoDBDelegationDataAccessProvider(
         val validatedCount = count.toIntOrThrow("count")
         val index = DelegationTable.ownerStatusIndex
         val request = QueryRequest.builder()
-            .tableName(DelegationTable.name)
+            .tableName(DelegationTable.name(_configuration))
             .indexName(index.name)
             .keyConditionExpression(index.keyConditionExpression)
             .expressionAttributeValues(
@@ -290,7 +290,7 @@ class DynamoDBDelegationDataAccessProvider(
     {
         val index = DelegationTable.ownerStatusIndex
         val request = QueryRequest.builder()
-            .tableName(DelegationTable.name)
+            .tableName(DelegationTable.name(_configuration))
             .indexName(index.name)
             .keyConditionExpression(index.keyConditionExpression)
             .expressionAttributeValues(
@@ -309,7 +309,7 @@ class DynamoDBDelegationDataAccessProvider(
         val validatedCount = count.toIntOrThrow("count")
 
         val request = ScanRequest.builder()
-            .tableName(DelegationTable.name)
+            .tableName(DelegationTable.name(_configuration))
             .filterExpression("${DelegationTable.status.hashName} = ${DelegationTable.status.colonName}")
             .expressionAttributeValues(issuedStatusExpressionAttributeMap)
             .expressionAttributeNames(issuedStatusExpressionAttributeNameMap)
@@ -325,7 +325,7 @@ class DynamoDBDelegationDataAccessProvider(
     override fun getCountAllActive(): Long
     {
         val request = ScanRequest.builder()
-            .tableName(DelegationTable.name)
+            .tableName(DelegationTable.name(_configuration))
             .filterExpression("${DelegationTable.status.hashName} = ${DelegationTable.status.colonName}")
             .expressionAttributeValues(issuedStatusExpressionAttributeMap)
             .expressionAttributeNames(issuedStatusExpressionAttributeNameMap)
@@ -395,7 +395,7 @@ class DynamoDBDelegationDataAccessProvider(
             val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(query.key, query.value)
 
             val queryRequest = QueryRequest.builder()
-                .tableName(DelegationTable.name)
+                .tableName(DelegationTable.name(_configuration))
                 .configureWith(dynamoDBQuery)
                 .build()
 
@@ -411,7 +411,7 @@ class DynamoDBDelegationDataAccessProvider(
     private fun scan(queryPlan: QueryPlan.UsingScan): Sequence<DynamoDBItem>
     {
         val scanRequestBuilder = ScanRequest.builder()
-            .tableName(DelegationTable.name)
+            .tableName(DelegationTable.name(_configuration))
 
         val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression)
         scanRequestBuilder.configureWith(dynamoDBScan)

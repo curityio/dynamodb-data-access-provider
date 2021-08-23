@@ -16,6 +16,7 @@
 
 package io.curity.identityserver.plugin.dynamodb
 
+import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.Delete
 import software.amazon.awssdk.services.dynamodb.model.Put
@@ -42,9 +43,15 @@ enum class AttributeType(val typeName: String)
 }
 
 // A DynamoDB table
-abstract class Table(val name: String)
+abstract class Table(
+    private val suffixName: String
+)
 {
-    override fun toString() = name
+    fun name(configuration: DynamoDBDataAccessProviderConfiguration) = configuration.getTableNamePrefix()
+        .map { prefix -> "$prefix$suffixName" }
+        .orElse(suffixName)
+
+    // toString is not overridden on purpose, so that it isn't mistakenly used as the table name
 }
 
 // A DynamoDB attribute

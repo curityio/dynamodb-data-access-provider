@@ -106,6 +106,9 @@ interface DynamoDBDataAccessProviderConfiguration : Configuration
     @Description("Amount of time in seconds to wait for each individual request to complete. If not set, DynamoDB's default is used.")
     fun getApiCallAttemptTimeout(): Optional<@RangeConstraint(min=0.0) Long>
 
+    @Description("Table name prefix. If defined, all the DynamoDB tables used by this plugin will have this string prefixed into the name")
+    fun getTableNamePrefix(): Optional<String>
+
     // Services
 
     fun getExceptionFactory(): ExceptionFactory

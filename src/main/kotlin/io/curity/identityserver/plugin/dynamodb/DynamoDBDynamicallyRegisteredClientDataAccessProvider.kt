@@ -46,11 +46,11 @@ import java.time.Instant.now
 import java.time.Instant.ofEpochSecond
 
 class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
-    configuration: DynamoDBDataAccessProviderConfiguration,
+    private val _configuration: DynamoDBDataAccessProviderConfiguration,
     private val _dynamoDBClient: DynamoDBClient
 ) : DynamicallyRegisteredClientDataAccessProvider
 {
-    private val _jsonHandler = configuration.getJsonHandler()
+    private val _jsonHandler = _configuration.getJsonHandler()
 
     private object DcrTable : Table("curity-dynamic-clients")
     {
@@ -147,7 +147,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         logger.debug("Getting dynamic client with id: {}", clientId)
 
         val request = GetItemRequest.builder()
-            .tableName(DcrTable.name)
+            .tableName(DcrTable.name(_configuration))
             .key(DcrTable.key(clientId))
             .consistentRead(true)
             .build()
@@ -170,7 +170,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         )
 
         val request = PutItemRequest.builder()
-            .tableName(DcrTable.name)
+            .tableName(DcrTable.name(_configuration))
             .conditionExpression("attribute_not_exists(${DcrTable.clientId.name})")
             .item(dynamicallyRegisteredClientAttributes.toItem())
             .build()
@@ -217,7 +217,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         }
 
         val requestBuilder = UpdateItemRequest.builder()
-            .tableName(DcrTable.name)
+            .tableName(DcrTable.name(_configuration))
             .key(DcrTable.key(dynamicallyRegisteredClientAttributes.clientId))
             .apply { builder.applyTo(this) }
 
@@ -237,7 +237,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         logger.debug("Received request to DELETE dynamic client : {}", clientId)
 
         val request = DeleteItemRequest.builder()
-            .tableName(DcrTable.name)
+            .tableName(DcrTable.name(_configuration))
             .key(DcrTable.key(clientId))
             .build()
 

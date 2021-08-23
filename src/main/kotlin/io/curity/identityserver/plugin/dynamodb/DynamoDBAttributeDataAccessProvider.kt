@@ -15,18 +15,22 @@
  */
 package io.curity.identityserver.plugin.dynamodb
 
+import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import se.curity.identityserver.sdk.attribute.AttributeTableView
 import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.datasource.AttributeDataAccessProvider
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 
-class DynamoDBAttributeDataAccessProvider(private val dynamoDBClient: DynamoDBClient) : AttributeDataAccessProvider
+class DynamoDBAttributeDataAccessProvider(
+    private val _dynamoDBClient: DynamoDBClient,
+    private val _configuration: DynamoDBDataAccessProviderConfiguration
+    ) : AttributeDataAccessProvider
 {
     override fun getAttributes(subject: String): AttributeTableView
     {
         val accountQuery = GetItemRequest.builder()
-            .tableName(AccountsTable.name)
+            .tableName(AccountsTable.name(_configuration))
             .key(
                 mapOf(
                     AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, subject)
@@ -34,7 +38,7 @@ class DynamoDBAttributeDataAccessProvider(private val dynamoDBClient: DynamoDBCl
             )
             .build()
 
-        val accountQueryResult = dynamoDBClient.getItem(accountQuery)
+        val accountQueryResult = _dynamoDBClient.getItem(accountQuery)
         if (!accountQueryResult.hasItem())
         {
             return AttributeTableView.empty()
@@ -44,13 +48,13 @@ class DynamoDBAttributeDataAccessProvider(private val dynamoDBClient: DynamoDBCl
             ?: throw SchemaErrorException(AccountsTable, AccountsTable.accountId)
 
         val linksQueryRequest = QueryRequest.builder()
-            .tableName(LinksTable.name)
+            .tableName(LinksTable.name(_configuration))
             .indexName(LinksTable.listLinksIndex.name)
             .keyConditionExpression("${LinksTable.localAccountId.name} = ${LinksTable.localAccountId.colonName}")
             .expressionAttributeValues(mapOf(LinksTable.localAccountId.toExpressionNameValuePair(accountId)))
             .build()
 
-        val items = querySequence(linksQueryRequest, dynamoDBClient)
+        val items = querySequence(linksQueryRequest, _dynamoDBClient)
 
         return AttributeTableView.ofAttributes(
             items

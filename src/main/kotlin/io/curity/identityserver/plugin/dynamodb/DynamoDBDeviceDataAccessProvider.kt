@@ -182,7 +182,7 @@ class DynamoDBDeviceDataAccessProvider(
         transactionItems.add(
             TransactWriteItem.builder()
                 .put {
-                    it.tableName(DeviceTable.name)
+                    it.tableName(DeviceTable.name(_configuration))
                     it.conditionExpression("attribute_not_exists(${DeviceTable.pk})")
                     it.item(mainItem)
                 }
@@ -192,7 +192,7 @@ class DynamoDBDeviceDataAccessProvider(
         transactionItems.add(
             TransactWriteItem.builder()
                 .put {
-                    it.tableName(DeviceTable.name)
+                    it.tableName(DeviceTable.name(_configuration))
                     it.conditionExpression("attribute_not_exists(${DeviceTable.pk})")
                     it.item(secondaryItem)
                 }
@@ -234,7 +234,7 @@ class DynamoDBDeviceDataAccessProvider(
         transactionItems.add(
             TransactWriteItem.builder()
                 .delete {
-                    it.tableName(DeviceTable.name)
+                    it.tableName(DeviceTable.name(_configuration))
                     it.key(
                         mapOf(
                             DeviceTable.pk.toNameValuePair(computePkFromId(id)),
@@ -249,7 +249,7 @@ class DynamoDBDeviceDataAccessProvider(
         transactionItems.add(
             TransactWriteItem.builder()
                 .delete {
-                    it.tableName(DeviceTable.name)
+                    it.tableName(DeviceTable.name(_configuration))
                     it.key(
                         mapOf(
                             DeviceTable.pk.toNameValuePair(computePkFromAccountId(accountId)),
@@ -337,7 +337,7 @@ class DynamoDBDeviceDataAccessProvider(
         transactionItems.add(
             TransactWriteItem.builder()
                 .update {
-                    it.tableName(DeviceTable.name)
+                    it.tableName(DeviceTable.name(_configuration))
                     updateBuilder.applyTo(it)
                     it.key(
                         mapOf(
@@ -353,7 +353,7 @@ class DynamoDBDeviceDataAccessProvider(
         transactionItems.add(
             TransactWriteItem.builder()
                 .update {
-                    it.tableName(DeviceTable.name)
+                    it.tableName(DeviceTable.name(_configuration))
                     updateBuilder.applyTo(it)
                     it.key(
                         mapOf(
@@ -394,7 +394,7 @@ class DynamoDBDeviceDataAccessProvider(
         _logger.debug("Received request to get device by deviceId: {} and accountId: {}", deviceId, accountId)
 
         val requestBuilder = GetItemRequest.builder()
-            .tableName(DeviceTable.name)
+            .tableName(DeviceTable.name(_configuration))
             .key(
                 mapOf(
                     DeviceTable.pk.toNameValuePair(computePkFromAccountId(accountId)),
@@ -424,7 +424,7 @@ class DynamoDBDeviceDataAccessProvider(
         }
 
         val request = QueryRequest.builder()
-            .tableName(DeviceTable.name)
+            .tableName(DeviceTable.name(_configuration))
             .keyConditionExpression("${DeviceTable.pk.hashName} = ${DeviceTable.pk.colonName}")
             .expressionAttributeValues(
                 mapOf(
@@ -454,7 +454,7 @@ class DynamoDBDeviceDataAccessProvider(
         _logger.debug("Received request to get device by deviceId: {} and accountId: {}", deviceId, accountId)
 
         val requestBuilder = GetItemRequest.builder()
-            .tableName(DeviceTable.name)
+            .tableName(DeviceTable.name(_configuration))
             .key(
                 mapOf(
                     DeviceTable.pk.toNameValuePair(computePkFromAccountId(accountId)),
@@ -478,7 +478,7 @@ class DynamoDBDeviceDataAccessProvider(
         _logger.debug("Received request to get device by id: {}", id)
 
         val request = GetItemRequest.builder()
-            .tableName(DeviceTable.name)
+            .tableName(DeviceTable.name(_configuration))
             .key(
                 mapOf(
                     DeviceTable.pk.toNameValuePair(computePkFromId(id)),
@@ -511,7 +511,7 @@ class DynamoDBDeviceDataAccessProvider(
         val validatedCount = count.toIntOrThrow("count")
 
         val request = ScanRequest.builder()
-            .tableName(DeviceTable.name)
+            .tableName(DeviceTable.name(_configuration))
             .filterExpression("begins_with(${DeviceTable.pk}, ${DeviceTable.pk.colonName})")
             .expressionAttributeValues(mapOf(DeviceTable.pk.toExpressionNameValuePair("id#")))
             .build()
