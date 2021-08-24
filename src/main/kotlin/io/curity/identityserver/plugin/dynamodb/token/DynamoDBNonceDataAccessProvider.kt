@@ -32,10 +32,8 @@ import java.time.Instant
 class DynamoDBNonceDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient,
     private val _configuration: DynamoDBDataAccessProviderConfiguration
-) : NonceDataAccessProvider
-{
-    object NonceTable : Table("curity-nonces")
-    {
+) : NonceDataAccessProvider {
+    object NonceTable : Table("curity-nonces") {
         val nonce = StringAttribute("nonce")
         val nonceStatus = StringAttribute("nonceStatus")
         val createAt = NumberLongAttribute("createdAt")
@@ -47,8 +45,7 @@ class DynamoDBNonceDataAccessProvider(
         fun key(nonce: String) = mapOf(this.nonce.toNameValuePair(nonce))
     }
 
-    override fun get(nonce: String): String?
-    {
+    override fun get(nonce: String): String? {
         val request = GetItemRequest.builder()
             .tableName(NonceTable.name(_configuration))
             .key(NonceTable.key(nonce))
@@ -57,15 +54,13 @@ class DynamoDBNonceDataAccessProvider(
 
         val response = _dynamoDBClient.getItem(request)
 
-        if (!response.hasItem() || response.item().isEmpty())
-        {
+        if (!response.hasItem() || response.item().isEmpty()) {
             return null
         }
         val item = response.item()
 
         val status = NonceStatus.valueOf(NonceTable.nonceStatus.from(item))
-        if (status != NonceStatus.issued)
-        {
+        if (status != NonceStatus.issued) {
             return null
         }
 
@@ -75,8 +70,7 @@ class DynamoDBNonceDataAccessProvider(
 
         _logger.trace("Nonce createdAt: {}, ttl: {}, now: {}", createdAt, ttl, now)
 
-        if (createdAt + ttl <= now)
-        {
+        if (createdAt + ttl <= now) {
             expireNonce(nonce)
             return null
         }
@@ -84,8 +78,7 @@ class DynamoDBNonceDataAccessProvider(
         return NonceTable.nonceValue.from(item)
     }
 
-    override fun save(nonce: String, value: String, createdAt: Long, ttl: Long)
-    {
+    override fun save(nonce: String, value: String, createdAt: Long, ttl: Long) {
         val item = mapOf(
             NonceTable.nonce.toNameValuePair(nonce),
             NonceTable.nonceValue.toNameValuePair(value),
@@ -101,17 +94,14 @@ class DynamoDBNonceDataAccessProvider(
             .conditionExpression("attribute_not_exists(${NonceTable.nonce})")
             .build()
 
-        try
-        {
+        try {
             _dynamoDBClient.putItem(request)
-        } catch (_: ConditionalCheckFailedException)
-        {
+        } catch (_: ConditionalCheckFailedException) {
             throw ConflictException("Nonce already exists")
         }
     }
 
-    override fun consume(nonce: String, consumedAt: Long)
-    {
+    override fun consume(nonce: String, consumedAt: Long) {
         consumeNonce(nonce, consumedAt)
     }
 
@@ -126,15 +116,13 @@ class DynamoDBNonceDataAccessProvider(
     // Also, if the deletableAt was enabled when the nonce was created and disabled when the nonce is updated,
     // then the original deletableAt is kept.
     // We also don't add a deletableAt when the nonce is updated.
-    private fun changeStatus(nonce: String, status: NonceStatus, maybeConsumedAt: Long?)
-    {
+    private fun changeStatus(nonce: String, status: NonceStatus, maybeConsumedAt: Long?) {
         val requestBuilder = UpdateItemRequest.builder()
             .tableName(NonceTable.name(_configuration))
             .conditionExpression("attribute_exists(${NonceTable.nonce.name})")
             .key(NonceTable.key(nonce))
 
-        if (status == NonceStatus.consumed)
-        {
+        if (status == NonceStatus.consumed) {
             val consumedAt = maybeConsumedAt ?: throw IllegalArgumentException("consumedAt cannot be null")
             requestBuilder
                 .updateExpression(
@@ -147,8 +135,7 @@ class DynamoDBNonceDataAccessProvider(
                         NonceTable.consumedAt.toExpressionNameValuePair(consumedAt)
                     )
                 )
-        } else
-        {
+        } else {
             requestBuilder
                 .updateExpression("SET ${NonceTable.nonceStatus.name} = ${NonceTable.nonceStatus.colonName}")
                 .expressionAttributeValues(
@@ -158,24 +145,20 @@ class DynamoDBNonceDataAccessProvider(
                 )
         }
 
-        try
-        {
+        try {
             _dynamoDBClient.updateItem(requestBuilder.build())
-        } catch (_: ConditionalCheckFailedException)
-        {
+        } catch (_: ConditionalCheckFailedException) {
             _logger.trace("Trying to update a nonexistent nonce")
         }
     }
 
-    private enum class NonceStatus
-    {
+    private enum class NonceStatus {
         // The string entries in the DB needs to be lowercase
         // there are integration tests that depend on that
         issued, consumed, expired
     }
 
-    companion object
-    {
+    companion object {
         val _logger = LoggerFactory.getLogger(DynamoDBNonceDataAccessProvider::class.java)
     }
 }

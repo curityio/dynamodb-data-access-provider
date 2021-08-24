@@ -28,10 +28,8 @@ import java.time.Instant
 class DynamoDBBucketDataAccessProvider(
     private val _configuration: DynamoDBDataAccessProviderConfiguration,
     private val _dynamoDBClient: DynamoDBClient
-) : BucketDataAccessProvider
-{
-    override fun getAttributes(subject: String, purpose: String): Map<String, Any>
-    {
+) : BucketDataAccessProvider {
+    override fun getAttributes(subject: String, purpose: String): Map<String, Any> {
         _logger.debug("getAttributes with subject: {} , purpose : {}", subject, purpose)
 
         val request = GetItemRequest.builder()
@@ -41,8 +39,7 @@ class DynamoDBBucketDataAccessProvider(
             .build()
         val response = _dynamoDBClient.getItem(request)
 
-        if (!response.hasItem())
-        {
+        if (!response.hasItem()) {
             return mapOf()
         }
         val attributesString = BucketsTable.attributes.optionalFrom(response.item())
@@ -53,8 +50,7 @@ class DynamoDBBucketDataAccessProvider(
         return _configuration.getJsonHandler().fromJson(attributesString)
     }
 
-    override fun storeAttributes(subject: String, purpose: String, dataMap: Map<String, Any>): Map<String, Any>
-    {
+    override fun storeAttributes(subject: String, purpose: String, dataMap: Map<String, Any>): Map<String, Any> {
         _logger.debug(
             "storeAttributes with subject: {} , purpose : {} and data : {}",
             subject,
@@ -76,8 +72,7 @@ class DynamoDBBucketDataAccessProvider(
         return dataMap
     }
 
-    override fun clearBucket(subject: String, purpose: String): Boolean
-    {
+    override fun clearBucket(subject: String, purpose: String): Boolean {
         val request = DeleteItemRequest.builder()
             .tableName(BucketsTable.name(_configuration))
             .key(BucketsTable.key(subject, purpose))
@@ -89,8 +84,7 @@ class DynamoDBBucketDataAccessProvider(
         return response.hasAttributes()
     }
 
-    private object BucketsTable : Table("curity-bucket")
-    {
+    private object BucketsTable : Table("curity-bucket") {
         val subject = StringAttribute("subject")
         val purpose = StringAttribute("purpose")
         val attributes = StringAttribute("attributes")
@@ -105,8 +99,7 @@ class DynamoDBBucketDataAccessProvider(
 
     private fun updateExpression(attributesString: String, created: Long, updated: Long) = object : Expression(
         _updateExpressionBuilder
-    )
-    {
+    ) {
         override val values = mapOf(
             BucketsTable.attributes.toExpressionNameValuePair(attributesString),
             BucketsTable.updated.toExpressionNameValuePair(created),
@@ -114,8 +107,7 @@ class DynamoDBBucketDataAccessProvider(
         )
     }
 
-    companion object
-    {
+    companion object {
         private val _updateExpressionBuilder = ExpressionBuilder(
             "SET #attributes = :attributes, #updated = :updated, #created = if_not_exists(#created, :created)",
             BucketsTable.attributes, BucketsTable.created, BucketsTable.updated

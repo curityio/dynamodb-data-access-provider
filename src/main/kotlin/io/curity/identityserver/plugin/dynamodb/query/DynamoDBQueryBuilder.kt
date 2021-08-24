@@ -21,12 +21,9 @@ import io.curity.identityserver.plugin.dynamodb.DynamoDBQuery
 import io.curity.identityserver.plugin.dynamodb.DynamoDBScan
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 
-class DynamoDBQueryBuilder
-{
-    companion object
-    {
-        fun buildQuery(keyCondition: QueryPlan.KeyCondition, products: List<Product>): DynamoDBQuery
-        {
+class DynamoDBQueryBuilder {
+    companion object {
+        fun buildQuery(keyCondition: QueryPlan.KeyCondition, products: List<Product>): DynamoDBQuery {
             val builder = DynamoDBQueryBuilder()
             val filterExpression = builder.toDynamoExpression(products)
             val keyExpression = builder.toDynamoExpression(keyCondition)
@@ -39,8 +36,7 @@ class DynamoDBQueryBuilder
             )
         }
 
-        fun buildScan(expression: DisjunctiveNormalForm): DynamoDBScan
-        {
+        fun buildScan(expression: DisjunctiveNormalForm): DynamoDBScan {
             val builder = DynamoDBQueryBuilder()
             val filterExpression = builder.toDynamoExpression(expression.products)
             return DynamoDBScan(
@@ -55,23 +51,18 @@ class DynamoDBQueryBuilder
     private val nameMap = mutableMapOf<String, String>()
     private val valueAliasCounter = mutableMapOf<String, Int>()
 
-    private fun toDynamoExpression(keyCondition: QueryPlan.KeyCondition): String
-    {
+    private fun toDynamoExpression(keyCondition: QueryPlan.KeyCondition): String {
         val partitionExpression = toDynamoExpression(keyCondition.partitionCondition)
-        return if (keyCondition.sortCondition == null)
-        {
+        return if (keyCondition.sortCondition == null) {
             partitionExpression
-        } else
-        {
+        } else {
             "$partitionExpression AND ${toDynamoExpression(keyCondition.sortCondition)}"
         }
     }
 
-    private fun toDynamoExpression(rangeExpression: QueryPlan.RangeCondition) = when (rangeExpression)
-    {
+    private fun toDynamoExpression(rangeExpression: QueryPlan.RangeCondition) = when (rangeExpression) {
         is QueryPlan.RangeCondition.Binary -> toDynamoExpression(rangeExpression.attributeExpression)
-        is QueryPlan.RangeCondition.Between ->
-        {
+        is QueryPlan.RangeCondition.Between -> {
             val hashName = hashNameFor(rangeExpression.attribute)
             val colonNameLower = colonNameFor(rangeExpression.attribute, rangeExpression.lower)
             val colonNameHigher = colonNameFor(rangeExpression.attribute, rangeExpression.higher)
@@ -86,35 +77,29 @@ class DynamoDBQueryBuilder
     private fun toDynamoExpression(product: Product): String =
         product.terms.joinToString(" AND ") { toDynamoExpression(it) }
 
-    private fun toDynamoExpression(expression: AttributeExpression): String
-    {
+    private fun toDynamoExpression(expression: AttributeExpression): String {
         val hashName = hashNameFor(expression.attribute)
-        return when (expression)
-        {
+        return when (expression) {
             is UnaryAttributeExpression -> expression.operator.toDynamoOperator(hashName)
-            is BinaryAttributeExpression ->
-            {
+            is BinaryAttributeExpression -> {
                 val colonName = colonNameFor(expression.attribute, expression.value)
                 expression.operator.toDynamoOperator(hashName, colonName)
             }
         }
     }
 
-    private fun toDynamoExpression(it: BinaryAttributeExpression): String
-    {
+    private fun toDynamoExpression(it: BinaryAttributeExpression): String {
         val hashName = hashNameFor(it.attribute)
         val colonName = colonNameFor(it.attribute, it.value)
         return it.operator.toDynamoOperator(hashName, colonName)
     }
 
-    private fun hashNameFor(attribute: DynamoDBAttribute<*>): String
-    {
+    private fun hashNameFor(attribute: DynamoDBAttribute<*>): String {
         nameMap[attribute.hashName] = attribute.name
         return attribute.hashName
     }
 
-    private fun colonNameFor(attribute: DynamoDBAttribute<*>, value: Any): String
-    {
+    private fun colonNameFor(attribute: DynamoDBAttribute<*>, value: Any): String {
         val counter = valueAliasCounter.merge(attribute.name, 1) { old, new -> old + new } ?: 1
         val colonName = colonName(attribute.name, counter)
         valueMap[colonName] = attribute.toAttrValueWithCast(value)

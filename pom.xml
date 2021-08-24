@@ -27,6 +27,7 @@
         <project.junitVersion>4.13.2</project.junitVersion>
         <project.sureFireVersion>2.22.1</project.sureFireVersion>
         <kotlin.version>1.3.72</kotlin.version>
+        <kotlin.code.style>official</kotlin.code.style>
     </properties>
 
     <build>

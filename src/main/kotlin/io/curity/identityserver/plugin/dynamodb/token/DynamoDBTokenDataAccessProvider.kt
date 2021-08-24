@@ -37,12 +37,10 @@ import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 class DynamoDBTokenDataAccessProvider(
     private val _configuration: DynamoDBDataAccessProviderConfiguration,
     private val _dynamoDBClient: DynamoDBClient
-) : TokenDataAccessProvider
-{
+) : TokenDataAccessProvider {
     private val _jsonHandler = _configuration.getJsonHandler()
 
-    object TokenTable : Table("curity-tokens")
-    {
+    object TokenTable : Table("curity-tokens") {
         val tokenHash = StringAttribute("tokenHash")
 
         val id = StringAttribute("id")
@@ -93,8 +91,7 @@ class DynamoDBTokenDataAccessProvider(
         TokenTable.deletableAt.addTo(item, expires + _configuration.getTokensTtlRetainDuration())
     }
 
-    private fun DynamoDBItem.toToken(): Token
-    {
+    private fun DynamoDBItem.toToken(): Token {
         val item = this
         return TokenTable.run {
 
@@ -118,8 +115,7 @@ class DynamoDBTokenDataAccessProvider(
         }
     }
 
-    override fun getByHash(hash: String): Token?
-    {
+    override fun getByHash(hash: String): Token? {
         val request = GetItemRequest.builder()
             .tableName(TokenTable.name(_configuration))
             .key(TokenTable.keyFromHash(hash))
@@ -128,40 +124,34 @@ class DynamoDBTokenDataAccessProvider(
 
         val response = _dynamoDBClient.getItem(request)
 
-        if (!response.hasItem() || response.item().isEmpty())
-        {
+        if (!response.hasItem() || response.item().isEmpty()) {
             return null
         }
 
         return response.item().toToken()
     }
 
-    override fun create(token: Token)
-    {
+    override fun create(token: Token) {
         val request = PutItemRequest.builder()
             .tableName(TokenTable.name(_configuration))
             .conditionExpression("attribute_not_exists(${TokenTable.tokenHash.name})")
             .item(token.toItem())
             .build()
 
-        try
-        {
+        try {
             _dynamoDBClient.putItem(request)
-        } catch (_: ConditionalCheckFailedException)
-        {
+        } catch (_: ConditionalCheckFailedException) {
             throw ConflictException("Token with same hash already exists")
         }
     }
 
-    override fun getStatus(tokenHash: String): String?
-    {
+    override fun getStatus(tokenHash: String): String? {
         val token = getByHash(tokenHash)
 
         return token?.status?.toString()
     }
 
-    override fun setStatusByTokenHash(tokenHash: String, newStatus: TokenStatus): Long
-    {
+    override fun setStatusByTokenHash(tokenHash: String, newStatus: TokenStatus): Long {
         val request = UpdateItemRequest.builder()
             .tableName(TokenTable.name(_configuration))
             .key(TokenTable.keyFromHash(tokenHash))
@@ -172,25 +162,20 @@ class DynamoDBTokenDataAccessProvider(
             .returnValues(ReturnValue.UPDATED_NEW)
             .build()
 
-        try
-        {
+        try {
             val response = _dynamoDBClient.updateItem(request)
-            return if (response.hasAttributes() && response.attributes().isNotEmpty())
-            {
+            return if (response.hasAttributes() && response.attributes().isNotEmpty()) {
                 1
-            } else
-            {
+            } else {
                 0
             }
-        } catch (_: ConditionalCheckFailedException)
-        {
+        } catch (_: ConditionalCheckFailedException) {
             // this exceptions means the entry does not exists, which isn't an error
             return 0
         }
     }
 
-    override fun setStatus(tokenId: String, newStatus: TokenStatus): Long
-    {
+    override fun setStatus(tokenId: String, newStatus: TokenStatus): Long {
         // This method is not implemented because it isn't used and will be deprecated.
         throw UnsupportedOperationException()
     }

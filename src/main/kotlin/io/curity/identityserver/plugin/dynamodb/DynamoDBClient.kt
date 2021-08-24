@@ -59,38 +59,31 @@ import java.net.URI
 import java.time.Duration
 
 class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration) :
-    ManagedObject<DynamoDBDataAccessProviderConfiguration>(config)
-{
+    ManagedObject<DynamoDBDataAccessProviderConfiguration>(config) {
     private val _awsRegion = Region.of(config.getAwsRegion().awsRegion)
     private val client = createClient()
 
-    private fun createClient(): DynamoDbClient
-    {
+    private fun createClient(): DynamoDbClient {
         val accessMethod = config.getDynamodbAccessMethod()
         val credentials: AwsCredentialsProvider =
 
-            if (accessMethod.isEC2InstanceProfile.isPresent && accessMethod.isEC2InstanceProfile.get())
-            {
+            if (accessMethod.isEC2InstanceProfile.isPresent && accessMethod.isEC2InstanceProfile.get()) {
                 logger.debug("Using EC2 instance profile to configure DynamoDB client")
                 InstanceProfileCredentialsProvider.builder().build()
-            } else if (accessMethod.accessKeyIdAndSecret.isPresent)
-            {
+            } else if (accessMethod.accessKeyIdAndSecret.isPresent) {
                 logger.debug("Using access key ID and secret to configure DynamoDB client")
                 getUsingAccessKeyIdAndSecret(accessMethod.accessKeyIdAndSecret.get())
-            } else if (accessMethod.aWSProfile.isPresent)
-            {
+            } else if (accessMethod.aWSProfile.isPresent) {
                 logger.debug("Using local profile to configure DynamoDB client")
                 getUsingProfile(accessMethod.aWSProfile.get())
-            } else
-            {
+            } else {
                 throw IllegalStateException("DynamoDB configuration's access method is not valid")
             }
 
         val builder = DynamoDbClient.builder()
             .credentialsProvider(credentials)
 
-        if (config.getEndpointOverride().isPresent)
-        {
+        if (config.getEndpointOverride().isPresent) {
             builder.endpointOverride(URI.create(config.getEndpointOverride().get()))
         }
         builder.region(_awsRegion)
@@ -106,26 +99,22 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
 
     private fun getUsingProfile(
         awsProfile: DynamoDBDataAccessProviderConfiguration.AWSAccessMethod.AWSProfile
-    ): AwsCredentialsProvider
-    {
+    ): AwsCredentialsProvider {
         val profileCredentials = ProfileCredentialsProvider.builder()
             .profileName(awsProfile.awsProfileName)
             .build()
 
         /* roleARN is present, get temporary credentials through AssumeRole */
-        return if (awsProfile.awsRoleARN.isPresent)
-        {
+        return if (awsProfile.awsRoleARN.isPresent) {
             getNewCredentialsFromAssumeRole(profileCredentials, awsProfile.awsRoleARN.get())
-        } else
-        {
+        } else {
             profileCredentials
         }
     }
 
     private fun getUsingAccessKeyIdAndSecret(
         keyIdAndSecret: DynamoDBDataAccessProviderConfiguration.AWSAccessMethod.AccessKeyIdAndSecret
-    ): AwsCredentialsProvider
-    {
+    ): AwsCredentialsProvider {
         val staticCredentials = StaticCredentialsProvider.create(
             AwsBasicCredentials.create(
                 keyIdAndSecret.accessKeyId,
@@ -134,11 +123,9 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
         )
 
         /* roleARN is present, get temporary credentials through AssumeRole */
-        return if (keyIdAndSecret.awsRoleARN.isPresent)
-        {
+        return if (keyIdAndSecret.awsRoleARN.isPresent) {
             getNewCredentialsFromAssumeRole(staticCredentials, keyIdAndSecret.awsRoleARN.get())
-        } else
-        {
+        } else {
             staticCredentials
         }
     }
@@ -146,8 +133,7 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
     private fun getNewCredentialsFromAssumeRole(
         credentialsProvider: AwsCredentialsProvider,
         roleARN: String
-    ): AwsCredentialsProvider
-    {
+    ): AwsCredentialsProvider {
         val stsClient: StsClient = StsClient.builder()
             .region(_awsRegion)
             .credentialsProvider(credentialsProvider)
@@ -158,18 +144,15 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
             .roleSessionName("curity-dynamodb-data-access")
             .build()
 
-        return try
-        {
+        return try {
             val assumeRoleResult: AssumeRoleResponse = stsClient.assumeRole(assumeRoleRequest)
-            if (!assumeRoleResult.sdkHttpResponse().isSuccessful)
-            {
+            if (!assumeRoleResult.sdkHttpResponse().isSuccessful) {
                 logger.warn(
                     "AssumeRole Request sent but was not successful: {}",
                     assumeRoleResult.sdkHttpResponse().statusText().get()
                 )
                 credentialsProvider //Returning the original credentials
-            } else
-            {
+            } else {
                 val credentials: Credentials = assumeRoleResult.credentials()
                 val asc: AwsSessionCredentials = AwsSessionCredentials.create(
                     credentials.accessKeyId(),
@@ -179,8 +162,7 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
                 logger.debug("AssumeRole Request successful: {}", assumeRoleResult.sdkHttpResponse().statusText())
                 StaticCredentialsProvider.create(asc) //returning temp credentials from the assumed role
             }
-        } catch (e: Exception)
-        {
+        } catch (e: Exception) {
             logger.debug("AssumeRole Request failed: {}", e.message)
             throw config.getExceptionFactory().internalServerException(ErrorCode.EXTERNAL_SERVICE_ERROR)
         }
@@ -194,26 +176,20 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
     fun deleteItem(request: DeleteItemRequest): DeleteItemResponse = client.call { deleteItem(request) }
 
     fun query(request: QueryRequest): QueryResponse = client.call { query(request) }
-    fun scan(request: ScanRequest): ScanResponse = if (config.getAllowTableScans())
-    {
+    fun scan(request: ScanRequest): ScanResponse = if (config.getAllowTableScans()) {
         client.call { scan(request) }
-    } else
-    {
+    } else {
         throw UnsupportedQueryException.QueryRequiresTableScan()
     }
 
     fun transactionWriteItems(request: TransactWriteItemsRequest): TransactWriteItemsResponse =
         client.call { transactWriteItems(request) }
 
-    private fun <T : DynamoDbResponse> DynamoDbClient.call(block: DynamoDbClient.() -> T): T
-    {
-        try
-        {
+    private fun <T : DynamoDbResponse> DynamoDbClient.call(block: DynamoDbClient.() -> T): T {
+        try {
             return block()
-        } catch (e: DynamoDbException)
-        {
-            when
-            {
+        } catch (e: DynamoDbException) {
+            when {
                 e.awsErrorDetails()?.errorCode() == "ConditionalCheckFailedException" -> throw e
                 e.awsErrorDetails()
                     ?.errorCode() == "UnrecognizedClientException" -> throw ExternalServiceFailedAuthenticationAlarmException(
@@ -222,27 +198,22 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
                 e.statusCode() >= 500 -> throw ExternalServiceFailedConnectionAlarmException(e)
                 else -> throw ExternalServiceFailedCommunicationAlarmException(e)
             }
-        } catch (e: SdkClientException)
-        {
-            if (e.cause is HttpHostConnectException)
-            {
+        } catch (e: SdkClientException) {
+            if (e.cause is HttpHostConnectException) {
                 throw ExternalServiceFailedConnectionAlarmException(e)
             }
             // Not really sure what the cause is, so let's classify it as a communication issue
             throw ExternalServiceFailedCommunicationAlarmException(e)
-        } catch (e: SdkException)
-        {
+        } catch (e: SdkException) {
             throw ExternalServiceFailedCommunicationAlarmException(e)
         }
     }
 
-    override fun close()
-    {
+    override fun close() {
         client.close()
     }
 
-    companion object
-    {
+    companion object {
         val logger: Logger = LoggerFactory.getLogger(DynamoDBClient::class.java)
     }
 }

@@ -15,8 +15,7 @@
  */
 package io.curity.identityserver.plugin.dynamodb.configuration
 
-enum class AWSRegion(val awsRegion: String)
-{
+enum class AWSRegion(val awsRegion: String) {
     ap_south_1("ap-south-1"),
     eu_south_1("eu-south-1"),
     us_gov_east_1("us-gov-east-1"),

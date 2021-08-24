@@ -42,8 +42,7 @@ class DynamoDBDelegation(
     private val mtlsClientCertificateX5TS256: String?,
     private val mtlsClientCertificateDN: String?
 
-) : Delegation
-{
+) : Delegation {
     override fun getId(): String = id
     override fun getStatus(): DelegationStatus = status
     override fun getOwner(): String = owner

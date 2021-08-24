@@ -20,59 +20,49 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.Update
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 
-class UpdateExpressionsBuilder
-{
+class UpdateExpressionsBuilder {
     private val _attributeValues = mutableMapOf<String, AttributeValue>()
     private val _attributeNames = mutableMapOf<String, String>()
     private val _attributesToRemoveFromItem = mutableListOf<String>()
     private val _updateExpressionParts = mutableListOf<String>()
     private val _conditionExpressionParts = mutableListOf<String>()
 
-    fun <T> update(attribute: DynamoDBAttribute<T>, after: T?)
-    {
-        if (after != null && !isEmptyList(after))
-        {
+    fun <T> update(attribute: DynamoDBAttribute<T>, after: T?) {
+        if (after != null && !isEmptyList(after)) {
             _updateExpressionParts.add("${attribute.hashName} = ${attribute.colonName}_new")
             _attributeValues["${attribute.colonName}_new"] = attribute.toAttrValue(after)
             _attributeNames[attribute.hashName] = attribute.name
-        } else
-        {
+        } else {
             _attributesToRemoveFromItem.add(attribute.hashName)
             _attributeNames[attribute.hashName] = attribute.name
         }
     }
 
-    fun <T> onlyIf(attribute: DynamoDBAttribute<T>, value: T)
-    {
+    fun <T> onlyIf(attribute: DynamoDBAttribute<T>, value: T) {
         _conditionExpressionParts.add("${attribute.hashName} = ${attribute.colonName}_curr")
         _attributeValues["${attribute.colonName}_curr"] = attribute.toAttrValue(value)
         _attributeNames[attribute.hashName] = attribute.name
     }
 
-    fun <T> onlyIfExists(keyAttribute: DynamoDBAttribute<T>)
-    {
+    fun <T> onlyIfExists(keyAttribute: DynamoDBAttribute<T>) {
         _conditionExpressionParts.add("attribute_exists(${keyAttribute.name})")
     }
 
-    fun applyTo(builder: UpdateItemRequest.Builder)
-    {
+    fun applyTo(builder: UpdateItemRequest.Builder) {
 
         var updateExpression = ""
 
-        if (_updateExpressionParts.isNotEmpty())
-        {
+        if (_updateExpressionParts.isNotEmpty()) {
             updateExpression += "SET ${_updateExpressionParts.joinToString(", ")} "
             builder
                 .expressionAttributeValues(_attributeValues)
         }
 
-        if (_attributesToRemoveFromItem.isNotEmpty())
-        {
+        if (_attributesToRemoveFromItem.isNotEmpty()) {
             updateExpression += "REMOVE ${_attributesToRemoveFromItem.joinToString(", ")} "
         }
 
-        if (_conditionExpressionParts.isNotEmpty())
-        {
+        if (_conditionExpressionParts.isNotEmpty()) {
             builder.conditionExpression(_conditionExpressionParts.joinToString(" AND "))
         }
 
@@ -80,25 +70,21 @@ class UpdateExpressionsBuilder
         builder.expressionAttributeNames(_attributeNames)
     }
 
-    fun applyTo(builder: Update.Builder)
-    {
+    fun applyTo(builder: Update.Builder) {
 
         var updateExpression = ""
 
-        if (_updateExpressionParts.isNotEmpty())
-        {
+        if (_updateExpressionParts.isNotEmpty()) {
             updateExpression += "SET ${_updateExpressionParts.joinToString(", ")} "
             builder
                 .expressionAttributeValues(_attributeValues)
         }
 
-        if (_attributesToRemoveFromItem.isNotEmpty())
-        {
+        if (_attributesToRemoveFromItem.isNotEmpty()) {
             updateExpression += "REMOVE ${_attributesToRemoveFromItem.joinToString(", ")} "
         }
 
-        if (_conditionExpressionParts.isNotEmpty())
-        {
+        if (_conditionExpressionParts.isNotEmpty()) {
             builder.conditionExpression(_conditionExpressionParts.joinToString(" AND "))
         }
 

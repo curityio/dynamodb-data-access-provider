@@ -18,15 +18,14 @@ package io.curity.identityserver.plugin.dynamodb.query
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBAttribute
 
-sealed class QueryPlan
-{
+sealed class QueryPlan {
     data class UsingQueries(
         val queries: Map<KeyCondition, List<Product>>
-    ): QueryPlan()
+    ) : QueryPlan()
 
     data class UsingScan(
         val expression: DisjunctiveNormalForm
-    ): QueryPlan() {
+    ) : QueryPlan() {
         companion object {
             fun fullScan() = UsingScan(expression = DisjunctiveNormalForm(products = setOf()))
         }
@@ -40,8 +39,7 @@ sealed class QueryPlan
         val sortCondition: RangeCondition? = null
     )
 
-    sealed class RangeCondition
-    {
+    sealed class RangeCondition {
         data class Binary(val attributeExpression: BinaryAttributeExpression) : RangeCondition()
         data class Between(val attribute: DynamoDBAttribute<*>, val lower: Any, val higher: Any) : RangeCondition()
     }
