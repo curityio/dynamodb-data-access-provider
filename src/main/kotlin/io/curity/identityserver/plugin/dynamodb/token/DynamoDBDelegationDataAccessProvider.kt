@@ -38,6 +38,8 @@ import io.curity.identityserver.plugin.dynamodb.querySequence
 import io.curity.identityserver.plugin.dynamodb.scanSequence
 import io.curity.identityserver.plugin.dynamodb.toIntOrThrow
 import org.slf4j.LoggerFactory
+import org.slf4j.Marker
+import org.slf4j.MarkerFactory
 import se.curity.identityserver.sdk.attribute.AccountAttributes
 import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.AuthenticationAttributes
@@ -354,7 +356,8 @@ class DynamoDBDelegationDataAccessProvider(
             .map { it.toDelegation() }
             .toList()
     } catch (e: UnsupportedQueryException) {
-        _logger.debug("Unable to process query. Reason is '{}', query = '{}", e.message, resourceQuery)
+        _logger.debug("Unable to process query. Reason is '{}'", e.message)
+        _logger.debug(MASK_MARKER, "The query that failed = '{}", resourceQuery)
         throw _configuration.getExceptionFactory().externalServiceException(e.message)
     }
 
@@ -406,6 +409,7 @@ class DynamoDBDelegationDataAccessProvider(
 
     companion object {
         private val _logger = LoggerFactory.getLogger(DynamoDBDelegationDataAccessProvider::class.java)
+        private val MASK_MARKER : Marker = MarkerFactory.getMarker("MASK")
         private val issuedStatusExpressionAttribute =
             DelegationTable.status.toExpressionNameValuePair(DelegationStatus.issued)
         private val issuedStatusExpressionAttributeMap = mapOf(issuedStatusExpressionAttribute)

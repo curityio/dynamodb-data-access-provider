@@ -25,6 +25,8 @@ import io.curity.identityserver.plugin.dynamodb.query.UnsupportedQueryException
 import io.curity.identityserver.plugin.dynamodb.query.filterWith
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import org.slf4j.Marker
+import org.slf4j.MarkerFactory
 import se.curity.identityserver.sdk.attribute.AccountAttributes
 import se.curity.identityserver.sdk.attribute.Attribute
 import se.curity.identityserver.sdk.attribute.Attributes
@@ -101,7 +103,7 @@ class DynamoDBUserAccountDataAccessProvider(
         accountId: String,
         attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): ResourceAttributes<*>? {
-        _logger.debug("Received request to get account by ID : {}", accountId)
+        _logger.debug(MASK_MARKER, "Received request to get account by ID : {}", accountId)
 
         return retrieveByUniqueAttribute(AccountsTable.accountId, accountId, attributesEnumeration)
     }
@@ -110,7 +112,7 @@ class DynamoDBUserAccountDataAccessProvider(
         userName: String,
         attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): ResourceAttributes<*>? {
-        _logger.debug("Received request to get account by userName : {}", userName)
+        _logger.debug(MASK_MARKER, "Received request to get account by userName : {}", userName)
 
         return retrieveByUniqueAttribute(AccountsTable.userName, userName, attributesEnumeration)
     }
@@ -119,7 +121,7 @@ class DynamoDBUserAccountDataAccessProvider(
         email: String,
         attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): ResourceAttributes<*>? {
-        _logger.debug("Received request to get account by email : {}", email)
+        _logger.debug(MASK_MARKER, "Received request to get account by email : {}", email)
 
         return retrieveByUniqueAttribute(AccountsTable.email, email, attributesEnumeration)
     }
@@ -128,7 +130,7 @@ class DynamoDBUserAccountDataAccessProvider(
         phone: String,
         attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): ResourceAttributes<*>? {
-        _logger.debug("Received request to get account by phone number : {}", phone)
+        _logger.debug(MASK_MARKER, "Received request to get account by phone number : {}", phone)
 
         return retrieveByUniqueAttribute(AccountsTable.phone, phone, attributesEnumeration)
     }
@@ -155,7 +157,7 @@ class DynamoDBUserAccountDataAccessProvider(
     }
 
     override fun create(accountAttributes: AccountAttributes): AccountAttributes {
-        _logger.debug("Received request to create account with data : {}", accountAttributes)
+        _logger.debug(MASK_MARKER, "Received request to create account with data : {}", accountAttributes)
 
         val accountId = UUID.randomUUID().toString()
         val now = Instant.now().epochSecond
@@ -247,7 +249,7 @@ class DynamoDBUserAccountDataAccessProvider(
     override fun delete(accountId: String) = retry("delete", N_OF_ATTEMPTS) { tryDelete(accountId) }
 
     private fun tryDelete(accountId: String): TransactionAttemptResult<Unit> {
-        _logger.debug("Received request to delete account with accountId: {}", accountId)
+        _logger.debug(MASK_MARKER, "Received request to delete account with accountId: {}", accountId)
 
         // Deleting an account requires the deletion of the main item and all the secondary items.
         // A `getItem` is needed to obtain the `userName`, `email`, and `phone` required to compute the
@@ -344,7 +346,7 @@ class DynamoDBUserAccountDataAccessProvider(
         accountAttributes: AccountAttributes,
         attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): ResourceAttributes<*>? {
-        _logger.debug("Received request to update account with data : {}", accountAttributes)
+        _logger.debug(MASK_MARKER, "Received request to update account with data : {}", accountAttributes)
 
         val id = accountAttributes.id
         updateAccount(id, accountAttributes)
@@ -357,7 +359,7 @@ class DynamoDBUserAccountDataAccessProvider(
         accountId: String, map: Map<String, Any>,
         attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): ResourceAttributes<*>? {
-        _logger.debug("Received request to update account with id:{} and data : {}", accountId, map)
+        _logger.debug(MASK_MARKER, "Received request to update account with id:{} and data : {}", accountId, map)
 
         updateAccount(accountId, AccountAttributes.fromMap(map))
 
@@ -470,7 +472,7 @@ class DynamoDBUserAccountDataAccessProvider(
         val username = accountAttributes.userName
         val password = accountAttributes.password
 
-        _logger.debug("Received request to update password for username : {}", username)
+        _logger.debug(MASK_MARKER, "Received request to update password for username : {}", username)
 
         retry("updatePassword", N_OF_ATTEMPTS)
         {
@@ -541,7 +543,7 @@ class DynamoDBUserAccountDataAccessProvider(
     }
 
     override fun verifyPassword(userName: String, password: String): AuthenticationAttributes? {
-        _logger.debug("Received request to verify password for username : {}", userName)
+        _logger.debug(MASK_MARKER, "Received request to verify password for username : {}", userName)
 
         val request = GetItemRequest.builder()
             .tableName(AccountsTable.name(_configuration))
@@ -755,11 +757,9 @@ class DynamoDBUserAccountDataAccessProvider(
             resourceQuery.pagination.count
         )
     } catch (e: UnsupportedQueryException) {
-        _logger.debug(
-            "Unable to process query. Reason is '{}', query = '{}",
-            e.message,
-            resourceQuery
-        )
+        _logger.debug("Unable to process query. Reason is '{}'", e.message)
+        _logger.debug(MASK_MARKER, "Unable to process query = '{}",resourceQuery)
+
         throw _configuration.getExceptionFactory().externalServiceException(e.message)
     }
 
@@ -1035,6 +1035,7 @@ class DynamoDBUserAccountDataAccessProvider(
         )
 
         private val _logger: Logger = LoggerFactory.getLogger(DynamoDBUserAccountDataAccessProvider::class.java)
+        private val MASK_MARKER : Marker = MarkerFactory.getMarker("MASK")
 
         private val attributesToRemove = listOf(
             // these are SDK attribute names and not DynamoDB table attribute names
@@ -1048,7 +1049,7 @@ class DynamoDBUserAccountDataAccessProvider(
         private fun removeLinkedAccounts(account: AccountAttributes): AccountAttributes {
             var withoutLinks = account
             for (linkedAccount in account.linkedAccounts.toList()) {
-                _logger.trace(
+                _logger.trace(MASK_MARKER,
                     "Removing linked account before persisting to accounts table '{}'",
                     linkedAccount
                 )

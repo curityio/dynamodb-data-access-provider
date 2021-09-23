@@ -20,6 +20,8 @@ import io.curity.identityserver.plugin.dynamodb.DynamoDBDeviceDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import org.slf4j.Marker
+import org.slf4j.MarkerFactory
 import se.curity.identityserver.sdk.attribute.Attribute
 import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
@@ -271,7 +273,7 @@ class DynamoDBDeviceDataAccessProvider(
     }
 
     override fun delete(deviceId: String, accountId: String) {
-        _logger.debug("Received request to delete device by deviceId: {} and accountId: {}", deviceId, accountId)
+        _logger.debug(MASK_MARKER, "Received request to delete device by deviceId: {} and accountId: {}", deviceId, accountId)
 
         // Get the id in order to remove both main and secondary items.
         val item = getBy(deviceId, accountId) ?: return
@@ -369,7 +371,7 @@ class DynamoDBDeviceDataAccessProvider(
         attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): ResourceAttributes<*>? {
 
-        _logger.debug("Received request to get device by deviceId: {} and accountId: {}", deviceId, accountId)
+        _logger.debug(MASK_MARKER, "Received request to get device by deviceId: {} and accountId: {}", deviceId, accountId)
 
         val requestBuilder = GetItemRequest.builder()
             .tableName(DeviceTable.name(_configuration))
@@ -392,7 +394,7 @@ class DynamoDBDeviceDataAccessProvider(
 
     override fun getByAccountId(accountId: String?): List<DeviceAttributes> {
 
-        _logger.debug("Received request to get devices by accountId: {}", accountId)
+        _logger.debug(MASK_MARKER, "Received request to get devices by accountId: {}", accountId)
 
         if (accountId == null) {
             return listOf()
@@ -425,7 +427,7 @@ class DynamoDBDeviceDataAccessProvider(
             List<ResourceAttributes<*>> = getByAccountId(accountId).map { it.filter(attributesEnumeration) }
 
     override fun getBy(deviceId: String, accountId: String): DeviceAttributes? {
-        _logger.debug("Received request to get device by deviceId: {} and accountId: {}", deviceId, accountId)
+        _logger.debug(MASK_MARKER, "Received request to get device by deviceId: {} and accountId: {}", deviceId, accountId)
 
         val requestBuilder = GetItemRequest.builder()
             .tableName(DeviceTable.name(_configuration))
@@ -502,6 +504,7 @@ class DynamoDBDeviceDataAccessProvider(
 
     companion object {
         private val _logger: Logger = LoggerFactory.getLogger(DynamoDBDeviceDataAccessProvider::class.java)
+        private val MASK_MARKER : Marker = MarkerFactory.getMarker("MASK")
 
         private const val SK_FOR_ID_ITEM = "sk"
 
