@@ -257,7 +257,7 @@ class ExpressionMapper(
         if (attribute.isValueCompatible(value)) {
             value
         } else {
-            throw UnsupportedQueryException.InvalidValue(attribute.name, value)
+            throw UnsupportedQueryException.InvalidValue(attribute.name)
         }
 
     private fun lookupAttribute(name: String): DynamoDBAttribute<*> =
