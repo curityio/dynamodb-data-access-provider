@@ -18,6 +18,8 @@ package io.curity.identityserver.plugin.dynamodb
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import org.slf4j.Marker
+import org.slf4j.MarkerFactory
 import se.curity.identityserver.sdk.datasource.BucketDataAccessProvider
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
@@ -30,7 +32,7 @@ class DynamoDBBucketDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient
 ) : BucketDataAccessProvider {
     override fun getAttributes(subject: String, purpose: String): Map<String, Any> {
-        _logger.debug("getAttributes with subject: {} , purpose : {}", subject, purpose)
+        _logger.debug(MASK_MARKER, "getAttributes with subject: {} , purpose : {}", subject, purpose)
 
         val request = GetItemRequest.builder()
             .tableName(BucketsTable.name(_configuration))
@@ -51,7 +53,7 @@ class DynamoDBBucketDataAccessProvider(
     }
 
     override fun storeAttributes(subject: String, purpose: String, dataMap: Map<String, Any>): Map<String, Any> {
-        _logger.debug(
+        _logger.debug(MASK_MARKER,
             "storeAttributes with subject: {} , purpose : {} and data : {}",
             subject,
             purpose,
@@ -114,5 +116,6 @@ class DynamoDBBucketDataAccessProvider(
         )
         private val _logger: Logger =
             LoggerFactory.getLogger(DynamoDBBucketDataAccessProvider::class.java)
+        private val MASK_MARKER : Marker = MarkerFactory.getMarker("MASK")
     }
 }

@@ -17,7 +17,9 @@
 package io.curity.identityserver.plugin.dynamodb.query
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBAttribute
+import org.slf4j.Marker
 import org.slf4j.LoggerFactory
+import org.slf4j.MarkerFactory
 import se.curity.identityserver.sdk.data.query.Filter
 
 class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities) {
@@ -26,29 +28,29 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities) {
     fun build(filterExpression: Filter) = build(expressionBuilder.from(filterExpression))
 
     fun build(expression: Expression): QueryPlan {
-        _logger.debug("Computing query plan for non-normalized expression: {}", expression)
+        _logger.debug(MASK_MARKER, "Computing query plan for non-normalized expression: {}", expression)
         val normalized = normalize(expression)
         return buildFromNormalizedExpression(normalized)
     }
 
     private fun buildFromNormalizedExpression(normal: DisjunctiveNormalForm): QueryPlan {
-        _logger.debug("Computing query plan for normalized expression: {}", normal)
+        _logger.debug(MASK_MARKER, "Computing query plan for normalized expression: {}", normal)
         val queries = mutableMapOf<QueryPlan.KeyCondition, MutableList<Product>>()
         normal.products.forEach { product ->
-            _logger.debug("Finding index for term: {}", product)
+            _logger.debug(MASK_MARKER, "Finding index for term: {}", product)
             val keyConditions = tableQueryCapabilities.indexes.asSequence()
                 .map { getKeyConditions(product, it) }
                 .firstOrNull { it.isNotEmpty() }
             if (keyConditions != null) {
                 if (_logger.isTraceEnabled) {
-                    _logger.debug("Found index: {}", keyConditions.first().index)
+                    _logger.trace("Found index: {}", keyConditions.first().index)
                 }
                 keyConditions.forEach { keyCondition ->
                     queries.computeIfAbsent(keyCondition) { mutableListOf() }
                         .add(keyCondition.index.filterKeys(product))
                 }
             } else {
-                _logger.debug("No index found for term, a scan will be required: {}", product)
+                _logger.debug(MASK_MARKER, "No index found for term, a scan will be required: {}", product)
                 return QueryPlan.UsingScan(normal)
             }
         }
@@ -56,7 +58,7 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities) {
     }
 
     fun getKeyConditions(product: Product, index: Index): List<QueryPlan.KeyCondition> {
-        _logger.debug("Checking if index '{}' can be used on term {}", index.indexName, product)
+        _logger.debug(MASK_MARKER, "Checking if index '{}' can be used on term {}", index.indexName, product)
         val partitionKeyExpressions = product.terms
             .filter { term -> index.partitionAttribute.canBeUsedOnQueryTo(term.attribute) }
         if (partitionKeyExpressions.isEmpty()) {
@@ -160,6 +162,7 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities) {
 
     companion object {
         private val _logger = LoggerFactory.getLogger(QueryPlanner::class.java)
+        private val MASK_MARKER : Marker = MarkerFactory.getMarker("MASK")
     }
 }
 

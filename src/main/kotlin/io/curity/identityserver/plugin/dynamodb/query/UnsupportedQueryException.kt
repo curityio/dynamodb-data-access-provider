@@ -27,8 +27,8 @@ sealed class UnsupportedQueryException(msg: String) : Exception(msg) {
 
     class UnknownAttribute(val name: String) : UnsupportedQueryException("Unknown attribute '$name'")
 
-    class InvalidValue(val attributeName: String, val value: Any) :
-        UnsupportedQueryException("Invalid value '$value' for attribute '$attributeName'")
+    class InvalidValue(val attributeName: String) :
+        UnsupportedQueryException("Invalid value for attribute '$attributeName'")
 
     class UnknownSortAttribute(val name: String) :
         UnsupportedQueryException("Unknown attribute '$name' used for sorting")
