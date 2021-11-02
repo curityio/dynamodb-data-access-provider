@@ -22,65 +22,24 @@ import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccess
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration.AWSAccessMethod.AWSProfile
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration.AWSAccessMethod.AccessKeyIdAndSecret
 import org.junit.Test
-import se.curity.identityserver.sdk.service.ExceptionFactory
-import se.curity.identityserver.sdk.service.Json
+import org.mockito.Mockito
 import java.util.Optional
-
 
 class EC2InstanceProfileTest {
 
     @Test
     fun testClientCanBeCreated() {
-        DynamoDBClient(ec2InstanceProfileConfig)
-    }
-
-    // A test stub config that uses EC2InstanceProfile access method
-    val ec2InstanceProfileConfig = object : DynamoDBDataAccessProviderConfiguration {
-        override fun getAwsRegion() = AWSRegion.eu_west_1
-
-        override fun getEndpointOverride() = Optional.empty<String>()
-
-        override fun getDynamodbAccessMethod() =  object : AWSAccessMethod {
-            override val accessKeyIdAndSecret = Optional.empty<AccessKeyIdAndSecret>()
-
-            override val aWSProfile = Optional.empty< AWSProfile>()
-
-            override val isEC2InstanceProfile = Optional.of(true)
-
-            override fun id(): String {
-                TODO("Not yet implemented")
+        val ec2InstanceProfileConfig = Mockito.mock(DynamoDBDataAccessProviderConfiguration::class.java)
+        Mockito.`when`(ec2InstanceProfileConfig.getDynamodbAccessMethod()).thenReturn(
+            object : AWSAccessMethod {
+                override val accessKeyIdAndSecret = Optional.empty<AccessKeyIdAndSecret>()
+                override val aWSProfile = Optional.empty<AWSProfile>()
+                override val isEC2InstanceProfile = Optional.of(true)
+                override fun id() = "the-id"
             }
-        }
+        )
+        Mockito.`when`(ec2InstanceProfileConfig.getAwsRegion()).thenReturn(AWSRegion.eu_west_3)
 
-        override fun getAllowTableScans() = false
-
-        override fun getSessionsTtlRetainDuration() = Long.MAX_VALUE
-
-        override fun getNoncesTtlRetainDuration() = Long.MAX_VALUE
-
-        override fun getDelegationsTtlRetainDuration() = Long.MAX_VALUE
-
-        override fun getTokensTtlRetainDuration() = Long.MAX_VALUE
-
-        override fun getDevicesTtlRetainDuration() = Long.MAX_VALUE
-
-        override fun getApiCallTimeout() = Optional.of(10L)
-
-        override fun getApiCallAttemptTimeout() = Optional.of(10L)
-
-        override fun getTableNamePrefix() = Optional.empty<String>()
-
-        override fun getExceptionFactory(): ExceptionFactory {
-            TODO("Not yet implemented")
-        }
-
-        override fun getJsonHandler(): Json {
-            TODO("Not yet implemented")
-        }
-
-        override fun id(): String {
-            TODO("Not yet implemented")
-        }
-
+        DynamoDBClient(ec2InstanceProfileConfig)
     }
 }
