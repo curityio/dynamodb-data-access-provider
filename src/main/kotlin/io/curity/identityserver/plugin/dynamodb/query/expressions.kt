@@ -28,67 +28,58 @@ import se.curity.identityserver.sdk.data.query.Filter
  * Class hierarchy with the supported DynamoDB attribute operators.
  */
 
-sealed class AttributeOperator
-{
+sealed class AttributeOperator {
     open val requiresPostQueryEvaluation = false
 }
 
-sealed class BinaryAttributeOperator : AttributeOperator()
-{
+sealed class BinaryAttributeOperator : AttributeOperator() {
     abstract fun negate(): BinaryAttributeOperator
     abstract fun toDynamoOperator(left: String, right: String): String
     abstract fun eval(left: Any?, right: Any): Boolean
 
-    object Eq : BinaryAttributeOperator()
-    {
+    object Eq : BinaryAttributeOperator() {
         override fun toString() = "Eq"
         override fun negate() = Ne
         override fun toDynamoOperator(left: String, right: String) = "$left = $right"
         override fun eval(left: Any?, right: Any) = left == right
     }
 
-    object Ne : BinaryAttributeOperator()
-    {
+    object Ne : BinaryAttributeOperator() {
         override fun toString() = "Ne"
         override fun negate() = Eq
         override fun toDynamoOperator(left: String, right: String) = "$left <> $right"
         override fun eval(left: Any?, right: Any) = left != right
     }
 
-    object Co : BinaryAttributeOperator()
-    {
+    object Co : BinaryAttributeOperator() {
         override fun toString() = "Co"
         override fun negate() = NotCo
         override fun toDynamoOperator(left: String, right: String) = "contains($left,$right)"
         override fun eval(left: Any?, right: Any) = left is String && right is String && left.contains(right)
     }
 
-    object NotCo : BinaryAttributeOperator()
-    {
+    object NotCo : BinaryAttributeOperator() {
         override fun toString() = "NotCo"
         override fun negate() = Co
         override fun toDynamoOperator(left: String, right: String) = "NOT ${Co.toDynamoOperator(left, right)}"
         override fun eval(left: Any?, right: Any) = !Co.eval(left, right)
     }
 
-    object Sw : BinaryAttributeOperator()
-    {
+    object Sw : BinaryAttributeOperator() {
         override fun toString() = "Sw"
         override fun negate() = NotSw
         override fun toDynamoOperator(left: String, right: String) = "begins_with($left, $right)"
         override fun eval(left: Any?, right: Any) = left is String && right is String && left.startsWith(right)
     }
 
-    object NotSw : BinaryAttributeOperator()
-    {
+    object NotSw : BinaryAttributeOperator() {
         override fun toString() = "NotSw"
         override fun negate() = Sw
         override fun toDynamoOperator(left: String, right: String) = "NOT ${Sw.toDynamoOperator(left, right)}"
         override fun eval(left: Any?, right: Any) = !Sw.eval(left, right)
     }
 
-    object Ew : BinaryAttributeOperator()
-    {
+    object Ew : BinaryAttributeOperator() {
         override fun toString() = "Ew"
         override fun negate() = NotEw
         override fun toDynamoOperator(left: String, right: String) = "contains($left, $right)"
@@ -96,8 +87,7 @@ sealed class BinaryAttributeOperator : AttributeOperator()
         override val requiresPostQueryEvaluation = true
     }
 
-    object NotEw : BinaryAttributeOperator()
-    {
+    object NotEw : BinaryAttributeOperator() {
         override fun toString() = "NotEw"
         override fun negate() = Ew
         override fun toDynamoOperator(left: String, right: String) = "NOT ${Ew.toDynamoOperator(left, right)}"
@@ -105,32 +95,28 @@ sealed class BinaryAttributeOperator : AttributeOperator()
         override val requiresPostQueryEvaluation = true
     }
 
-    object Gt : BinaryAttributeOperator()
-    {
+    object Gt : BinaryAttributeOperator() {
         override fun toString() = "Gt"
         override fun negate() = Le
         override fun toDynamoOperator(left: String, right: String) = "$left > $right"
         override fun eval(left: Any?, right: Any) = compare(this, left, right) > 0
     }
 
-    object Ge : BinaryAttributeOperator()
-    {
+    object Ge : BinaryAttributeOperator() {
         override fun toString() = "Ge"
         override fun negate() = Lt
         override fun toDynamoOperator(left: String, right: String) = "$left >= $right"
         override fun eval(left: Any?, right: Any) = compare(this, left, right) >= 0
     }
 
-    object Lt : BinaryAttributeOperator()
-    {
+    object Lt : BinaryAttributeOperator() {
         override fun toString() = "Lt"
         override fun negate() = Ge
         override fun toDynamoOperator(left: String, right: String) = "$left < $right"
         override fun eval(left: Any?, right: Any) = compare(this, left, right) < 0
     }
 
-    object Le : BinaryAttributeOperator()
-    {
+    object Le : BinaryAttributeOperator() {
         override fun toString() = "Le"
         override fun negate() = Gt
         override fun toDynamoOperator(left: String, right: String) = "$left <= $right"
@@ -138,22 +124,19 @@ sealed class BinaryAttributeOperator : AttributeOperator()
     }
 }
 
-sealed class UnaryAttributeOperator : AttributeOperator()
-{
+sealed class UnaryAttributeOperator : AttributeOperator() {
     abstract fun negate(): UnaryAttributeOperator
     abstract fun toDynamoOperator(left: String): String
     abstract fun eval(left: Any?): Boolean
 
-    object Pr : UnaryAttributeOperator()
-    {
+    object Pr : UnaryAttributeOperator() {
         override fun toString() = "Pr"
         override fun negate() = NotPr
         override fun toDynamoOperator(left: String) = "attribute_exists($left)"
         override fun eval(left: Any?) = left != null
     }
 
-    object NotPr : UnaryAttributeOperator()
-    {
+    object NotPr : UnaryAttributeOperator() {
         override fun toString() = "NotPr"
         override fun negate() = Pr
         override fun toDynamoOperator(left: String) = "attribute_not_exists($left)"
@@ -161,8 +144,7 @@ sealed class UnaryAttributeOperator : AttributeOperator()
     }
 }
 
-fun operatorFrom(filterOperator: Filter.AttributeOperator) = when (filterOperator)
-{
+fun operatorFrom(filterOperator: Filter.AttributeOperator) = when (filterOperator) {
     Filter.AttributeOperator.EQ -> BinaryAttributeOperator.Eq
     Filter.AttributeOperator.NE -> BinaryAttributeOperator.Ne
     Filter.AttributeOperator.CO -> BinaryAttributeOperator.Co
@@ -178,36 +160,28 @@ fun operatorFrom(filterOperator: Filter.AttributeOperator) = when (filterOperato
 fun isUsableOnSortIndex(operator: AttributeOperator) = sortOperators.contains(operator)
 
 fun compare(operator: AttributeOperator, left: Any?, right: Any) =
-    if (left is String && right is String)
-    {
+    if (left is String && right is String) {
         compareValues(left, right)
-    } else if (left is Long && right is Long)
-    {
+    } else if (left is Long && right is Long) {
         compareValues(left, right)
-    } else
-    {
+    } else {
         throw UnsupportedQueryException.InvalidOperandTypes(operator, left, right)
     }
 
 /**
  * Class hierarchy with the supported DynamoDB binary logical operators.
  */
-sealed class LogicalOperator
-{
-    object And : LogicalOperator()
-    {
+sealed class LogicalOperator {
+    object And : LogicalOperator() {
         override fun toString() = "AND"
     }
 
-    object Or : LogicalOperator()
-    {
+    object Or : LogicalOperator() {
         override fun toString() = "OR"
     }
 
-    companion object
-    {
-        fun from(operator: Filter.LogicalOperator) = when (operator)
-        {
+    companion object {
+        fun from(operator: Filter.LogicalOperator) = when (operator) {
             Filter.LogicalOperator.AND -> And
             Filter.LogicalOperator.OR -> Or
         }
@@ -222,8 +196,7 @@ sealed class Expression
 sealed class AttributeExpression(
     open val attribute: DynamoDBAttribute<*>,
     open val operator: AttributeOperator
-) : Expression()
-{
+) : Expression() {
     abstract fun match(item: DynamoDBItem): Boolean
 }
 
@@ -231,16 +204,14 @@ data class BinaryAttributeExpression(
     override val attribute: DynamoDBAttribute<*>,
     override val operator: BinaryAttributeOperator,
     val value: Any
-) : AttributeExpression(attribute, operator)
-{
+) : AttributeExpression(attribute, operator) {
     override fun match(item: DynamoDBItem) = operator.eval(attribute.optionalFrom(item), value)
 }
 
 data class UnaryAttributeExpression(
     override val attribute: DynamoDBAttribute<*>,
     override val operator: UnaryAttributeOperator
-) : AttributeExpression(attribute, operator)
-{
+) : AttributeExpression(attribute, operator) {
     override fun match(item: DynamoDBItem) = operator.eval(attribute.optionalFrom(item))
 }
 
@@ -260,13 +231,10 @@ data class NegationExpression(
 class ExpressionMapper(
     /** The map to use when mapping from attribute names to [DynamoDBAttribute] instances */
     private val attributeMap: Map<String, DynamoDBAttribute<*>>
-)
-{
-    fun from(filter: Filter): Expression = when (filter)
-    {
+) {
+    fun from(filter: Filter): Expression = when (filter) {
         is Filter.AttributeExpression -> lookupAttribute(filter.attributeName).let { attribute ->
-            when (val operator = operatorFrom(filter.operator))
-            {
+            when (val operator = operatorFrom(filter.operator)) {
                 is UnaryAttributeOperator -> UnaryAttributeExpression(attribute, operator)
                 is BinaryAttributeOperator -> BinaryAttributeExpression(
                     attribute,
@@ -286,12 +254,10 @@ class ExpressionMapper(
     }
 
     private fun validateValue(attribute: DynamoDBAttribute<*>, value: Any) =
-        if (attribute.isValueCompatible(value))
-        {
+        if (attribute.isValueCompatible(value)) {
             value
-        } else
-        {
-            throw UnsupportedQueryException.InvalidValue(attribute.name, value)
+        } else {
+            throw UnsupportedQueryException.InvalidValue(attribute.name)
         }
 
     private fun lookupAttribute(name: String): DynamoDBAttribute<*> =
@@ -301,14 +267,12 @@ class ExpressionMapper(
 /**
  * A product is an AND of multiple terms, where each term is an [AttributeExpression]
  */
-data class Product(val terms: Set<AttributeExpression>)
-{
+data class Product(val terms: Set<AttributeExpression>) {
     override fun toString() = terms.joinToString(".") { it.toString() }
 
     fun match(item: DynamoDBItem) = terms.all { it.match(item) }
 
-    companion object
-    {
+    companion object {
         fun of(vararg terms: AttributeExpression) = Product(setOf(*terms))
     }
 }
@@ -347,11 +311,9 @@ fun DynamoDBItem.matches(product: Product) = product.terms.all { this.matches(it
 fun DynamoDBItem.matches(products: Iterable<Product>) = products.any { this.matches(it) }
 
 fun Sequence<DynamoDBItem>.filterWith(products: Iterable<Product>) =
-    if (requiresPostQueryEvaluation(products))
-    {
+    if (requiresPostQueryEvaluation(products)) {
         this.filter { it.matches(products) }
-    } else
-    {
+    } else {
         this
     }
 
@@ -359,14 +321,11 @@ fun Sequence<DynamoDBItem>.filterWith(products: Iterable<Product>) =
  * Converts an [Expression] into the equivalent [DisjunctiveNormalForm]
  */
 
-fun normalize(expr: Expression): DisjunctiveNormalForm = when (expr)
-{
+fun normalize(expr: Expression): DisjunctiveNormalForm = when (expr) {
     is AttributeExpression -> DisjunctiveNormalForm(setOf(Product(setOf(expr))))
-    is LogicalExpression ->
-    {
+    is LogicalExpression -> {
         val (l, o, r) = expr
-        when (o)
-        {
+        when (o) {
             is LogicalOperator.Or -> or(normalize(l), normalize(r))
             is LogicalOperator.And -> and(normalize(l), normalize(r))
         }
@@ -377,23 +336,18 @@ fun normalize(expr: Expression): DisjunctiveNormalForm = when (expr)
 /**
  * Negates an [Expression]
  */
-fun negate(expr: Expression): Expression = when (expr)
-{
-    is UnaryAttributeExpression ->
-    {
+fun negate(expr: Expression): Expression = when (expr) {
+    is UnaryAttributeExpression -> {
         val (attr, operation) = expr
         UnaryAttributeExpression(attr, operation.negate())
     }
-    is BinaryAttributeExpression ->
-    {
+    is BinaryAttributeExpression -> {
         val (attr, operation, value) = expr
         BinaryAttributeExpression(attr, operation.negate(), value)
     }
-    is LogicalExpression ->
-    {
+    is LogicalExpression -> {
         val (l, o, r) = expr
-        when (o)
-        {
+        when (o) {
             is LogicalOperator.Or -> and(negate(l), negate(r))
             is LogicalOperator.And -> or(negate(l), negate(r))
         }

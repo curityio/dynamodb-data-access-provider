@@ -18,6 +18,8 @@ package io.curity.identityserver.plugin.dynamodb
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import org.slf4j.Marker
+import org.slf4j.MarkerFactory
 import se.curity.identityserver.sdk.datasource.BucketDataAccessProvider
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
@@ -28,11 +30,9 @@ import java.time.Instant
 class DynamoDBBucketDataAccessProvider(
     private val _configuration: DynamoDBDataAccessProviderConfiguration,
     private val _dynamoDBClient: DynamoDBClient
-) : BucketDataAccessProvider
-{
-    override fun getAttributes(subject: String, purpose: String): Map<String, Any>
-    {
-        _logger.debug("getAttributes with subject: {} , purpose : {}", subject, purpose)
+) : BucketDataAccessProvider {
+    override fun getAttributes(subject: String, purpose: String): Map<String, Any> {
+        _logger.debug(MASK_MARKER, "getAttributes with subject: {} , purpose : {}", subject, purpose)
 
         val request = GetItemRequest.builder()
             .tableName(BucketsTable.name(_configuration))
@@ -41,8 +41,7 @@ class DynamoDBBucketDataAccessProvider(
             .build()
         val response = _dynamoDBClient.getItem(request)
 
-        if (!response.hasItem())
-        {
+        if (!response.hasItem()) {
             return mapOf()
         }
         val attributesString = BucketsTable.attributes.optionalFrom(response.item())
@@ -53,9 +52,8 @@ class DynamoDBBucketDataAccessProvider(
         return _configuration.getJsonHandler().fromJson(attributesString)
     }
 
-    override fun storeAttributes(subject: String, purpose: String, dataMap: Map<String, Any>): Map<String, Any>
-    {
-        _logger.debug(
+    override fun storeAttributes(subject: String, purpose: String, dataMap: Map<String, Any>): Map<String, Any> {
+        _logger.debug(MASK_MARKER,
             "storeAttributes with subject: {} , purpose : {} and data : {}",
             subject,
             purpose,
@@ -76,8 +74,7 @@ class DynamoDBBucketDataAccessProvider(
         return dataMap
     }
 
-    override fun clearBucket(subject: String, purpose: String): Boolean
-    {
+    override fun clearBucket(subject: String, purpose: String): Boolean {
         val request = DeleteItemRequest.builder()
             .tableName(BucketsTable.name(_configuration))
             .key(BucketsTable.key(subject, purpose))
@@ -89,8 +86,7 @@ class DynamoDBBucketDataAccessProvider(
         return response.hasAttributes()
     }
 
-    private object BucketsTable : Table("curity-bucket")
-    {
+    private object BucketsTable : Table("curity-bucket") {
         val subject = StringAttribute("subject")
         val purpose = StringAttribute("purpose")
         val attributes = StringAttribute("attributes")
@@ -105,8 +101,7 @@ class DynamoDBBucketDataAccessProvider(
 
     private fun updateExpression(attributesString: String, created: Long, updated: Long) = object : Expression(
         _updateExpressionBuilder
-    )
-    {
+    ) {
         override val values = mapOf(
             BucketsTable.attributes.toExpressionNameValuePair(attributesString),
             BucketsTable.updated.toExpressionNameValuePair(created),
@@ -114,13 +109,13 @@ class DynamoDBBucketDataAccessProvider(
         )
     }
 
-    companion object
-    {
+    companion object {
         private val _updateExpressionBuilder = ExpressionBuilder(
             "SET #attributes = :attributes, #updated = :updated, #created = if_not_exists(#created, :created)",
             BucketsTable.attributes, BucketsTable.created, BucketsTable.updated
         )
         private val _logger: Logger =
             LoggerFactory.getLogger(DynamoDBBucketDataAccessProvider::class.java)
+        private val MASK_MARKER : Marker = MarkerFactory.getMarker("MASK")
     }
 }

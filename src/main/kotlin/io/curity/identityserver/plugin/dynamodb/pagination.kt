@@ -22,17 +22,14 @@ import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 // Returns a sequence with the items produced by a query, handling pagination if needed
 fun querySequence(request: QueryRequest, client: DynamoDBClient) = sequence {
     var response = client.query(request)
-    if (response.hasItems())
-    {
+    if (response.hasItems()) {
         response.items().forEach {
             yield(it)
         }
-        while (response.hasLastEvaluatedKey())
-        {
+        while (response.hasLastEvaluatedKey()) {
             val newRequest = request.toBuilder().exclusiveStartKey(response.lastEvaluatedKey()).build()
             response = client.query(newRequest)
-            if (response.hasItems())
-            {
+            if (response.hasItems()) {
                 response.items().forEach {
                     yield(it)
                 }
@@ -44,17 +41,14 @@ fun querySequence(request: QueryRequest, client: DynamoDBClient) = sequence {
 // Returns a sequence with the items produced by a query, handling pagination if needed
 fun scanSequence(request: ScanRequest, client: DynamoDBClient) = sequence {
     var response = client.scan(request)
-    if (response.hasItems())
-    {
+    if (response.hasItems()) {
         response.items().forEach {
             yield(it)
         }
-        while (response.hasLastEvaluatedKey())
-        {
+        while (response.hasLastEvaluatedKey()) {
             val newRequest = request.toBuilder().exclusiveStartKey(response.lastEvaluatedKey()).build()
             response = client.scan(newRequest)
-            if (response.hasItems())
-            {
+            if (response.hasItems()) {
                 response.items().forEach {
                     yield(it)
                 }
@@ -63,12 +57,10 @@ fun scanSequence(request: ScanRequest, client: DynamoDBClient) = sequence {
     }
 }
 
-fun count(request: QueryRequest, client: DynamoDBClient): Long
-{
+fun count(request: QueryRequest, client: DynamoDBClient): Long {
     var response = client.query(request)
     var counter = response.count().toLong()
-    while (response.hasLastEvaluatedKey())
-    {
+    while (response.hasLastEvaluatedKey()) {
         val newRequest = request.toBuilder().exclusiveStartKey(response.lastEvaluatedKey()).build()
         response = client.query(newRequest)
         counter += response.count()
@@ -77,12 +69,10 @@ fun count(request: QueryRequest, client: DynamoDBClient): Long
     return counter
 }
 
-fun count(request: ScanRequest, client: DynamoDBClient): Long
-{
+fun count(request: ScanRequest, client: DynamoDBClient): Long {
     var response = client.scan(request)
     var counter = response.count().toLong()
-    while (response.hasLastEvaluatedKey())
-    {
+    while (response.hasLastEvaluatedKey()) {
         val newRequest = request.toBuilder().exclusiveStartKey(response.lastEvaluatedKey()).build()
         response = client.scan(newRequest)
         counter += response.count()

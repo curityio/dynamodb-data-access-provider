@@ -26,11 +26,9 @@ import org.junit.Test
 import se.curity.identityserver.sdk.data.authorization.DelegationStatus
 import se.curity.identityserver.sdk.data.query.Filter
 
-class DelegationQueryTests
-{
+class DelegationQueryTests {
     @Test
-    fun testActiveByClient()
-    {
+    fun testActiveByClient() {
 
         val filterExpression = Filter.LogicalExpression(
             Filter.LogicalOperator.AND,
@@ -55,8 +53,7 @@ class DelegationQueryTests
 
         val queryPlan = queryPlanner.build(filterExpression)
 
-        if (queryPlan is QueryPlan.UsingScan)
-        {
+        if (queryPlan is QueryPlan.UsingScan) {
             fail("Query plan cannot be a scan")
             return
         }
@@ -117,8 +114,7 @@ class DelegationQueryTests
     }
 
     @Test
-    fun testNotActiveByClient()
-    {
+    fun testNotActiveByClient() {
 
         val filterExpression = Filter.LogicalExpression(
             Filter.LogicalOperator.AND,
@@ -143,8 +139,7 @@ class DelegationQueryTests
 
         val queryPlan = queryPlanner.build(filterExpression)
 
-        if (queryPlan is QueryPlan.UsingScan)
-        {
+        if (queryPlan is QueryPlan.UsingScan) {
             fail("Query plan cannot be a scan")
             return
         }
@@ -158,10 +153,11 @@ class DelegationQueryTests
         assertQuery(secondQuery, BinaryAttributeOperator.Gt)
     }
 
-    private fun assertQuery(query: Map.Entry<QueryPlan.KeyCondition, List<Product>>, operator: BinaryAttributeOperator)
-    {
-        val operatorString = when (operator)
-        {
+    private fun assertQuery(
+        query: Map.Entry<QueryPlan.KeyCondition, List<Product>>,
+        operator: BinaryAttributeOperator
+    ) {
+        val operatorString = when (operator) {
             BinaryAttributeOperator.Lt -> "<"
             BinaryAttributeOperator.Gt -> ">"
             else -> throw AssertionError("Unexpected operator here")
@@ -221,8 +217,7 @@ class DelegationQueryTests
     }
 
     @Test
-    fun testQueryByRedirectUri()
-    {
+    fun testQueryByRedirectUri() {
         val filterExpression =
             Filter.AttributeExpression(
                 Filter.AttributeOperator.EQ,
@@ -233,8 +228,7 @@ class DelegationQueryTests
 
         val queryPlan = queryPlanner.build(filterExpression)
 
-        if (queryPlan is QueryPlan.UsingQueries)
-        {
+        if (queryPlan is QueryPlan.UsingQueries) {
             fail("Query plan needs to be a scan")
             return
         }

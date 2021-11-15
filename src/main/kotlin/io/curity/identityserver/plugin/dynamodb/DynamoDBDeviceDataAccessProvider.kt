@@ -20,6 +20,8 @@ import io.curity.identityserver.plugin.dynamodb.DynamoDBDeviceDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import org.slf4j.Marker
+import org.slf4j.MarkerFactory
 import se.curity.identityserver.sdk.attribute.Attribute
 import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
@@ -63,12 +65,10 @@ import java.util.UUID
 class DynamoDBDeviceDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient,
     private val _configuration: DynamoDBDataAccessProviderConfiguration
-) : DeviceDataAccessProvider
-{
+) : DeviceDataAccessProvider {
     private val _jsonHandler = _configuration.getJsonHandler()
 
-    object DeviceTable : Table("curity-devices")
-    {
+    object DeviceTable : Table("curity-devices") {
         // Each device has two items in the table, with the following primary key structure
         // (pk - partition key, sk - sort key):
         // - pk=id#{id}, sk="sk" (sk is constant, since id must be unique)
@@ -99,8 +99,7 @@ class DynamoDBDeviceDataAccessProvider(
     /**
      * Produces a [MutableDynamoDBItem] (i.e. a table row) from a [DeviceAttributes].
      */
-    private fun DeviceAttributes.toItem(): MutableDynamoDBItem
-    {
+    private fun DeviceAttributes.toItem(): MutableDynamoDBItem {
         val now = Instant.now()
         val created = now
 
@@ -111,8 +110,7 @@ class DynamoDBDeviceDataAccessProvider(
         val id = deviceAttributesAsMap.remove(ResourceAttributes.ID) as? String ?: UUID.randomUUID().toString()
         DeviceTable.id.addTo(item, id)
 
-        if (deviceAttributesAsMap.isNotEmpty())
-        {
+        if (deviceAttributesAsMap.isNotEmpty()) {
             deviceAttributesAsMap.remove(META)
             DeviceTable.attributes.addTo(item, _jsonHandler.fromAttributes(Attributes.fromMap(deviceAttributesAsMap)))
         }
@@ -127,13 +125,11 @@ class DynamoDBDeviceDataAccessProvider(
      * Produces a [DeviceAttributes] from a [DynamoDBItem] (i.e. a table row).
      */
     private fun DynamoDBItem.toDeviceAttributes(attributesEnumeration: ResourceQuery.AttributesEnumeration? = null)
-            : DeviceAttributes
-    {
+            : DeviceAttributes {
         val item = this
         val attributeList = mutableListOf<Attribute>()
         attributeList.add(Attribute.of(ResourceAttributes.ID, DeviceTable.id.from(item)))
-        if (attributesEnumeration == null || attributesEnumeration.keepAttribute(ResourceAttributes.META))
-        {
+        if (attributesEnumeration == null || attributesEnumeration.keepAttribute(ResourceAttributes.META)) {
             val created = DeviceTable.created.from(item)
             val modified = DeviceTable.updated.from(item)
             attributeList.add(
@@ -156,8 +152,7 @@ class DynamoDBDeviceDataAccessProvider(
         return DeviceAttributes.of(attributeList)
     }
 
-    override fun create(deviceAttributes: DeviceAttributes)
-    {
+    override fun create(deviceAttributes: DeviceAttributes) {
         _logger.debug("Received request to create device by deviceId: {}", deviceAttributes.deviceId)
 
         val transactionItems = mutableListOf<TransactWriteItem>()
@@ -203,13 +198,10 @@ class DynamoDBDeviceDataAccessProvider(
             .transactItems(transactionItems)
             .build()
 
-        try
-        {
+        try {
             _dynamoDBClient.transactionWriteItems(request)
-        } catch (ex: Exception)
-        {
-            if (ex.isTransactionCancelledDueToConditionFailure())
-            {
+        } catch (ex: Exception) {
+            if (ex.isTransactionCancelledDueToConditionFailure()) {
                 throw ConflictException(
                     "Unable to create device as uniqueness check failed"
                 )
@@ -221,10 +213,8 @@ class DynamoDBDeviceDataAccessProvider(
     /**
      * Deletes both the primary and secondary items for a given device.
      */
-    private fun delete(id: String, accountId: String?, deviceId: String)
-    {
-        if (accountId == null)
-        {
+    private fun delete(id: String, accountId: String?, deviceId: String) {
+        if (accountId == null) {
             throw requiredDeviceAttributeIsNotPresent("accountId")
         }
 
@@ -271,8 +261,7 @@ class DynamoDBDeviceDataAccessProvider(
         _dynamoDBClient.transactionWriteItems(request)
     }
 
-    override fun delete(id: String)
-    {
+    override fun delete(id: String) {
         _logger.debug("Received request to update device by id: {}", id)
 
         // Get the (accountId, deviceId) pair in order to remove both main and secondary items.
@@ -283,17 +272,15 @@ class DynamoDBDeviceDataAccessProvider(
         delete(id, accountId, deviceId)
     }
 
-    override fun delete(deviceId: String, accountId: String)
-    {
-        _logger.debug("Received request to delete device by deviceId: {} and accountId: {}", deviceId, accountId)
+    override fun delete(deviceId: String, accountId: String) {
+        _logger.debug(MASK_MARKER, "Received request to delete device by deviceId: {} and accountId: {}", deviceId, accountId)
 
         // Get the id in order to remove both main and secondary items.
         val item = getBy(deviceId, accountId) ?: return
         delete(item.id, accountId, deviceId)
     }
 
-    override fun update(deviceAttributes: DeviceAttributes)
-    {
+    override fun update(deviceAttributes: DeviceAttributes) {
         val now = Instant.now()
 
         val deviceAttributesAsMap = deviceAttributes.asMap()
@@ -308,15 +295,13 @@ class DynamoDBDeviceDataAccessProvider(
 
         deviceAttributesAsMap.remove(ResourceAttributes.ID)
 
-        if (deviceAttributesAsMap.isNotEmpty())
-        {
+        if (deviceAttributesAsMap.isNotEmpty()) {
             deviceAttributesAsMap.remove(META)
             updateBuilder.update(
                 DeviceTable.attributes,
                 _jsonHandler.fromAttributes(Attributes.fromMap(deviceAttributesAsMap))
             )
-        } else
-        {
+        } else {
             updateBuilder.update(DeviceTable.attributes, null)
         }
 
@@ -370,16 +355,12 @@ class DynamoDBDeviceDataAccessProvider(
             .transactItems(transactionItems)
             .build()
 
-        try
-        {
+        try {
             _dynamoDBClient.transactionWriteItems(request)
-        } catch (ex: Exception)
-        {
-            if (ex.isTransactionCancelledDueToConditionFailure())
-            {
+        } catch (ex: Exception) {
+            if (ex.isTransactionCancelledDueToConditionFailure()) {
                 _logger.trace("No device matches the update condition")
-            } else
-            {
+            } else {
                 throw ex
             }
         }
@@ -388,10 +369,9 @@ class DynamoDBDeviceDataAccessProvider(
     override fun getBy(
         deviceId: String, accountId: String,
         attributesEnumeration: ResourceQuery.AttributesEnumeration
-    ): ResourceAttributes<*>?
-    {
+    ): ResourceAttributes<*>? {
 
-        _logger.debug("Received request to get device by deviceId: {} and accountId: {}", deviceId, accountId)
+        _logger.debug(MASK_MARKER, "Received request to get device by deviceId: {} and accountId: {}", deviceId, accountId)
 
         val requestBuilder = GetItemRequest.builder()
             .tableName(DeviceTable.name(_configuration))
@@ -405,21 +385,18 @@ class DynamoDBDeviceDataAccessProvider(
 
         val response = _dynamoDBClient.getItem(requestBuilder.build())
 
-        if (!response.hasItem())
-        {
+        if (!response.hasItem()) {
             return null
         }
 
         return response.item().toDeviceAttributes(attributesEnumeration).filter(attributesEnumeration)
     }
 
-    override fun getByAccountId(accountId: String?): List<DeviceAttributes>
-    {
+    override fun getByAccountId(accountId: String?): List<DeviceAttributes> {
 
-        _logger.debug("Received request to get devices by accountId: {}", accountId)
+        _logger.debug(MASK_MARKER, "Received request to get devices by accountId: {}", accountId)
 
-        if (accountId == null)
-        {
+        if (accountId == null) {
             return listOf()
         }
 
@@ -449,9 +426,8 @@ class DynamoDBDeviceDataAccessProvider(
     override fun getByAccountId(accountId: String, attributesEnumeration: ResourceQuery.AttributesEnumeration):
             List<ResourceAttributes<*>> = getByAccountId(accountId).map { it.filter(attributesEnumeration) }
 
-    override fun getBy(deviceId: String, accountId: String): DeviceAttributes?
-    {
-        _logger.debug("Received request to get device by deviceId: {} and accountId: {}", deviceId, accountId)
+    override fun getBy(deviceId: String, accountId: String): DeviceAttributes? {
+        _logger.debug(MASK_MARKER, "Received request to get device by deviceId: {} and accountId: {}", deviceId, accountId)
 
         val requestBuilder = GetItemRequest.builder()
             .tableName(DeviceTable.name(_configuration))
@@ -465,16 +441,14 @@ class DynamoDBDeviceDataAccessProvider(
 
         val response = _dynamoDBClient.getItem(requestBuilder.build())
 
-        if (!response.hasItem())
-        {
+        if (!response.hasItem()) {
             return null
         }
 
         return response.item().toDeviceAttributes()
     }
 
-    override fun getById(id: String): DeviceAttributes?
-    {
+    override fun getById(id: String): DeviceAttributes? {
         _logger.debug("Received request to get device by id: {}", id)
 
         val request = GetItemRequest.builder()
@@ -490,21 +464,21 @@ class DynamoDBDeviceDataAccessProvider(
 
         val response = _dynamoDBClient.getItem(request)
 
-        if (!response.hasItem() || response.item().isEmpty())
-        {
+        if (!response.hasItem() || response.item().isEmpty()) {
             return null
         }
 
         return response.item().toDeviceAttributes()
     }
 
-    override fun getById(id: String, attributesEnumeration: ResourceQuery.AttributesEnumeration): ResourceAttributes<*>?
-    {
+    override fun getById(
+        id: String,
+        attributesEnumeration: ResourceQuery.AttributesEnumeration
+    ): ResourceAttributes<*>? {
         return getById(id)?.filter(attributesEnumeration)
     }
 
-    override fun getAll(startIndex: Long, count: Long): ResourceQueryResult
-    {
+    override fun getAll(startIndex: Long, count: Long): ResourceQueryResult {
         _logger.debug("Received request to get all devices with startIndex: {} and count: {}", startIndex, count)
 
         val validatedStartIndex = startIndex.toIntOrThrow("startIndex")
@@ -528,9 +502,9 @@ class DynamoDBDeviceDataAccessProvider(
         )
     }
 
-    companion object
-    {
+    companion object {
         private val _logger: Logger = LoggerFactory.getLogger(DynamoDBDeviceDataAccessProvider::class.java)
+        private val MASK_MARKER : Marker = MarkerFactory.getMarker("MASK")
 
         private const val SK_FOR_ID_ITEM = "sk"
 
@@ -569,40 +543,30 @@ private data class AttributeMapping<T>(
     val optional: Boolean,
     val retrieveFromDeviceAttributes: ((DeviceAttributes) -> T?)? = null,
     val toAttributeValue: ((T) -> Any)? = null
-)
-{
+) {
     // Gets the SDK device attribute and adds it to the DynamoDB item (i.e. row) being constructed.
     fun addToItem(
         item: MutableDynamoDBItem,
         deviceAttributes: DeviceAttributes,
         deviceAttributesMap: MutableMap<String, Any>
-    )
-    {
-        if (retrieveFromDeviceAttributes != null)
-        {
+    ) {
+        if (retrieveFromDeviceAttributes != null) {
             val value = retrieveFromDeviceAttributes.invoke(deviceAttributes)
             deviceAttributesMap.remove(deviceAttributeName)
-            if (value == null)
-            {
-                if (!optional)
-                {
+            if (value == null) {
+                if (!optional) {
                     throw requiredDeviceAttributeIsNotPresent(deviceAttributeName)
                 }
-            } else
-            {
+            } else {
                 dynamoAttribute.addTo(item, value)
             }
-        } else
-        {
+        } else {
             val value = deviceAttributesMap.remove(deviceAttributeName)
-            if (value == null)
-            {
-                if (!optional)
-                {
+            if (value == null) {
+                if (!optional) {
                     throw requiredDeviceAttributeIsNotPresent(deviceAttributeName)
                 }
-            } else
-            {
+            } else {
                 dynamoAttribute.addToAny(item, value)
             }
         }
@@ -613,27 +577,20 @@ private data class AttributeMapping<T>(
         deviceAttributes: DeviceAttributes,
         deviceAttributesMap: MutableMap<String, Any>,
         updateBuilder: UpdateExpressionsBuilder
-    )
-    {
-        if (retrieveFromDeviceAttributes != null)
-        {
+    ) {
+        if (retrieveFromDeviceAttributes != null) {
             val value = retrieveFromDeviceAttributes.invoke(deviceAttributes)
             deviceAttributesMap.remove(deviceAttributeName)
-            if (value == null && !optional)
-            {
+            if (value == null && !optional) {
                 throw requiredDeviceAttributeIsNotPresent(deviceAttributeName)
-            } else
-            {
+            } else {
                 updateBuilder.update(dynamoAttribute, value)
             }
-        } else
-        {
+        } else {
             val value = deviceAttributesMap.remove(deviceAttributeName)
-            if (value == null && !optional)
-            {
+            if (value == null && !optional) {
                 throw requiredDeviceAttributeIsNotPresent(deviceAttributeName)
-            } else
-            {
+            } else {
                 updateBuilder.update(dynamoAttribute, value?.let { dynamoAttribute.cast(it) })
             }
         }
@@ -641,16 +598,14 @@ private data class AttributeMapping<T>(
 
     // Gets the attribute from the DynamoDB item and creates a SDKAttribute out of it.
     fun toAttribute(item: DynamoDBItem): Attribute? =
-        if (optional)
-        {
+        if (optional) {
             dynamoAttribute.optionalFrom(item)?.let {
                 Attribute.of(
                     deviceAttributeName,
                     se.curity.identityserver.sdk.attribute.AttributeValue.of(toAttributeValue?.invoke(it) ?: it)
                 )
             }
-        } else
-        {
+        } else {
             dynamoAttribute.from(item).let {
                 Attribute.of(
                     deviceAttributeName,

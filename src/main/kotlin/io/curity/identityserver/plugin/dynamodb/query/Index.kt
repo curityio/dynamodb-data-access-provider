@@ -28,10 +28,8 @@ data class Index(
     val name: String?,
     val partitionAttribute: DynamoDBAttribute<*>,
     val sortAttribute: DynamoDBAttribute<*>? = null
-)
-{
-    companion object
-    {
+) {
+    companion object {
         fun <T> from(index: PartitionOnlyIndex<T>) = Index(index.name, index.attribute)
         fun <T1, T2> from(index: PartitionAndSortIndex<T1, T2>) =
             Index(index.name, index.partitionAttribute, index.sortAttribute)

@@ -30,10 +30,8 @@ import java.time.Instant
 class DynamoDBSessionDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient,
     private val _configuration: DynamoDBDataAccessProviderConfiguration
-) : SessionDataAccessProvider
-{
-    object SessionTable : Table("curity-sessions")
-    {
+) : SessionDataAccessProvider {
+    object SessionTable : Table("curity-sessions") {
         val id = StringAttribute("id")
         val data = StringAttribute("sessionData")
         val expiresAt = NumberLongAttribute("expiresAt")
@@ -42,8 +40,7 @@ class DynamoDBSessionDataAccessProvider(
         fun key(id: String) = mapOf(this.id.toNameValuePair(id))
     }
 
-    override fun getSessionById(id: String): Session?
-    {
+    override fun getSessionById(id: String): Session? {
         val request = GetItemRequest.builder()
             .tableName(SessionTable.name(_configuration))
             .key(SessionTable.key(id))
@@ -52,8 +49,7 @@ class DynamoDBSessionDataAccessProvider(
 
         val response = _dynamoDBClient.getItem(request)
 
-        if (!response.hasItem() || response.item().isEmpty())
-        {
+        if (!response.hasItem() || response.item().isEmpty()) {
             return null
         }
 
@@ -66,8 +62,7 @@ class DynamoDBSessionDataAccessProvider(
         )
     }
 
-    override fun insertSession(session: Session)
-    {
+    override fun insertSession(session: Session) {
         val item = mapOf(
             SessionTable.id.toNameValuePair(session.id),
             SessionTable.expiresAt.toNameValuePair(session.expiresAt.epochSecond),
@@ -80,17 +75,14 @@ class DynamoDBSessionDataAccessProvider(
             .item(item)
             .conditionExpression("attribute_not_exists(${SessionTable.id})")
             .build()
-        try
-        {
+        try {
             _dynamoDBClient.putItem(request)
-        } catch (_: ConditionalCheckFailedException)
-        {
+        } catch (_: ConditionalCheckFailedException) {
             throw ConflictException("There is already a session with the same id.")
         }
     }
 
-    override fun updateSession(updatedSession: Session)
-    {
+    override fun updateSession(updatedSession: Session) {
         val item = mapOf(
             SessionTable.id.toNameValuePair(updatedSession.id),
             SessionTable.expiresAt.toNameValuePair(updatedSession.expiresAt.epochSecond),
@@ -109,8 +101,7 @@ class DynamoDBSessionDataAccessProvider(
         _dynamoDBClient.putItem(request)
     }
 
-    override fun updateSessionExpiration(id: String, expiresAt: Instant)
-    {
+    override fun updateSessionExpiration(id: String, expiresAt: Instant) {
         val request = UpdateItemRequest.builder()
             .tableName(SessionTable.name(_configuration))
             .key(SessionTable.key(id))
@@ -127,18 +118,15 @@ class DynamoDBSessionDataAccessProvider(
             )
             .build()
 
-        try
-        {
+        try {
             _dynamoDBClient.updateItem(request)
-        } catch (_: ConditionalCheckFailedException)
-        {
+        } catch (_: ConditionalCheckFailedException) {
             // this exceptions means the entry does not exists, which isn't an error
             _logger.debug("updateSessionExpiration on a nonexistent session")
         }
     }
 
-    override fun deleteSessionState(id: String)
-    {
+    override fun deleteSessionState(id: String) {
         val request = DeleteItemRequest.builder()
             .tableName(SessionTable.name(_configuration))
             .key(SessionTable.key(id))
@@ -150,8 +138,7 @@ class DynamoDBSessionDataAccessProvider(
     private fun getDeletableAt(expiration: Instant) =
         expiration.epochSecond + _configuration.getSessionsTtlRetainDuration()
 
-    companion object
-    {
+    companion object {
         val _logger = LoggerFactory.getLogger(DynamoDBSessionDataAccessProvider.javaClass)
     }
 }

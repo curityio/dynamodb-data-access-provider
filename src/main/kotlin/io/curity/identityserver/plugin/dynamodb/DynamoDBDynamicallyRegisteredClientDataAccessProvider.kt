@@ -48,12 +48,10 @@ import java.time.Instant.ofEpochSecond
 class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
     private val _configuration: DynamoDBDataAccessProviderConfiguration,
     private val _dynamoDBClient: DynamoDBClient
-) : DynamicallyRegisteredClientDataAccessProvider
-{
+) : DynamicallyRegisteredClientDataAccessProvider {
     private val _jsonHandler = _configuration.getJsonHandler()
 
-    private object DcrTable : Table("curity-dynamic-clients")
-    {
+    private object DcrTable : Table("curity-dynamic-clients") {
         val clientId = StringAttribute("clientId")
         val clientSecret = StringAttribute("clientSecret")
         val instanceOfClient = StringAttribute("instanceOfClient")
@@ -70,8 +68,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         fun key(value: String) = mapOf(clientId.toNameValuePair(value))
     }
 
-    private fun DynamoDBItem.toAttributes(): DynamicallyRegisteredClientAttributes
-    {
+    private fun DynamoDBItem.toAttributes(): DynamicallyRegisteredClientAttributes {
 
         val result = mutableListOf<Attribute>()
         val item = this
@@ -103,8 +100,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         return DynamicallyRegisteredClientAttributes.of(Attributes.of(result))
     }
 
-    private fun DynamicallyRegisteredClientAttributes.toItem(): DynamoDBItem
-    {
+    private fun DynamicallyRegisteredClientAttributes.toItem(): DynamoDBItem {
         val now = now()
         val created = meta?.created ?: now
 
@@ -142,8 +138,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         this.add(Attribute.of(name, it))
     }
 
-    override fun getByClientId(clientId: String): DynamicallyRegisteredClientAttributes?
-    {
+    override fun getByClientId(clientId: String): DynamicallyRegisteredClientAttributes? {
         logger.debug("Getting dynamic client with id: {}", clientId)
 
         val request = GetItemRequest.builder()
@@ -154,16 +149,14 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
 
         val response = _dynamoDBClient.getItem(request)
 
-        if (!response.hasItem() || response.item().isEmpty())
-        {
+        if (!response.hasItem() || response.item().isEmpty()) {
             return null
         }
 
         return response.item().toAttributes()
     }
 
-    override fun create(dynamicallyRegisteredClientAttributes: DynamicallyRegisteredClientAttributes)
-    {
+    override fun create(dynamicallyRegisteredClientAttributes: DynamicallyRegisteredClientAttributes) {
         logger.debug(
             "Received request to CREATE dynamic client with id: {}",
             dynamicallyRegisteredClientAttributes.clientId
@@ -175,11 +168,9 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             .item(dynamicallyRegisteredClientAttributes.toItem())
             .build()
 
-        try
-        {
+        try {
             _dynamoDBClient.putItem(request)
-        } catch (exception: ConditionalCheckFailedException)
-        {
+        } catch (exception: ConditionalCheckFailedException) {
             val newException =
                 ConflictException("Client ${dynamicallyRegisteredClientAttributes.clientId} is already registered")
             logger.trace(
@@ -190,8 +181,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         }
     }
 
-    override fun update(dynamicallyRegisteredClientAttributes: DynamicallyRegisteredClientAttributes)
-    {
+    override fun update(dynamicallyRegisteredClientAttributes: DynamicallyRegisteredClientAttributes) {
         logger.debug(
             "Received request to UPDATE dynamic client for client : {}",
             dynamicallyRegisteredClientAttributes.clientId
@@ -200,8 +190,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         val builder = UpdateExpressionsBuilder()
         dynamicallyRegisteredClientAttributes.apply {
             // The client secret is only updated if not null
-            if (!clientSecret.isNullOrEmpty())
-            {
+            if (!clientSecret.isNullOrEmpty()) {
                 builder.update(DcrTable.clientSecret, clientSecret)
             }
             builder.update(DcrTable.updated, now().epochSecond)
@@ -221,19 +210,17 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             .key(DcrTable.key(dynamicallyRegisteredClientAttributes.clientId))
             .apply { builder.applyTo(this) }
 
-        try
-        {
+        try {
             _dynamoDBClient.updateItem(requestBuilder.build())
-        } catch (_: ConditionalCheckFailedException)
-        {
+        } catch (_: ConditionalCheckFailedException) {
             // this exceptions means the entry does not exists, which should be signalled with an exception
             throw RuntimeException(
-                "Client with ID '${dynamicallyRegisteredClientAttributes.getClientId()}' could not be updated.")
+                "Client with ID '${dynamicallyRegisteredClientAttributes.getClientId()}' could not be updated."
+            )
         }
     }
 
-    override fun delete(clientId: String)
-    {
+    override fun delete(clientId: String) {
         logger.debug("Received request to DELETE dynamic client : {}", clientId)
 
         val request = DeleteItemRequest.builder()
@@ -244,8 +231,8 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         _dynamoDBClient.deleteItem(request)
     }
 
-    companion object
-    {
-        private val logger: Logger = LoggerFactory.getLogger(DynamoDBDynamicallyRegisteredClientDataAccessProvider::class.java)
+    companion object {
+        private val logger: Logger =
+            LoggerFactory.getLogger(DynamoDBDynamicallyRegisteredClientDataAccessProvider::class.java)
     }
 }

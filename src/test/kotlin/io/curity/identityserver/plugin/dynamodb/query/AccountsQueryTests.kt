@@ -23,11 +23,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 import se.curity.identityserver.sdk.data.query.Filter
 
-class AccountsQueryTests
-{
+class AccountsQueryTests {
     @Test
-    fun testActiveUserNameAndEmail()
-    {
+    fun testActiveUserNameAndEmail() {
 
         val filterExpression =
             Filter.LogicalExpression(
@@ -66,8 +64,7 @@ class AccountsQueryTests
     }
 
     @Test
-    fun testActiveUserNameOrEmail()
-    {
+    fun testActiveUserNameOrEmail() {
         val filterExpression =
             Filter.LogicalExpression(
                 Filter.LogicalOperator.OR,
