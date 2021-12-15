@@ -18,6 +18,8 @@ package io.curity.identityserver.plugin.dynamodb
 
 import org.slf4j.LoggerFactory
 import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException
+import java.time.Instant
+import java.time.format.DateTimeFormatter
 
 private val _logger = LoggerFactory.getLogger("utils")
 
@@ -66,3 +68,9 @@ fun Long.toIntOrThrow(name: String) =
     } else {
         this.toInt()
     }
+
+fun Long?.toIsoInstantString(): String? = this?.let {
+    DateTimeFormatter.ISO_INSTANT.format(
+        Instant.ofEpochSecond(it)
+    )
+}
