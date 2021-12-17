@@ -650,7 +650,7 @@ class DynamoDBUserAccountDataAccessProvider(
                     LinksTable.linkedAccountDomainName.from(item),
                     LinksTable.linkedAccountId.from(item),
                     NO_LINK_DESCRIPTION,
-                    LinksTable.created.optionalFrom(item).toString()
+                    LinksTable.created.optionalFrom(item).toIsoInstantString()
                 )
             }
             .toList()
@@ -758,7 +758,7 @@ class DynamoDBUserAccountDataAccessProvider(
         )
     } catch (e: UnsupportedQueryException) {
         _logger.debug("Unable to process query. Reason is '{}'", e.message)
-        _logger.debug(MASK_MARKER, "Unable to process query = '{}",resourceQuery)
+        _logger.debug(MASK_MARKER, "Unable to process query = '{}", resourceQuery)
 
         throw _configuration.getExceptionFactory().externalServiceException(e.message)
     }
@@ -1035,7 +1035,7 @@ class DynamoDBUserAccountDataAccessProvider(
         )
 
         private val _logger: Logger = LoggerFactory.getLogger(DynamoDBUserAccountDataAccessProvider::class.java)
-        private val MASK_MARKER : Marker = MarkerFactory.getMarker("MASK")
+        private val MASK_MARKER: Marker = MarkerFactory.getMarker("MASK")
 
         private val attributesToRemove = listOf(
             // these are SDK attribute names and not DynamoDB table attribute names
@@ -1049,7 +1049,8 @@ class DynamoDBUserAccountDataAccessProvider(
         private fun removeLinkedAccounts(account: AccountAttributes): AccountAttributes {
             var withoutLinks = account
             for (linkedAccount in account.linkedAccounts.toList()) {
-                _logger.trace(MASK_MARKER,
+                _logger.trace(
+                    MASK_MARKER,
                     "Removing linked account before persisting to accounts table '{}'",
                     linkedAccount
                 )
