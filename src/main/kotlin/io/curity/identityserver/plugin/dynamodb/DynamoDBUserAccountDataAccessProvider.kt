@@ -43,6 +43,7 @@ import se.curity.identityserver.sdk.datasource.CredentialDataAccessProvider
 import se.curity.identityserver.sdk.datasource.UserAccountDataAccessProvider
 import se.curity.identityserver.sdk.errors.ConflictException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
@@ -709,9 +710,14 @@ class DynamoDBUserAccountDataAccessProvider(
             )
             .build()
 
-        val response = _dynamoDBClient.deleteItem(request)
+        return try {
+            val response = _dynamoDBClient.deleteItem(request)
+            response.sdkHttpResponse().isSuccessful
+        } catch (_: ConditionalCheckFailedException) {
+            _logger.trace("Conditional check failed when removing link, meaning that link does not exist")
+            false
+        }
 
-        return response.sdkHttpResponse().isSuccessful
     }
 
     override fun getAll(resourceQuery: ResourceQuery): ResourceQueryResult = try {
@@ -898,6 +904,8 @@ class DynamoDBUserAccountDataAccessProvider(
         forEach { (key, value) ->
             when (key) {
                 AccountsTable.pk.name -> { /*ignore*/
+                }
+                AccountsTable.version.name -> { /*ignore*/
                 }
                 AccountsTable.active.name -> map["active"] = value.bool()
                 AccountsTable.email.name -> {
