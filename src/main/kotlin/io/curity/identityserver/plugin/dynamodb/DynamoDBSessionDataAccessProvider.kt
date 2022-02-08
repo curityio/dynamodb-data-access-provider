@@ -139,6 +139,6 @@ class DynamoDBSessionDataAccessProvider(
         expiration.epochSecond + _configuration.getSessionsTtlRetainDuration()
 
     companion object {
-        val _logger = LoggerFactory.getLogger(DynamoDBSessionDataAccessProvider.javaClass)
+        val _logger = LoggerFactory.getLogger(DynamoDBSessionDataAccessProvider::class.java)
     }
 }
