@@ -16,26 +16,26 @@
 
 package io.curity.identityserver.plugin.dynamodb.query
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
-import org.junit.runner.RunWith
-import org.junit.runners.Parameterized
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 
-@RunWith(Parameterized::class)
-class NormalizationTests(
-    private val description: String,
-    private val inputExpression: Expression,
-    private val expectedNormalizedExpression: DisjunctiveNormalForm
-) {
-
-    @Test
-    fun testNormalization() {
+class NormalizationTests
+{
+    @ParameterizedTest(name = "{index}: {0}")
+    @MethodSource("where")
+    fun testNormalization(
+        description: String,
+        inputExpression: Expression,
+        expectedNormalizedExpression: DisjunctiveNormalForm
+    )
+    {
         assertEquals(expectedNormalizedExpression, normalize(inputExpression))
     }
 
-    companion object {
+    companion object
+    {
         @JvmStatic
-        @Parameterized.Parameters(name = "{index}: {0}")
         fun where() = listOf(
             arrayOf(
                 "(A || B) && C",

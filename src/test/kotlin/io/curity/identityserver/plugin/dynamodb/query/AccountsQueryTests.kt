@@ -18,9 +18,8 @@ package io.curity.identityserver.plugin.dynamodb.query
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBUserAccountDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
-import org.junit.Assert
-import org.junit.Assert.assertFalse
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Test
 import se.curity.identityserver.sdk.data.query.Filter
 
 class AccountsQueryTests {
@@ -44,17 +43,17 @@ class AccountsQueryTests {
 
         val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(query.key, query.value)
 
-        Assert.assertNull("Must use primary key index", dynamoDBQuery.indexName)
-        Assert.assertEquals("#pk = :pk_1", dynamoDBQuery.keyExpression)
-        Assert.assertEquals("#email = :email_1", dynamoDBQuery.filterExpression)
-        Assert.assertEquals(
+        assertNull(dynamoDBQuery.indexName, "Must use primary key index")
+        assertEquals("#pk = :pk_1", dynamoDBQuery.keyExpression)
+        assertEquals("#email = :email_1", dynamoDBQuery.filterExpression)
+        assertEquals(
             mapOf(
                 ":pk_1" to StringAttribute("").toAttrValue("un#janedoe"),
                 ":email_1" to StringAttribute("").toAttrValue("jane.doe@example.com")
             ),
             dynamoDBQuery.valueMap
         )
-        Assert.assertEquals(
+        assertEquals(
             mapOf(
                 "#pk" to "pk",
                 "#email" to "email"
@@ -84,16 +83,16 @@ class AccountsQueryTests {
 
         val dynamoUserNameDBQuery = DynamoDBQueryBuilder.buildQuery(userNameQuery.key, userNameQuery.value)
 
-        Assert.assertNull("Must use primary key index", dynamoUserNameDBQuery.indexName)
-        Assert.assertEquals("#pk = :pk_1", dynamoUserNameDBQuery.keyExpression)
-        Assert.assertEquals("", dynamoUserNameDBQuery.filterExpression)
-        Assert.assertEquals(
+        assertNull(dynamoUserNameDBQuery.indexName, "Must use primary key index")
+        assertEquals("#pk = :pk_1", dynamoUserNameDBQuery.keyExpression)
+        assertEquals("", dynamoUserNameDBQuery.filterExpression)
+        assertEquals(
             mapOf(
                 ":pk_1" to StringAttribute("").toAttrValue("un#janedoe")
             ),
             dynamoUserNameDBQuery.valueMap
         )
-        Assert.assertEquals(
+        assertEquals(
             mapOf(
                 "#pk" to "pk"
             ),
@@ -104,16 +103,16 @@ class AccountsQueryTests {
 
         val dynamoEmailDBQuery = DynamoDBQueryBuilder.buildQuery(emailQuery.key, emailQuery.value)
 
-        Assert.assertNull("Must use primary key index", dynamoEmailDBQuery.indexName)
-        Assert.assertEquals("#pk = :pk_1", dynamoEmailDBQuery.keyExpression)
-        Assert.assertEquals("", dynamoEmailDBQuery.filterExpression)
-        Assert.assertEquals(
+        assertNull(dynamoEmailDBQuery.indexName, "Must use primary key index")
+        assertEquals("#pk = :pk_1", dynamoEmailDBQuery.keyExpression)
+        assertEquals("", dynamoEmailDBQuery.filterExpression)
+        assertEquals(
             mapOf(
                 ":pk_1" to StringAttribute("").toAttrValue("em#jane.doe@example.com")
             ),
             dynamoEmailDBQuery.valueMap
         )
-        Assert.assertEquals(
+        assertEquals(
             mapOf(
                 "#pk" to "pk"
             ),
