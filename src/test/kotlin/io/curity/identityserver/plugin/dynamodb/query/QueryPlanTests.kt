@@ -16,20 +16,20 @@
 
 package io.curity.identityserver.plugin.dynamodb.query
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
-import org.junit.runner.RunWith
-import org.junit.runners.Parameterized
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 
-@RunWith(Parameterized::class)
-class QueryPlanTests(
-    private val description: String,
-    private val indexes: List<Index>,
-    private val inputExpression: Expression,
-    private val expectedQueryPlan: QueryPlan
-) {
-    @Test
-    fun testQueryPlan() {
+class QueryPlanTests
+{
+    @ParameterizedTest(name = "{index}: {0}")
+    @MethodSource("where")
+    fun testQueryPlan(
+        description: String,
+        indexes: List<Index>,
+        inputExpression: Expression,
+        expectedQueryPlan: QueryPlan
+    ) {
         val queryPlanner = QueryPlanner(TableQueryCapabilities(indexes, mapOf()))
         assertEquals(expectedQueryPlan, queryPlanner.build(inputExpression))
     }
@@ -39,7 +39,6 @@ class QueryPlanTests(
         private val userNameIndex = Index("userName-index", USER_NAME)
 
         @JvmStatic
-        @Parameterized.Parameters(name = "{index}: {0}")
         fun where() = listOf(
             arrayOf(
                 "(A || B) && C",
