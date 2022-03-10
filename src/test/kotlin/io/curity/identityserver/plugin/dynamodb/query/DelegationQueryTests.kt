@@ -19,10 +19,10 @@ package io.curity.identityserver.plugin.dynamodb.query
 import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import io.curity.identityserver.plugin.dynamodb.token.DynamoDBDelegationDataAccessProvider
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.fail
+import org.junit.jupiter.api.Test
 import se.curity.identityserver.sdk.data.authorization.DelegationStatus
 import se.curity.identityserver.sdk.data.query.Filter
 
@@ -55,7 +55,6 @@ class DelegationQueryTests {
 
         if (queryPlan is QueryPlan.UsingScan) {
             fail("Query plan cannot be a scan")
-            return
         }
 
         val query = (queryPlan as QueryPlan.UsingQueries).queries.entries.single()
@@ -141,7 +140,6 @@ class DelegationQueryTests {
 
         if (queryPlan is QueryPlan.UsingScan) {
             fail("Query plan cannot be a scan")
-            return
         }
 
         val queries = (queryPlan as QueryPlan.UsingQueries).queries
@@ -230,7 +228,6 @@ class DelegationQueryTests {
 
         if (queryPlan is QueryPlan.UsingQueries) {
             fail("Query plan needs to be a scan")
-            return
         }
 
         val expression = (queryPlan as QueryPlan.UsingScan).expression

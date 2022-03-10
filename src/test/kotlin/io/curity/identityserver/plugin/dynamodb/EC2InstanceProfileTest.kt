@@ -21,7 +21,7 @@ import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccess
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration.AWSAccessMethod
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration.AWSAccessMethod.AWSProfile
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration.AWSAccessMethod.AccessKeyIdAndSecret
-import org.junit.Test
+import org.junit.jupiter.api.Test
 import org.mockito.Mockito
 import java.util.Optional
 
