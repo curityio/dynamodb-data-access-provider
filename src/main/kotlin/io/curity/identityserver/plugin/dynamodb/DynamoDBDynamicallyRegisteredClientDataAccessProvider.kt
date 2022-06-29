@@ -16,6 +16,8 @@
 package io.curity.identityserver.plugin.dynamodb
 
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
+import io.curity.identityserver.plugin.dynamodb.query.Index
+import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.attribute.Attribute
@@ -64,6 +66,34 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         val scope = ListStringAttribute("scope")
         val redirectUris = ListStringAttribute("redirectUris")
         val grantTypes = ListStringAttribute("grantTypes")
+
+        private val primaryKey = PrimaryKey(clientId)
+        private val authenticatedUserCreatedIndex =
+            PartitionAndSortIndex("authenticatedUser-created-index", authenticatedUser, created)
+        private val authenticatedUserUpdatedIndex =
+            PartitionAndSortIndex("authenticatedUser-updated-index", authenticatedUser, updated)
+        private val instanceOfClientCreatedIndex =
+            PartitionAndSortIndex("instanceOfClient-created-index", instanceOfClient, created)
+        private val instanceOfClientUpdatedIndex =
+            PartitionAndSortIndex("instanceOfClient-updated-index", instanceOfClient, updated)
+
+        val queryCapabilities = TableQueryCapabilities(
+            indexes = listOf(
+                Index.from(primaryKey),
+                Index.from(authenticatedUserCreatedIndex),
+                Index.from(authenticatedUserUpdatedIndex),
+                Index.from(instanceOfClientCreatedIndex),
+                Index.from(instanceOfClientUpdatedIndex)
+            ),
+            attributeMap = mapOf(
+                CLIENT_ID to clientId,
+                AUTHENTICATED_USER to authenticatedUser,
+                INSTANCE_OF_CLIENT to instanceOfClient,
+                Meta.CREATED to created,
+                Meta.LAST_MODIFIED to updated,
+                STATUS to status
+            )
+        )
 
         fun key(value: String) = mapOf(clientId.toNameValuePair(value))
     }

@@ -4,6 +4,104 @@
     {
       "AttributeName": "clientId",
       "AttributeType": "S"
+    },
+    {
+      "AttributeName": "authenticatedUser",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "instanceOfClient",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "created",
+      "AttributeType": "N"
+    },
+    {
+      "AttributeName": "updated",
+      "AttributeType": "N"
+    }
+  ],
+  "GlobalSecondaryIndexes": [
+    {
+      "IndexName": "authenticatedUser-created-index",
+      "Projection": {
+        "ProjectionType": "ALL"
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName": "authenticatedUser"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "created"
+        }
+      ]
+    },
+    {
+      "IndexName": "authenticatedUser-updated-index",
+      "Projection": {
+        "ProjectionType": "ALL"
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName": "authenticatedUser"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "updated"
+        }
+      ]
+    },
+    {
+      "IndexName": "instanceOfClient-created-index",
+      "Projection": {
+        "ProjectionType": "ALL"
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName": "instanceOfClient"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "created"
+        }
+      ]
+    },
+    {
+      "IndexName": "instanceOfClient-updated-index",
+      "Projection": {
+        "ProjectionType": "ALL"
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName": "instanceOfClient"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "updated"
+        }
+      ]
     }
   ],
   "KeySchema": [
