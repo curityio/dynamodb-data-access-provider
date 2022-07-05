@@ -17,6 +17,7 @@
 package io.curity.identityserver.plugin.dynamodb
 
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
+import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.Delete
 import software.amazon.awssdk.services.dynamodb.model.Put
@@ -50,6 +51,14 @@ abstract class Table(
         .orElse(suffixName)
 
     // toString is not overridden on purpose, so that it isn't mistakenly used as the table name
+}
+
+abstract class TableWithCapabilities(
+    suffixName: String
+) : Table(suffixName) {
+    abstract fun queryCapabilities(): TableQueryCapabilities
+
+    abstract fun keyAttribute(): StringAttribute
 }
 
 // A DynamoDB attribute
@@ -253,7 +262,7 @@ class UniquenessBasedIndexStringAttribute(
     // the attribute name comes from the primary key, however the value uses the unique attribute mapping function
     override fun toAttrValue(value: String) = _primaryKeyAttribute.toAttrValue(
         _uniqueAttribute.uniquenessValueFrom(value)
-    );
+    )
 
     override fun from(attrValue: AttributeValue) = _primaryKeyAttribute.from(attrValue)
 
