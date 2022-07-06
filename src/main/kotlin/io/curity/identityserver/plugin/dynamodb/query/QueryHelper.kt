@@ -21,6 +21,7 @@ import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient.Companion.logger
 import io.curity.identityserver.plugin.dynamodb.DynamoDBItem
 import io.curity.identityserver.plugin.dynamodb.TableWithCapabilities
+import io.curity.identityserver.plugin.dynamodb.count
 import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.PotentialKey.KeyType.FILTER
 import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.PotentialKey.KeyType.PARTITION
 import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.PotentialKey.KeyType.SORT
@@ -29,6 +30,7 @@ import se.curity.identityserver.sdk.service.Json
 import software.amazon.awssdk.core.SdkBytes
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
+import software.amazon.awssdk.services.dynamodb.model.Select
 import java.util.Base64
 
 object QueryHelper {
@@ -49,7 +51,7 @@ object QueryHelper {
         val filterKeys: Map<DynamoDBAttribute<Any>, Any> = mapOf()
     )
 
-    fun query(
+    fun list(
         _dynamoDBClient: DynamoDBClient,
         json: Json,
         tableName: String,
@@ -60,34 +62,18 @@ object QueryHelper {
         pageCursor: String?
     ): Pair<Sequence<DynamoDBItem>, String?> {
 
-        val indexAndKeys = findIndexAndKeysFrom(table, potentialKeys)
-            ?: // TODO IS-6705 handle as a Scan if enabled, or report as unsupported
-            throw java.lang.IllegalArgumentException("No index found fitting provided request")
+        val listRequestBuilder = QueryRequest.builder().init(tableName, table, potentialKeys, ascendingOrder)
 
-        val queryRequestBuilder = QueryRequest.builder()
-            .tableName(tableName)
-            .indexName(indexAndKeys.index.indexName)
-            .keyConditionExpression(indexAndKeys.keyConditionExpression(ascendingOrder))
-            .expressionAttributeNames(indexAndKeys.expressionNameMap())
-            .expressionAttributeValues(indexAndKeys.expressionValueMap())
-            .scanIndexForward(ascendingOrder)
-
-
-        val filterExpression = indexAndKeys.filterExpression()
-        if (filterExpression.isNotBlank()) {
-            queryRequestBuilder.filterExpression(filterExpression)
-        }
-
-        queryRequestBuilder.limit(pageCount ?: DEFAULT_PAGE_SIZE)
+        listRequestBuilder.limit(pageCount ?: DEFAULT_PAGE_SIZE)
 
         val exclusiveStartKey = getExclusiveStartKey(json, pageCursor)
         if (exclusiveStartKey.isNotEmpty()) {
-            queryRequestBuilder.exclusiveStartKey(exclusiveStartKey)
+            listRequestBuilder.exclusiveStartKey(exclusiveStartKey)
         }
 
-        val queryRequest = queryRequestBuilder.build()
+        val listRequest = listRequestBuilder.build()
 
-        val (sequence, lastEvaluationKey) = queryPartialSequence(queryRequest, _dynamoDBClient)
+        val (sequence, lastEvaluationKey) = queryPartialSequence(listRequest, _dynamoDBClient)
         val result = linkedMapOf<String, Map<String, AttributeValue>>()
         sequence.forEach {
             result[table.keyAttribute().from(it)] = it
@@ -99,14 +85,30 @@ object QueryHelper {
 
     private const val DEFAULT_PAGE_SIZE = 50
 
+    fun count(
+        _dynamoDBClient: DynamoDBClient,
+        tableName: String,
+        table: TableWithCapabilities,
+        potentialKeys: PotentialKeys
+    ): Long {
+
+        val countRequestBuilder = QueryRequest.builder().init(tableName, table, potentialKeys, true)
+
+        countRequestBuilder.select(Select.COUNT)
+        val countRequest = countRequestBuilder.build()
+
+        return count(countRequest, _dynamoDBClient)
+    }
+
     /**
-     * Filters out potential keys with a `null` value
+     * Filters out potential keys with a `null` value and sort them in the appropriate member
+     * of the returned [PotentialKeys]
      *
      * @param potentialKeys including potential partition keys, (optional) potential sort keys and
      * (optional) filter keys.
      * @return only potential keys with an actual value
      */
-    fun filterPotentialKeys(vararg potentialKeys: PotentialKey<Any>): PotentialKeys {
+    fun filterAndSortPotentialKeys(vararg potentialKeys: PotentialKey<Any>): PotentialKeys {
         val potentialPartitionKeys: MutableMap<DynamoDBAttribute<Any>, Any> = mutableMapOf()
         val potentialSortKeys: MutableMap<DynamoDBAttribute<Any>, Any> = mutableMapOf()
         val potentialFilterKeys: MutableMap<DynamoDBAttribute<Any>, Any> = mutableMapOf()
@@ -123,10 +125,42 @@ object QueryHelper {
     }
 
     /**
+     * [QueryRequest.Builder] extension initializing the common stuff
+     *
+     * @param tableName
+     * @param table
+     * @param potentialKeys
+     * @return a pre-built [QueryRequest.Builder]
+     */
+    private fun QueryRequest.Builder.init(
+        tableName: String,
+        table: TableWithCapabilities,
+        potentialKeys: PotentialKeys,
+        ascendingOrder: Boolean
+    ): QueryRequest.Builder {
+        val indexAndKeys = findIndexAndKeysFrom(table, potentialKeys)
+            ?: // TODO IS-6705 handle as a Scan if enabled, or report as unsupported
+            throw java.lang.IllegalArgumentException("No index found fitting provided request")
+
+        tableName(tableName)
+            .indexName(indexAndKeys.index.indexName)
+            .keyConditionExpression(indexAndKeys.keyConditionExpression(ascendingOrder))
+            .expressionAttributeNames(indexAndKeys.expressionNameMap())
+            .expressionAttributeValues(indexAndKeys.expressionValueMap())
+            .scanIndexForward(ascendingOrder)
+
+        val filterExpression = indexAndKeys.filterExpression()
+        if (filterExpression.isNotBlank()) {
+            filterExpression(filterExpression)
+        }
+        return this
+    }
+
+    /**
      * Finds the index to use based on provided keys
      *
      * @param table             providing indexes
-     * @param potentialKeys     potential partition, sort and filter keys, as returned by [filterPotentialKeys]
+     * @param potentialKeys     potential partition, sort and filter keys, as returned by [filterAndSortPotentialKeys]
      * @return [IndexAndKeys] helper object to be used with [QueryRequest.Builder]
      */
     private fun findIndexAndKeysFrom(

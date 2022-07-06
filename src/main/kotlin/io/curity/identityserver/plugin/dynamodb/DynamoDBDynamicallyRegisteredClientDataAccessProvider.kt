@@ -278,35 +278,10 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         activeClientsOnly: Boolean
     ): PaginatedDataAccessResult<DynamicallyRegisteredClientAttributes> {
 
-        var potentialKeys = arrayOf(
-            // TODO IS-6705 avoid casts?
-            QueryHelper.PotentialKey(
-                DcrTable.queryCapabilities().attributeMap[INSTANCE_OF_CLIENT] as DynamoDBAttribute<Any>,
-                templateId,
-                KeyType.PARTITION
-            ),
-            QueryHelper.PotentialKey(
-                DcrTable.queryCapabilities().attributeMap[AUTHENTICATED_USER] as DynamoDBAttribute<Any>,
-                username,
-                KeyType.PARTITION
-            ),
-            QueryHelper.PotentialKey(
-                DcrTable.queryCapabilities().attributeMap[sortRequest?.sortBy ?: ""] as? DynamoDBAttribute<Any>,
-                sortRequest?.inferValue(),
-                KeyType.SORT
-            )
-        )
-        if (activeClientsOnly) {
-            potentialKeys += QueryHelper.PotentialKey(
-                DcrTable.queryCapabilities().attributeMap[STATUS] as? DynamoDBAttribute<Any>,
-                Status.ACTIVE.name,
-                KeyType.FILTER
-            )
-        }
+        val potentialKeys = createPotentialKeys(templateId, username, activeClientsOnly, sortRequest)
+        val filteredPotentialKeys = QueryHelper.filterAndSortPotentialKeys(*potentialKeys)
 
-        val filteredPotentialKeys = QueryHelper.filterPotentialKeys(*potentialKeys)
-
-        val (values, encodedCursor) = QueryHelper.query(
+        val (values, encodedCursor) = QueryHelper.list(
             _dynamoDBClient,
             _jsonHandler,
             DcrTable.name(_configuration),
@@ -325,10 +300,20 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
     }
 
     override fun getCountOfAllDynamicallyRegisteredClientsBy(
-        templateId: String?, username: String?, activeClientsOnly: Boolean
+        templateId: String?,
+        username: String?,
+        activeClientsOnly: Boolean
     ): Long {
-        // TODO IS-6705 actual implementation
-        return 0
+
+        val potentialKeys = createPotentialKeys(templateId, username, activeClientsOnly)
+        val filteredPotentialKeys = QueryHelper.filterAndSortPotentialKeys(*potentialKeys)
+
+        return QueryHelper.count(
+            _dynamoDBClient,
+            DcrTable.name(_configuration),
+            DcrTable,
+            filteredPotentialKeys,
+        )
     }
 
     companion object {
@@ -342,7 +327,42 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
                 true
             }
 
-        fun AttributesSorting.inferValue(): Long =
+
+        private fun createPotentialKeys(
+            templateId: String?,
+            username: String?,
+            activeClientsOnly: Boolean,
+            sortRequest: AttributesSorting? = null
+        ): Array<QueryHelper.PotentialKey<Any>> {
+            var potentialKeys = arrayOf(
+                // TODO IS-6705 avoid casts?
+                QueryHelper.PotentialKey(
+                    DcrTable.queryCapabilities().attributeMap[INSTANCE_OF_CLIENT] as DynamoDBAttribute<Any>,
+                    templateId,
+                    KeyType.PARTITION
+                ),
+                QueryHelper.PotentialKey(
+                    DcrTable.queryCapabilities().attributeMap[AUTHENTICATED_USER] as DynamoDBAttribute<Any>,
+                    username,
+                    KeyType.PARTITION
+                ),
+                QueryHelper.PotentialKey(
+                    DcrTable.queryCapabilities().attributeMap[sortRequest?.sortBy ?: ""] as? DynamoDBAttribute<Any>,
+                    sortRequest?.inferValue(),
+                    KeyType.SORT
+                )
+            )
+            if (activeClientsOnly) {
+                potentialKeys += QueryHelper.PotentialKey(
+                    DcrTable.queryCapabilities().attributeMap[STATUS] as? DynamoDBAttribute<Any>,
+                    Status.ACTIVE.name,
+                    KeyType.FILTER
+                )
+            }
+            return potentialKeys
+        }
+
+        private fun AttributesSorting.inferValue(): Long =
             if (ResourceQuery.Sorting.SortOrder.DESCENDING == sortOrder) {
                 Long.MAX_VALUE
             } else {
