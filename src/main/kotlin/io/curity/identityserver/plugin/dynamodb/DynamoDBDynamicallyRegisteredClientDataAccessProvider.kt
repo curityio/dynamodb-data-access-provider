@@ -38,6 +38,7 @@ import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegi
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.REDIRECT_URIS
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.SCOPE
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.STATUS
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.Status
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.datasource.DynamicallyRegisteredClientRepository
 import se.curity.identityserver.sdk.datasource.pagination.PaginatedDataAccessResult
@@ -277,7 +278,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         activeClientsOnly: Boolean
     ): PaginatedDataAccessResult<DynamicallyRegisteredClientAttributes> {
 
-        val potentialKeys = QueryHelper.filterPotentialKeys(
+        var potentialKeys = arrayOf(
             // TODO IS-6705 avoid casts?
             QueryHelper.PotentialKey(
                 DcrTable.queryCapabilities().attributeMap[INSTANCE_OF_CLIENT] as DynamoDBAttribute<Any>,
@@ -295,13 +296,22 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
                 KeyType.SORT
             )
         )
+        if (activeClientsOnly) {
+            potentialKeys += QueryHelper.PotentialKey(
+                DcrTable.queryCapabilities().attributeMap[STATUS] as? DynamoDBAttribute<Any>,
+                Status.ACTIVE.name,
+                KeyType.FILTER
+            )
+        }
+
+        val filteredPotentialKeys = QueryHelper.filterPotentialKeys(*potentialKeys)
 
         val (values, encodedCursor) = QueryHelper.query(
             _dynamoDBClient,
             _jsonHandler,
             DcrTable.name(_configuration),
             DcrTable,
-            potentialKeys,
+            filteredPotentialKeys,
             isAscendingOrder(sortRequest),
             paginationRequest?.count,
             paginationRequest?.cursor

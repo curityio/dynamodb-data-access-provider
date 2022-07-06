@@ -68,11 +68,15 @@ object QueryHelper {
             .tableName(tableName)
             .indexName(indexAndKeys.index.indexName)
             .keyConditionExpression(indexAndKeys.keyConditionExpression(ascendingOrder))
-            // TODO IS-6705 add filter expression along with names & values, with activeClientOnly and left apart potential keys
-            // .filterExpression("")
             .expressionAttributeNames(indexAndKeys.expressionNameMap())
             .expressionAttributeValues(indexAndKeys.expressionValueMap())
             .scanIndexForward(ascendingOrder)
+
+
+        val filterExpression = indexAndKeys.filterExpression()
+        if (filterExpression.isNotBlank()) {
+            queryRequestBuilder.filterExpression(filterExpression)
+        }
 
         queryRequestBuilder.limit(pageCount ?: DEFAULT_PAGE_SIZE)
 
@@ -96,6 +100,8 @@ object QueryHelper {
     private const val DEFAULT_PAGE_SIZE = 50
 
     /**
+     * Filters out potential keys with a `null` value
+     *
      * @param potentialKeys including potential partition keys, (optional) potential sort keys and
      * (optional) filter keys.
      * @return only potential keys with an actual value
@@ -126,8 +132,8 @@ object QueryHelper {
     private fun findIndexAndKeysFrom(
         table: TableWithCapabilities,
         potentialKeys: PotentialKeys
-    ): IndexAndKeys<Any, Any>? {
-        var lastPotentialPartitionOnlyIndex: IndexAndKeys<Any, Any>? = null
+    ): IndexAndKeys<Any, Any, Any>? {
+        var lastPotentialPartitionOnlyIndex: IndexAndKeys<Any, Any, Any>? = null
         potentialKeys.partitionKeys.forEach { potentialPartitionKey ->
             val potentialIndexes = table.queryCapabilities().indexes.asSequence()
                 .filter { index ->
@@ -137,12 +143,20 @@ object QueryHelper {
                 val foundIndex = potentialIndexes.filter { index ->
                     index.sortAttribute?.name == potentialSortKey.key.name
                 }.firstOrNull()
+
+                // TODO IS-6705 move left apart potential partition & sort keys into filterKeys
+
                 if (foundIndex != null) {
-                    return IndexAndKeys(foundIndex, potentialPartitionKey.toPair(), potentialSortKey.toPair())
+                    return IndexAndKeys(
+                        foundIndex,
+                        potentialPartitionKey.toPair(),
+                        potentialSortKey.toPair(),
+                        potentialKeys.filterKeys
+                    )
                 }
             }
             lastPotentialPartitionOnlyIndex =
-                IndexAndKeys(potentialIndexes.first(), potentialPartitionKey.toPair(), null)
+                IndexAndKeys(potentialIndexes.first(), potentialPartitionKey.toPair(), null, potentialKeys.filterKeys)
         }
         return lastPotentialPartitionOnlyIndex
     }
@@ -230,18 +244,21 @@ object QueryHelper {
      * @property partitionKey   [Pair] with [DynamoDBAttribute] & value
      * @property sortKey        [Pair] with [DynamoDBAttribute] & value
      */
-    private class IndexAndKeys<T1, T2>(
+    private class IndexAndKeys<T1, T2, T3>(
         val index: Index,
         val partitionKey: Pair<DynamoDBAttribute<T1>, T1>,
-        val sortKey: Pair<DynamoDBAttribute<T2>, T2>? = null
+        val sortKey: Pair<DynamoDBAttribute<T2>, T2>?,
+        val filterKeys: Map<DynamoDBAttribute<T3>, T3>
     ) {
         fun expressionValueMap(): Map<String, AttributeValue> {
-            val expressionValueMap =
-                mutableMapOf<String, AttributeValue>(
-                    partitionKey.first.toExpressionNameValuePair(partitionKey.second)
-                )
+            val expressionValueMap = mutableMapOf(partitionKey.first.toExpressionNameValuePair(partitionKey.second))
             if (sortKey != null) {
                 expressionValueMap += sortKey.first.toExpressionNameValuePair(sortKey.second)
+            }
+            if (filterKeys.isNotEmpty()) {
+                filterKeys.forEach { filterKey ->
+                    expressionValueMap += filterKey.key.toExpressionNameValuePair(filterKey.value)
+                }
             }
             return expressionValueMap
         }
@@ -251,6 +268,11 @@ object QueryHelper {
                 mutableMapOf<String?, String?>(partitionKey.first.hashName to partitionKey.first.name)
             if (sortKey != null) {
                 expressionNameMap += sortKey.first.hashName to sortKey.first.name
+            }
+            if (filterKeys.isNotEmpty()) {
+                filterKeys.forEach { filterKey ->
+                    expressionNameMap += filterKey.key.hashName to filterKey.key.name
+                }
             }
             return expressionNameMap
         }
@@ -267,6 +289,19 @@ object QueryHelper {
             } else {
                 keyConditionExpression
             }
+        }
+
+        fun filterExpression(): String {
+            var filterExpression = ""
+            if (filterKeys.isNotEmpty()) {
+                val filterKey = filterKeys.asSequence().first()
+                filterExpression += "${filterKey.key.hashName} = ${filterKey.key.colonName}"
+            }
+            filterKeys.asSequence().drop(1).forEach { filterKey ->
+                filterExpression += " AND ${filterKey.key.hashName} = ${filterKey.key.colonName}"
+
+            }
+            return filterExpression
         }
     }
 }
