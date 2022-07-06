@@ -21,6 +21,9 @@ import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient.Companion.logger
 import io.curity.identityserver.plugin.dynamodb.DynamoDBItem
 import io.curity.identityserver.plugin.dynamodb.TableWithCapabilities
+import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.PotentialKey.KeyType.FILTER
+import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.PotentialKey.KeyType.PARTITION
+import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.PotentialKey.KeyType.SORT
 import io.curity.identityserver.plugin.dynamodb.queryPartialSequence
 import se.curity.identityserver.sdk.service.Json
 import software.amazon.awssdk.core.SdkBytes
@@ -30,12 +33,28 @@ import java.util.Base64
 
 object QueryHelper {
 
+    data class PotentialKey<T>(
+        val attribute: DynamoDBAttribute<T>?,
+        val value: T?,
+        val type: KeyType
+    ) {
+        enum class KeyType {
+            PARTITION, SORT, FILTER
+        }
+    }
+
+    data class PotentialKeys(
+        val partitionKeys: Map<DynamoDBAttribute<Any>, Any>,
+        val sortKeys: Map<DynamoDBAttribute<Any>, Any> = mapOf(),
+        val filterKeys: Map<DynamoDBAttribute<Any>, Any> = mapOf()
+    )
+
     fun query(
         _dynamoDBClient: DynamoDBClient,
         json: Json,
         tableName: String,
         table: TableWithCapabilities,
-        potentialKeys: Pair<Map<DynamoDBAttribute<Any>, Any>, Map<DynamoDBAttribute<Any>, Any>>,
+        potentialKeys: PotentialKeys,
         ascendingOrder: Boolean,
         pageCount: Int?,
         pageCursor: String?
@@ -77,50 +96,36 @@ object QueryHelper {
     private const val DEFAULT_PAGE_SIZE = 50
 
     /**
-     * @param potentialKeys as [Triple]s including both potential partition keys and potential sort keys
-     * @return a [Pair] of [Map]s, the first holding only potential partition keys having an actual value,
-     * the second holding only potential sort keys having an actual value
+     * @param potentialKeys including potential partition keys, (optional) potential sort keys and
+     * (optional) filter keys.
+     * @return only potential keys with an actual value
      */
-    fun createPotentialKeys(vararg potentialKeys: Triple<DynamoDBAttribute<Any>, Any?, Boolean>):
-    // TODO IS-6705 create an intermediary object?
-            Pair<Map<DynamoDBAttribute<Any>, Any>, Map<DynamoDBAttribute<Any>, Any>> {
+    fun filterPotentialKeys(vararg potentialKeys: PotentialKey<Any>): PotentialKeys {
         val potentialPartitionKeys: MutableMap<DynamoDBAttribute<Any>, Any> = mutableMapOf()
         val potentialSortKeys: MutableMap<DynamoDBAttribute<Any>, Any> = mutableMapOf()
+        val potentialFilterKeys: MutableMap<DynamoDBAttribute<Any>, Any> = mutableMapOf()
         potentialKeys.forEach { potentialKey ->
-            if (potentialKey.attributeValue != null) {
-                if (potentialKey.potentialPartitionKey) {
-                    potentialPartitionKeys[potentialKey.attribute] = potentialKey.attributeValue!!
-                } else {
-                    potentialSortKeys[potentialKey.attribute] = potentialKey.attributeValue!!
+            if ((potentialKey.attribute != null) && (potentialKey.value != null)) {
+                when (potentialKey.type) {
+                    PARTITION -> potentialPartitionKeys[potentialKey.attribute] = potentialKey.value
+                    SORT -> potentialSortKeys[potentialKey.attribute] = potentialKey.value
+                    FILTER -> potentialFilterKeys[potentialKey.attribute] = potentialKey.value
                 }
             }
         }
-        return potentialPartitionKeys to potentialSortKeys
+        return PotentialKeys(potentialPartitionKeys, potentialSortKeys, potentialFilterKeys)
     }
-
-    private val Triple<DynamoDBAttribute<Any>, Any?, Boolean>.attribute
-        get() = first
-    private val Triple<DynamoDBAttribute<Any>, Any?, Boolean>.attributeValue
-        get() = second
-    private val Triple<DynamoDBAttribute<Any>, Any?, Boolean>.potentialPartitionKey
-        get() = third
-
-    private val Pair<Map<DynamoDBAttribute<Any>, Any>, Map<DynamoDBAttribute<Any>, Any>>.partitionKeys
-        get() = first
-    private val Pair<Map<DynamoDBAttribute<Any>, Any>, Map<DynamoDBAttribute<Any>, Any>>.sortKeys
-        get() = second
 
     /**
      * Finds the index to use based on provided keys
      *
      * @param table             providing indexes
-     * @param potentialKeys     [Pair] of potential partition and sort keys, as returned by [createPotentialKeys]
-     * @return an [IndexAndKeys] helper object to be used with [QueryRequest.Builder]
+     * @param potentialKeys     potential partition, sort and filter keys, as returned by [filterPotentialKeys]
+     * @return [IndexAndKeys] helper object to be used with [QueryRequest.Builder]
      */
     private fun findIndexAndKeysFrom(
         table: TableWithCapabilities,
-        // TODO IS-6705 use intermediary object to be created?
-        potentialKeys: Pair<Map<DynamoDBAttribute<Any>, Any>, Map<DynamoDBAttribute<Any>, Any>>
+        potentialKeys: PotentialKeys
     ): IndexAndKeys<Any, Any>? {
         var lastPotentialPartitionOnlyIndex: IndexAndKeys<Any, Any>? = null
         potentialKeys.partitionKeys.forEach { potentialPartitionKey ->
@@ -214,7 +219,8 @@ object QueryHelper {
     }
 
     /**
-     * Helper object holding found index and partition and (optional) sort keys, along with their respective value.
+     * Helper object holding found index and partition and (optional) sort & filter keys,
+     * along with their respective value.
      *
      * Provides methods generating parameters needed by a [QueryRequest.Builder]
      *

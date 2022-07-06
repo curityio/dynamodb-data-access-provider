@@ -18,6 +18,7 @@ package io.curity.identityserver.plugin.dynamodb
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import io.curity.identityserver.plugin.dynamodb.query.Index
 import io.curity.identityserver.plugin.dynamodb.query.QueryHelper
+import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.PotentialKey.KeyType
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -275,25 +276,23 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         sortRequest: AttributesSorting?,
         activeClientsOnly: Boolean
     ): PaginatedDataAccessResult<DynamicallyRegisteredClientAttributes> {
-        val potentialPartitionKey = true
-        val potentialSortKey = false
 
-        val potentialKeys = QueryHelper.createPotentialKeys(
+        val potentialKeys = QueryHelper.filterPotentialKeys(
             // TODO IS-6705 avoid casts?
-            Triple(
+            QueryHelper.PotentialKey(
                 DcrTable.queryCapabilities().attributeMap[INSTANCE_OF_CLIENT] as DynamoDBAttribute<Any>,
                 templateId,
-                potentialPartitionKey
+                KeyType.PARTITION
             ),
-            Triple(
+            QueryHelper.PotentialKey(
                 DcrTable.queryCapabilities().attributeMap[AUTHENTICATED_USER] as DynamoDBAttribute<Any>,
                 username,
-                potentialPartitionKey
+                KeyType.PARTITION
             ),
-            Triple(
-                DcrTable.queryCapabilities().attributeMap[sortRequest?.sortBy ?: ""] as DynamoDBAttribute<Any>,
+            QueryHelper.PotentialKey(
+                DcrTable.queryCapabilities().attributeMap[sortRequest?.sortBy ?: ""] as? DynamoDBAttribute<Any>,
                 sortRequest?.inferValue(),
-                potentialSortKey
+                KeyType.SORT
             )
         )
 
