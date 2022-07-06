@@ -178,21 +178,38 @@ object QueryHelper {
                     index.sortAttribute?.name == potentialSortKey.key.name
                 }.firstOrNull()
 
-                // TODO IS-6705 move left apart potential partition & sort keys into filterKeys
-
                 if (foundIndex != null) {
+                    val filterKeys = moveLeftOverKeys(potentialKeys, potentialPartitionKey, potentialSortKey)
                     return IndexAndKeys(
                         foundIndex,
                         potentialPartitionKey.toPair(),
                         potentialSortKey.toPair(),
-                        potentialKeys.filterKeys
+                        filterKeys
                     )
                 }
             }
+            val filterKeys = moveLeftOverKeys(potentialKeys, potentialPartitionKey)
             lastPotentialPartitionOnlyIndex =
-                IndexAndKeys(potentialIndexes.first(), potentialPartitionKey.toPair(), null, potentialKeys.filterKeys)
+                IndexAndKeys(potentialIndexes.first(), potentialPartitionKey.toPair(), null, filterKeys)
         }
         return lastPotentialPartitionOnlyIndex
+    }
+
+    private fun moveLeftOverKeys(
+        potentialKeys: PotentialKeys,
+        foundPartitionKey: Map.Entry<DynamoDBAttribute<Any>, Any>,
+        foundSortKey: Map.Entry<DynamoDBAttribute<Any>, Any>? = null
+    ): Map<DynamoDBAttribute<Any>, Any> {
+        val filterKeys = potentialKeys.filterKeys.toMutableMap()
+        potentialKeys.partitionKeys.filter { it != foundPartitionKey }
+            .forEach { potentialPartitionKey ->
+                filterKeys += potentialPartitionKey.key to potentialPartitionKey.value
+            }
+        potentialKeys.sortKeys.filter { it != foundSortKey }
+            .forEach { potentialSortKey ->
+                filterKeys += potentialSortKey.key to potentialSortKey.value
+            }
+        return filterKeys
     }
 
     private fun getEncodedCursor(json: Json, cursor: Map<String, Any>?): String? {
