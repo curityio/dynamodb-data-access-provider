@@ -139,7 +139,7 @@ object QueryHelper {
 
         tableName(tableName)
             .indexName(indexAndKeys.index.indexName)
-            .keyConditionExpression(indexAndKeys.keyConditionExpression(ascendingOrder))
+            .keyConditionExpression(indexAndKeys.keyConditionExpression)
             .expressionAttributeNames(indexAndKeys.expressionNameMap())
             .expressionAttributeValues(indexAndKeys.expressionValueMap())
             .scanIndexForward(ascendingOrder)
@@ -169,9 +169,9 @@ object QueryHelper {
                     index.partitionAttribute.name == potentialPartitionKey.key.name
                 }.toSet()
             potentialKeys.sortKeys.forEach { potentialSortKey ->
-                val foundIndex = potentialIndexes.filter { index ->
+                val foundIndex = potentialIndexes.firstOrNull { index ->
                     index.sortAttribute?.name == potentialSortKey.key.name
-                }.firstOrNull()
+                }
 
                 if (foundIndex != null) {
                     val filterKeys = moveLeftOverKeys(potentialKeys, potentialPartitionKey, potentialSortKey)
@@ -298,9 +298,6 @@ object QueryHelper {
     ) {
         fun expressionValueMap(): Map<String, AttributeValue> {
             val expressionValueMap = mutableMapOf(partitionKey.first.toExpressionNameValuePair(partitionKey.second))
-            if (sortKey != null) {
-                expressionValueMap += sortKey.first.toExpressionNameValuePair(sortKey.second)
-            }
             if (filterKeys.isNotEmpty()) {
                 filterKeys.forEach { filterKey ->
                     expressionValueMap += filterKey.key.toExpressionNameValuePair(filterKey.value)
@@ -312,9 +309,6 @@ object QueryHelper {
         fun expressionNameMap(): Map<String?, String?> {
             val expressionNameMap =
                 mutableMapOf<String?, String?>(partitionKey.first.hashName to partitionKey.first.name)
-            if (sortKey != null) {
-                expressionNameMap += sortKey.first.hashName to sortKey.first.name
-            }
             if (filterKeys.isNotEmpty()) {
                 filterKeys.forEach { filterKey ->
                     expressionNameMap += filterKey.key.hashName to filterKey.key.name
@@ -323,19 +317,7 @@ object QueryHelper {
             return expressionNameMap
         }
 
-        fun keyConditionExpression(ascendingOrder: Boolean): String {
-            val keyConditionExpression = "${partitionKey.first.hashName} = ${partitionKey.first.colonName}"
-            return if (sortKey != null) {
-                val operator = if (ascendingOrder) {
-                    " > "
-                } else {
-                    " < "
-                }
-                keyConditionExpression + " AND ${sortKey.first.hashName}" + operator + sortKey.first.colonName
-            } else {
-                keyConditionExpression
-            }
-        }
+        val keyConditionExpression = "${partitionKey.first.hashName} = ${partitionKey.first.colonName}"
 
         fun filterExpression(): String {
             var filterExpression = ""
