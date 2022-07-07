@@ -19,6 +19,7 @@ import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccess
 import io.curity.identityserver.plugin.dynamodb.query.Index
 import io.curity.identityserver.plugin.dynamodb.query.QueryHelper
 import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.PotentialKey.KeyType
+import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.validateRequest
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -278,6 +279,8 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         activeClientsOnly: Boolean
     ): PaginatedDataAccessResult<DynamicallyRegisteredClientAttributes> {
 
+        validateRequest(DcrTable.queryCapabilities(), DynamoDBDialect.name, sortRequest != null)
+
         val potentialKeys = createPotentialKeys(templateId, username, activeClientsOnly, sortRequest)
         val filteredPotentialKeys = QueryHelper.filterAndSortPotentialKeys(*potentialKeys)
 
@@ -326,7 +329,6 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             } else {
                 true
             }
-
 
         private fun createPotentialKeys(
             templateId: String?,

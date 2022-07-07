@@ -17,8 +17,26 @@
 package io.curity.identityserver.plugin.dynamodb.query
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBAttribute
+import io.curity.identityserver.plugin.dynamodb.DynamoDBDialect
+import se.curity.identityserver.sdk.datasource.db.TableCapabilities
+import se.curity.identityserver.sdk.datasource.db.TableCapabilities.TableCapability
 
 class TableQueryCapabilities(
     val indexes: List<Index>,
     val attributeMap: Map<String, DynamoDBAttribute<*>>
-)
+) : TableCapabilities {
+
+    val dialect = DynamoDBDialect()
+
+    override fun getUnsupported(): Set<TableCapability> = unsupported
+
+    constructor(
+        indexes: List<Index>,
+        attributeMap: Map<String, DynamoDBAttribute<*>>,
+        tableUnsupportedCapabilities: Set<TableCapability>,
+    ) : this(indexes, attributeMap) {
+        unsupported = dialect.unsupportedCapabilities + tableUnsupportedCapabilities
+    }
+
+    private var unsupported = dialect.unsupportedCapabilities
+}

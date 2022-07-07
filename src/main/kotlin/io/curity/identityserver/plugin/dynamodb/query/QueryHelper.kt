@@ -25,6 +25,8 @@ import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.PotentialKey.K
 import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.PotentialKey.KeyType.PARTITION
 import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.PotentialKey.KeyType.SORT
 import io.curity.identityserver.plugin.dynamodb.queryPartialSequence
+import se.curity.identityserver.sdk.datasource.db.TableCapabilities
+import se.curity.identityserver.sdk.datasource.errors.DataSourceCapabilityException
 import se.curity.identityserver.sdk.service.Json
 import software.amazon.awssdk.core.SdkBytes
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
@@ -125,7 +127,7 @@ object QueryHelper {
      * @param tableName
      * @param table
      * @param potentialKeys
-     * @return a pre-built [QueryRequest.Builder]
+     * @return a pre-initialized [QueryRequest.Builder]
      */
     private fun QueryRequest.Builder.init(
         tableName: String,
@@ -134,8 +136,14 @@ object QueryHelper {
         ascendingOrder: Boolean
     ): QueryRequest.Builder {
         val indexAndKeys = findIndexAndKeysFrom(table, potentialKeys)
-            ?: // TODO IS-6705 handle as a Scan if enabled, or report as unsupported
-            throw java.lang.IllegalArgumentException("No index found fitting provided request")
+        if (indexAndKeys == null) {
+            throwCapabilityException(
+                TableCapabilities.TableCapability.FILTERING_ABSENT,
+                TableCapabilities.TableCapability.FILTERING_ABSENT.unsupportedMessage + FOR_TABLE_OR_DB_ERROR_TEMPLATE
+            )
+            // Unreachable, just to prevent compiler requesting safe call notation on indexAndKeys below
+            return this
+        }
 
         tableName(tableName)
             .indexName(indexAndKeys.index.indexName)
@@ -149,6 +157,29 @@ object QueryHelper {
             filterExpression(filterExpression)
         }
         return this
+    }
+
+    private const val FOR_TABLE_OR_DB_ERROR_TEMPLATE = " either for that table or with %s"
+
+    fun validateRequest(tableCapabilities: TableCapabilities, dialectName: String, sortingRequested: Boolean) {
+
+        // Sorting not supported by some tables
+        if (sortingRequested && tableCapabilities.unsupported.contains(TableCapabilities.TableCapability.SORTING)) {
+            throwCapabilityException(
+                TableCapabilities.TableCapability.SORTING,
+                TableCapabilities.TableCapability.SORTING.unsupportedMessage + FOR_TABLE_OR_DB_ERROR_TEMPLATE,
+                dialectName
+            )
+        }
+    }
+
+    private fun throwCapabilityException(
+        unsupportedCapability: TableCapabilities.TableCapability,
+        messageTemplate: String,
+        vararg arguments: String
+    ) {
+
+        throw DataSourceCapabilityException(unsupportedCapability, String.format(messageTemplate, arguments))
     }
 
     /**
@@ -279,7 +310,7 @@ object QueryHelper {
     }
 
     /**
-     * Helper object holding found index and partition and (optional) sort & filter keys,
+     * Helper object holding found index, partition and (optional) sort & filter keys,
      * along with their respective value.
      *
      * Provides methods generating parameters needed by a [QueryRequest.Builder]
