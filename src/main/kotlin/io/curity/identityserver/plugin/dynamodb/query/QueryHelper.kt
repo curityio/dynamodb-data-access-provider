@@ -19,7 +19,6 @@ package io.curity.identityserver.plugin.dynamodb.query
 import io.curity.identityserver.plugin.dynamodb.DynamoDBAttribute
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient.Companion.logger
-import io.curity.identityserver.plugin.dynamodb.DynamoDBItem
 import io.curity.identityserver.plugin.dynamodb.TableWithCapabilities
 import io.curity.identityserver.plugin.dynamodb.count
 import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.PotentialKey.KeyType.FILTER
@@ -60,7 +59,7 @@ object QueryHelper {
         ascendingOrder: Boolean,
         pageCount: Int?,
         pageCursor: String?
-    ): Pair<Sequence<DynamoDBItem>, String?> {
+    ): Pair<Sequence<Map<String, AttributeValue>>, String?> {
 
         val listRequestBuilder = QueryRequest.builder().init(tableName, table, potentialKeys, ascendingOrder)
 
@@ -74,13 +73,9 @@ object QueryHelper {
         val listRequest = listRequestBuilder.build()
 
         val (sequence, lastEvaluationKey) = queryPartialSequence(listRequest, _dynamoDBClient)
-        val result = linkedMapOf<String, Map<String, AttributeValue>>()
-        sequence.forEach {
-            result[table.keyAttribute().from(it)] = it
-        }
 
         val encodedCursor = getEncodedCursor(json, lastEvaluationKey)
-        return Pair(result.values.asSequence(), encodedCursor)
+        return Pair(sequence, encodedCursor)
     }
 
     private const val DEFAULT_PAGE_SIZE = 50
