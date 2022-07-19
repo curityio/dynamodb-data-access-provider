@@ -31,6 +31,7 @@ import software.amazon.awssdk.auth.credentials.AwsSessionCredentials
 import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
+import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider
 import software.amazon.awssdk.core.exception.SdkClientException
 import software.amazon.awssdk.core.exception.SdkException
 import software.amazon.awssdk.regions.Region
@@ -76,6 +77,9 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
             } else if (accessMethod.aWSProfile.isPresent) {
                 logger.debug("Using local profile to configure DynamoDB client")
                 getUsingProfile(accessMethod.aWSProfile.get())
+            } else if (accessMethod.webIdentityTokenFile.isPresent) {
+                logger.debug("Using web identity default token file")
+                WebIdentityTokenFileCredentialsProvider.builder().build()
             } else {
                 throw IllegalStateException("DynamoDB configuration's access method is not valid")
             }

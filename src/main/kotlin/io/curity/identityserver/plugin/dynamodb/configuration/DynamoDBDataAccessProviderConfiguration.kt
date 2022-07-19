@@ -64,6 +64,13 @@ interface DynamoDBDataAccessProviderConfiguration : Configuration {
         // option: ambient authority on an EC instance
         @get:Description("EC2 instance that the Curity Identity Server is running on has been assigned an IAM Role with permissions to DynamoDB.")
         val isEC2InstanceProfile: Optional<Boolean>
+
+        @get:Description("Use the Web Identity Token File credential provider")
+        val webIdentityTokenFile: Optional<WebIdentityTokenFile>
+
+        interface WebIdentityTokenFile {
+            // empty for now
+        }
     }
 
     @Description("Allow use of table scans to fulfill resource queries")
