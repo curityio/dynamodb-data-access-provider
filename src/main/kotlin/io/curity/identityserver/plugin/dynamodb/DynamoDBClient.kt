@@ -28,12 +28,14 @@ import se.curity.identityserver.sdk.plugin.ManagedObject
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider
 import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider
 import software.amazon.awssdk.core.exception.SdkClientException
 import software.amazon.awssdk.core.exception.SdkException
+import software.amazon.awssdk.profiles.ProfileFile
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
@@ -57,6 +59,7 @@ import software.amazon.awssdk.services.sts.model.AssumeRoleRequest
 import software.amazon.awssdk.services.sts.model.AssumeRoleResponse
 import software.amazon.awssdk.services.sts.model.Credentials
 import java.net.URI
+import java.nio.file.Path
 import java.time.Duration
 
 class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration) :
@@ -79,7 +82,10 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
                 getUsingProfile(accessMethod.aWSProfile.get())
             } else if (accessMethod.webIdentityTokenFile.isPresent) {
                 logger.debug("Using web identity default token file")
-                WebIdentityTokenFileCredentialsProvider.builder().build()
+                getWebIdentityTokenFileCredentialsProvider(accessMethod.webIdentityTokenFile.get())
+            } else if (accessMethod.defaultCredentialsProvider.isPresent) {
+                logger.debug("Using the default credentials provider")
+                getDefaultCredentialsProvider(accessMethod.defaultCredentialsProvider.get())
             } else {
                 throw IllegalStateException("DynamoDB configuration's access method is not valid")
             }
@@ -170,6 +176,53 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
             logger.debug("AssumeRole Request failed: {}", e.message)
             throw config.getExceptionFactory().internalServerException(ErrorCode.EXTERNAL_SERVICE_ERROR)
         }
+    }
+
+    private fun getWebIdentityTokenFileCredentialsProvider(
+        config: DynamoDBDataAccessProviderConfiguration.AWSAccessMethod.WebIdentityTokenFile
+    ): AwsCredentialsProvider = WebIdentityTokenFileCredentialsProvider.builder().run {
+
+        config.roleArn.ifPresent { value ->
+            logger.debug("Configuring WebIdentityTokenFileCredentialsProvider with roleArn '{}'", value)
+            roleArn(value)
+        }
+
+        config.roleSessionName.ifPresent { value ->
+            logger.debug("Configuring WebIdentityTokenFileCredentialsProvider with roleSessioName '{}'", value)
+            roleSessionName(value)
+        }
+
+        config.webIdentityTokenFile.ifPresent { value ->
+            logger.debug("Configuring WebIdentityTokenFileCredentialsProvider with webIdentityTokenFile '{}'", value)
+            webIdentityTokenFile(Path.of(value))
+        }
+
+        build()
+    }
+
+    private fun getDefaultCredentialsProvider(
+        config: DynamoDBDataAccessProviderConfiguration.AWSAccessMethod.DefaultCredentialsProviderConfig
+    ): AwsCredentialsProvider = DefaultCredentialsProvider.builder().run {
+
+        config.profileFile.ifPresent { value ->
+            logger.debug("Configuring DefaultCredentialsProvider with profile file '{}'", value)
+            profileFile(ProfileFile.builder().content(Path.of(value)).build())
+        }
+
+        config.profileName.ifPresent { value ->
+            logger.debug("Configuring DefaultCredentialsProvider with profile name '{}'", value)
+            profileName(value)
+        }
+
+        logger.debug("Configuring DefaultCredentialsProvider with reuseLastProviderEnabled set to '{}'",
+            config.reuseLastProviderEnabled)
+        reuseLastProviderEnabled(config.reuseLastProviderEnabled)
+
+        logger.debug("Configuring DefaultCredentialsProvider with asyncCredentialUpdateEnabled set to '{}'",
+            config.asyncCredentialUpdateEnabled)
+        asyncCredentialUpdateEnabled(config.asyncCredentialUpdateEnabled)
+
+        build()
     }
 
     fun getItem(request: GetItemRequest): GetItemResponse = client.call { getItem(request) }

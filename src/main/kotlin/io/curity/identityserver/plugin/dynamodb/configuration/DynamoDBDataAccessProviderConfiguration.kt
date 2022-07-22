@@ -65,11 +65,44 @@ interface DynamoDBDataAccessProviderConfiguration : Configuration {
         @get:Description("EC2 instance that the Curity Identity Server is running on has been assigned an IAM Role with permissions to DynamoDB.")
         val isEC2InstanceProfile: Optional<Boolean>
 
-        @get:Description("Use the Web Identity Token File credential provider")
+        @get:Description("Use the Web Identity Token File credentials provider. " +
+                "Reads web identity token file path, aws role arn and aws session name from system properties " +
+                "or environment variables for using web identity token credentials. ")
         val webIdentityTokenFile: Optional<WebIdentityTokenFile>
 
         interface WebIdentityTokenFile {
-            // empty for now
+            @get:Description("Optional role arn.")
+            val roleArn: Optional<String>
+
+            @get:Description("Optional role session name.")
+            val roleSessionName: Optional<String>
+
+            @get:Description("Optional absolute path to the web identity token file")
+            val webIdentityTokenFile: Optional<String>
+        }
+
+        @get:Description("Use the default credential provider that automatically looks for available credentials " +
+                "in multiple places, namely: java system properties, environment variables, Web Identity Token, " +
+                "credential profiles, and EC2 metadata service.")
+        val defaultCredentialsProvider: Optional<DefaultCredentialsProviderConfig>
+
+        interface DefaultCredentialsProviderConfig {
+
+            @get:Description("Optional profile file.")
+            val profileFile: Optional<String>
+
+            @get:Description("Optional profile name.")
+            val profileName: Optional<String>
+
+            @get:Description("Controls whether the provider should reuse " +
+                    "the last successful credentials provider in the chain. By default it is enabled")
+            @get:DefaultBoolean(true)
+            val reuseLastProviderEnabled: Boolean
+
+            @get:Description("Configure whether this provider should fetch " +
+                    "credentials asynchronously in the background. By default this is disabled.")
+            @get:DefaultBoolean(false)
+            val asyncCredentialUpdateEnabled: Boolean
         }
     }
 
