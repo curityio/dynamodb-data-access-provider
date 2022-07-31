@@ -35,7 +35,6 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider
 import software.amazon.awssdk.core.exception.SdkClientException
 import software.amazon.awssdk.core.exception.SdkException
-import software.amazon.awssdk.profiles.ProfileFile
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
@@ -59,7 +58,6 @@ import software.amazon.awssdk.services.sts.model.AssumeRoleRequest
 import software.amazon.awssdk.services.sts.model.AssumeRoleResponse
 import software.amazon.awssdk.services.sts.model.Credentials
 import java.net.URI
-import java.nio.file.Path
 import java.time.Duration
 
 class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration) :
@@ -179,23 +177,10 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
     }
 
     private fun getWebIdentityTokenFileCredentialsProvider(
-        config: DynamoDBDataAccessProviderConfiguration.AWSAccessMethod.WebIdentityTokenFile
+        config: DynamoDBDataAccessProviderConfiguration.AWSAccessMethod.WebIdentityTokenFileConfig
     ): AwsCredentialsProvider = WebIdentityTokenFileCredentialsProvider.builder().run {
 
-        config.roleArn.ifPresent { value ->
-            logger.debug("Configuring WebIdentityTokenFileCredentialsProvider with roleArn '{}'", value)
-            roleArn(value)
-        }
-
-        config.roleSessionName.ifPresent { value ->
-            logger.debug("Configuring WebIdentityTokenFileCredentialsProvider with roleSessioName '{}'", value)
-            roleSessionName(value)
-        }
-
-        config.webIdentityTokenFile.ifPresent { value ->
-            logger.debug("Configuring WebIdentityTokenFileCredentialsProvider with webIdentityTokenFile '{}'", value)
-            webIdentityTokenFile(Path.of(value))
-        }
+        // No extra config for the moment being.
 
         build()
     }
@@ -204,23 +189,9 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
         config: DynamoDBDataAccessProviderConfiguration.AWSAccessMethod.DefaultCredentialsProviderConfig
     ): AwsCredentialsProvider = DefaultCredentialsProvider.builder().run {
 
-        config.profileFile.ifPresent { value ->
-            logger.debug("Configuring DefaultCredentialsProvider with profile file '{}'", value)
-            profileFile(ProfileFile.builder().content(Path.of(value)).build())
-        }
-
-        config.profileName.ifPresent { value ->
-            logger.debug("Configuring DefaultCredentialsProvider with profile name '{}'", value)
-            profileName(value)
-        }
-
-        logger.debug("Configuring DefaultCredentialsProvider with reuseLastProviderEnabled set to '{}'",
-            config.reuseLastProviderEnabled)
-        reuseLastProviderEnabled(config.reuseLastProviderEnabled)
-
-        logger.debug("Configuring DefaultCredentialsProvider with asyncCredentialUpdateEnabled set to '{}'",
-            config.asyncCredentialUpdateEnabled)
-        asyncCredentialUpdateEnabled(config.asyncCredentialUpdateEnabled)
+        logger.debug("Configuring DefaultCredentialsProvider with reuseLastProvider set to '{}'",
+            config.reuseLastProvider)
+        reuseLastProviderEnabled(config.reuseLastProvider)
 
         build()
     }
