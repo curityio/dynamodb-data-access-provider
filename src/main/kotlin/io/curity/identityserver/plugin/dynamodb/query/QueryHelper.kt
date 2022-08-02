@@ -44,7 +44,7 @@ object QueryHelper {
         dynamoDBClient: DynamoDBClient,
         json: Json,
         tableName: String,
-        indexAndKeys: IndexAndKeys<Any, Any, Any>,
+        indexAndKeys: IndexAndKeys<Any, Any>,
         ascendingOrder: Boolean,
         pageCount: Int?,
         pageCursor: String?
@@ -72,7 +72,7 @@ object QueryHelper {
     fun count(
         dynamoDBClient: DynamoDBClient,
         tableName: String,
-        indexAndKeys: IndexAndKeys<Any, Any, Any>
+        indexAndKeys: IndexAndKeys<Any, Any>
     ): Long {
 
         val countRequestBuilder = QueryRequest.builder().init(tableName, indexAndKeys, true)
@@ -93,7 +93,7 @@ object QueryHelper {
      */
     private fun QueryRequest.Builder.init(
         tableName: String,
-        indexAndKeys: IndexAndKeys<Any, Any, Any>,
+        indexAndKeys: IndexAndKeys<Any, Any>,
         ascendingOrder: Boolean
     ): QueryRequest.Builder {
         tableName(tableName)
@@ -110,7 +110,7 @@ object QueryHelper {
     private const val FOR_TABLE_OR_DB_ERROR_TEMPLATE = " either for that table or with %s"
 
     fun validateRequest(
-        indexAndKeys: IndexAndKeys<Any, Any, Any>?,
+        indexAndKeys: IndexAndKeys<Any, Any>?,
         tableCapabilities: TableCapabilities? = null,
         dialectName: String = "",
         sortingRequested: Boolean = false
@@ -171,8 +171,8 @@ object QueryHelper {
     fun findIndexAndKeysFrom(
         table: TableWithCapabilities,
         potentialKeys: PotentialKeys
-    ): IndexAndKeys<Any, Any, Any>? {
-        var lastPotentialPartitionOnlyIndex: IndexAndKeys<Any, Any, Any>? = null
+    ): IndexAndKeys<Any, Any>? {
+        var lastPotentialPartitionOnlyIndex: IndexAndKeys<Any, Any>? = null
         potentialKeys.partitionKeys.forEach { potentialPartitionKey ->
             // Search table's indexes for those having it as partition key (PK)
             val potentialIndexes = table.queryCapabilities().indexes.asSequence()
@@ -191,7 +191,6 @@ object QueryHelper {
                     return IndexAndKeys(
                         foundIndex,
                         potentialPartitionKey.toPair(),
-                        potentialSortKey.toPair(),
                         filterKeys
                     )
                 }
@@ -201,7 +200,7 @@ object QueryHelper {
             val filterKeys = moveLeftOverKeys(potentialKeys, potentialPartitionKey)
             // And take the first as the one to work with
             lastPotentialPartitionOnlyIndex =
-                IndexAndKeys(potentialIndexes.first(), potentialPartitionKey.toPair(), null, filterKeys)
+                IndexAndKeys(potentialIndexes.first(), potentialPartitionKey.toPair(), filterKeys)
         }
         // Found no indexes with any of the provided PKs
         return lastPotentialPartitionOnlyIndex
@@ -346,16 +345,15 @@ object QueryHelper {
      * Provides methods generating parameters needed by a [QueryRequest.Builder]
      *
      * @param T1                partition key's type
-     * @param T2                sort key's type
+     * @param T2                filter keys' type
      * @property index          fitting provided keys
      * @property partitionKey   [Pair] with [DynamoDBAttribute] & value
-     * @property sortKey        [Pair] with [DynamoDBAttribute] & value
+     * @property filterKeys     [Map] of [DynamoDBAttribute] & value
      */
-    class IndexAndKeys<T1, T2, T3>(
+    class IndexAndKeys<T1, T2>(
         val index: Index,
-        val partitionKey: Pair<DynamoDBAttribute<T1>, T1>,
-        val sortKey: Pair<DynamoDBAttribute<T2>, T2>?,
-        val filterKeys: Map<DynamoDBAttribute<T3>, T3>
+        private val partitionKey: Pair<DynamoDBAttribute<T1>, T1>,
+        private val filterKeys: Map<DynamoDBAttribute<T2>, T2>
     ) {
         fun expressionValueMap(): Map<String, AttributeValue> {
             val expressionValueMap = mutableMapOf(partitionKey.first.toExpressionNameValuePair(partitionKey.second))
