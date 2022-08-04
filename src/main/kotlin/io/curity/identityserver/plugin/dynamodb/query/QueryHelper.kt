@@ -88,12 +88,19 @@ object QueryHelper {
         indexAndKeys: IndexAndKeys<Any, Any>
     ): Long {
 
-        val countRequestBuilder = QueryRequest.builder().init(tableName, indexAndKeys, true)
+        return if (indexAndKeys.useScan) {
+            val countScanBuilder = ScanRequest.builder().init(tableName, indexAndKeys)
+            countScanBuilder.select(Select.COUNT)
+                .consistentRead(true)
 
-        countRequestBuilder.select(Select.COUNT)
-        val countRequest = countRequestBuilder.build()
+            count(countScanBuilder.build(), dynamoDBClient)
+        } else {
+            val countQueryBuilder = QueryRequest.builder().init(tableName, indexAndKeys, true)
+            countQueryBuilder.select(Select.COUNT)
 
-        return count(countRequest, dynamoDBClient)
+            count(countQueryBuilder.build(), dynamoDBClient)
+
+        }
     }
 
     /**
