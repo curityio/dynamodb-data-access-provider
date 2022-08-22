@@ -64,6 +64,44 @@ interface DynamoDBDataAccessProviderConfiguration : Configuration {
         // option: ambient authority on an EC instance
         @get:Description("EC2 instance that the Curity Identity Server is running on has been assigned an IAM Role with permissions to DynamoDB.")
         val isEC2InstanceProfile: Optional<Boolean>
+
+        // option: web identity token file
+        @get:Description(
+            "Use the Web Identity Token File credentials provider. " +
+                    "Reads web identity token file path, aws role arn and aws session name from system properties " +
+                    "or environment variables for using web identity token credentials. "
+        )
+        val webIdentityTokenFile: Optional<WebIdentityTokenFileConfig>
+
+        interface WebIdentityTokenFileConfig {
+            /*
+             * Empty for the moment being. In the future we may add the WebIdentityTokenFile builder options
+             * made available by the AWS SDK
+             */
+        }
+
+        // option: default credentials provider
+        @get:Description(
+            "Use the default credential provider that automatically looks for available credentials " +
+                    "in multiple places, namely: java system properties, environment variables, Web Identity Token, " +
+                    "credential profiles, and EC2 metadata service."
+        )
+        val defaultCredentialsProvider: Optional<DefaultCredentialsProviderConfig>
+
+        interface DefaultCredentialsProviderConfig {
+
+            @get:Description(
+                "Controls whether the provider should reuse " +
+                        "the last successful credentials provider in the chain. By default it is enabled"
+            )
+            @get:DefaultBoolean(true)
+            val reuseLastProvider: Boolean
+
+            /*
+             * In the future we may add other DefaultCredentialsProvider builder options
+             * made available by the AWS SDK
+             */
+        }
     }
 
     @Description("Allow use of table scans to fulfill resource queries")

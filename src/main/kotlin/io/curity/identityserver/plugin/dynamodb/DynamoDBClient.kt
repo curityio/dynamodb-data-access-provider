@@ -28,9 +28,11 @@ import se.curity.identityserver.sdk.plugin.ManagedObject
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider
 import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
+import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider
 import software.amazon.awssdk.core.exception.SdkClientException
 import software.amazon.awssdk.core.exception.SdkException
 import software.amazon.awssdk.regions.Region
@@ -76,6 +78,12 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
             } else if (accessMethod.aWSProfile.isPresent) {
                 logger.debug("Using local profile to configure DynamoDB client")
                 getUsingProfile(accessMethod.aWSProfile.get())
+            } else if (accessMethod.webIdentityTokenFile.isPresent) {
+                logger.debug("Using web identity default token file")
+                getWebIdentityTokenFileCredentialsProvider(accessMethod.webIdentityTokenFile.get())
+            } else if (accessMethod.defaultCredentialsProvider.isPresent) {
+                logger.debug("Using the default credentials provider")
+                getDefaultCredentialsProvider(accessMethod.defaultCredentialsProvider.get())
             } else {
                 throw IllegalStateException("DynamoDB configuration's access method is not valid")
             }
@@ -166,6 +174,26 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
             logger.debug("AssumeRole Request failed: {}", e.message)
             throw config.getExceptionFactory().internalServerException(ErrorCode.EXTERNAL_SERVICE_ERROR)
         }
+    }
+
+    private fun getWebIdentityTokenFileCredentialsProvider(
+        config: DynamoDBDataAccessProviderConfiguration.AWSAccessMethod.WebIdentityTokenFileConfig
+    ): AwsCredentialsProvider = WebIdentityTokenFileCredentialsProvider.builder().run {
+
+        // No extra config for the moment being.
+
+        build()
+    }
+
+    private fun getDefaultCredentialsProvider(
+        config: DynamoDBDataAccessProviderConfiguration.AWSAccessMethod.DefaultCredentialsProviderConfig
+    ): AwsCredentialsProvider = DefaultCredentialsProvider.builder().run {
+
+        logger.debug("Configuring DefaultCredentialsProvider with reuseLastProvider set to '{}'",
+            config.reuseLastProvider)
+        reuseLastProviderEnabled(config.reuseLastProvider)
+
+        build()
     }
 
     fun getItem(request: GetItemRequest): GetItemResponse = client.call { getItem(request) }

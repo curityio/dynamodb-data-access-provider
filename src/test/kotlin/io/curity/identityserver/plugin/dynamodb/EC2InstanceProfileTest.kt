@@ -35,6 +35,10 @@ class EC2InstanceProfileTest {
                 override val accessKeyIdAndSecret = Optional.empty<AccessKeyIdAndSecret>()
                 override val aWSProfile = Optional.empty<AWSProfile>()
                 override val isEC2InstanceProfile = Optional.of(true)
+                override val webIdentityTokenFile = Optional.empty<AWSAccessMethod.WebIdentityTokenFileConfig>()
+                override val defaultCredentialsProvider =
+                    Optional.empty<AWSAccessMethod.DefaultCredentialsProviderConfig>()
+
                 override fun id() = "the-id"
             }
         )

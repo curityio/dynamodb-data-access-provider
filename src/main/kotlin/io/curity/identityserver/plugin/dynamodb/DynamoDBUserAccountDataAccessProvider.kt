@@ -907,6 +907,8 @@ class DynamoDBUserAccountDataAccessProvider(
                 }
                 AccountsTable.version.name -> { /*ignore*/
                 }
+                AccountsTable.accountId.name -> { /*ignore: already in the 'id' attribute*/
+                }
                 AccountsTable.active.name -> map["active"] = value.bool()
                 AccountsTable.email.name -> {
                 } // skip, emails are in attributes
