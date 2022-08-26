@@ -28,15 +28,5 @@ class TableQueryCapabilities(
 
     val dialect = DynamoDBDialect()
 
-    override fun getUnsupported(): Set<TableCapability> = unsupported
-
-    constructor(
-        indexes: List<Index>,
-        attributeMap: Map<String, DynamoDBAttribute<*>>,
-        tableUnsupportedCapabilities: Set<TableCapability>,
-    ) : this(indexes, attributeMap) {
-        unsupported = dialect.unsupportedCapabilities + tableUnsupportedCapabilities
-    }
-
-    private var unsupported = dialect.unsupportedCapabilities
+    override fun getUnsupported(): Set<TableCapability> = dialect.unsupportedCapabilities
 }
