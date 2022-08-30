@@ -54,8 +54,8 @@ object QueryHelper {
 
         listRequestBuilder.limit(pageCount ?: DEFAULT_PAGE_SIZE)
 
-        val exclusiveStartKey = getExclusiveStartKey(json, pageCursor)
-        if (exclusiveStartKey.isNotEmpty()) {
+        if (!pageCursor.isNullOrBlank()) {
+            val exclusiveStartKey = getExclusiveStartKey(json, pageCursor)
             listRequestBuilder.exclusiveStartKey(exclusiveStartKey)
         }
 
@@ -201,7 +201,7 @@ object QueryHelper {
         return filterKeys
     }
 
-    private fun getEncodedCursor(json: Json, cursor: Map<String, Any>?): String? {
+    private fun getEncodedCursor(json: Json, cursor: Map<String, AttributeValue>?): String? {
         if (cursor?.isEmpty() != false) {
             return null
         }
@@ -212,34 +212,25 @@ object QueryHelper {
         return Base64.getEncoder().encodeToString(serializedCursor.toByteArray())
     }
 
-    private fun getDecodedJson(cursor: String?): String =
-        if (cursor.isNullOrBlank()) {
-            ""
-        } else String(Base64.getDecoder().decode(cursor))
-
+    private fun getDecodedJson(cursor: String) = String(Base64.getDecoder().decode(cursor))
 
     private fun getDeserializedMap(jsonDeserializer: Json, decodedJson: String): Map<String, Any> =
-        if (decodedJson.isBlank()) {
-            mapOf()
-        } else {
-            try {
-                jsonDeserializer.fromJson(decodedJson, true)
-            } catch (e: Json.JsonException) {
-                logger.debug("Invalid Cursor. {}", e.message)
-                throw IllegalArgumentException(String.format("Invalid pagination cursor. %s", decodedJson))
-            }
+        try {
+            jsonDeserializer.fromJson(decodedJson, true)
+        } catch (e: Json.JsonException) {
+            logger.debug("Couldn't deserialize JSON cursor, it's likely invalid")
+            throw IllegalArgumentException(String.format("Couldn't deserialize JSON cursor: %s", decodedJson))
         }
 
     private fun getExclusiveStartKey(
         jsonDeserializer: Json,
-        encodedCursor: String?
+        encodedCursor: String
     ): Map<String, AttributeValue?> {
         val cursor = getDeserializedMap(jsonDeserializer, getDecodedJson(encodedCursor))
         @Suppress("UNCHECKED_CAST")
-        if ((cursor as Map<String, Map<String, Any?>>).isNotEmpty()) {
-            return cursor.toExclusiveStartKey()
-        }
-        return mapOf()
+        cursor as? Map<String, Map<String, Any?>>
+            ?: throw IllegalArgumentException(String.format("Cursor has unexpected structure"))
+        return cursor.toExclusiveStartKey()
     }
 
     private fun Map<String, Map<String, Any?>>.toExclusiveStartKey(): Map<String, AttributeValue> {
