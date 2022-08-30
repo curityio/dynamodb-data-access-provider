@@ -18,7 +18,6 @@ package io.curity.identityserver.plugin.dynamodb
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import io.curity.identityserver.plugin.dynamodb.query.Index
 import io.curity.identityserver.plugin.dynamodb.query.QueryHelper
-import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.PotentialKey.KeyType
 import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.validateRequest
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
 import org.slf4j.Logger
@@ -282,14 +281,13 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         validateRequest(DcrTable.queryCapabilities(), DynamoDBDialect.name, sortRequest != null)
 
         val potentialKeys = createPotentialKeys(templateId, username, activeClientsOnly, sortRequest)
-        val filteredPotentialKeys = QueryHelper.filterAndSortPotentialKeys(*potentialKeys)
 
         val (values, encodedCursor) = QueryHelper.list(
             _dynamoDBClient,
             _jsonHandler,
             DcrTable.name(_configuration),
             DcrTable,
-            filteredPotentialKeys,
+            potentialKeys,
             isAscendingOrder(sortRequest),
             paginationRequest?.count,
             paginationRequest?.cursor
@@ -309,13 +307,12 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
     ): Long {
 
         val potentialKeys = createPotentialKeys(templateId, username, activeClientsOnly)
-        val filteredPotentialKeys = QueryHelper.filterAndSortPotentialKeys(*potentialKeys)
 
         return QueryHelper.count(
             _dynamoDBClient,
             DcrTable.name(_configuration),
             DcrTable,
-            filteredPotentialKeys,
+            potentialKeys,
         )
     }
 
@@ -335,40 +332,31 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             username: String?,
             activeClientsOnly: Boolean,
             sortRequest: AttributesSorting? = null
-        ): Array<QueryHelper.PotentialKey<Any>> {
-            var potentialKeys = arrayOf(
-                // TODO IS-6705 avoid casts?
-                QueryHelper.PotentialKey(
-                    DcrTable.queryCapabilities().attributeMap[INSTANCE_OF_CLIENT] as DynamoDBAttribute<Any>,
-                    templateId,
-                    KeyType.PARTITION
-                ),
-                QueryHelper.PotentialKey(
-                    DcrTable.queryCapabilities().attributeMap[AUTHENTICATED_USER] as DynamoDBAttribute<Any>,
-                    username,
-                    KeyType.PARTITION
-                ),
-                QueryHelper.PotentialKey(
-                    DcrTable.queryCapabilities().attributeMap[sortRequest?.sortBy ?: ""] as? DynamoDBAttribute<Any>,
-                    sortRequest?.inferValue(),
-                    KeyType.SORT
-                )
-            )
-            if (activeClientsOnly) {
-                potentialKeys += QueryHelper.PotentialKey(
-                    DcrTable.queryCapabilities().attributeMap[STATUS] as? DynamoDBAttribute<Any>,
-                    Status.ACTIVE.name,
-                    KeyType.FILTER
-                )
+        ): QueryHelper.PotentialKeys {
+            val potentialPartitionKeys: MutableMap<DynamoDBAttribute<*>, Any> = mutableMapOf()
+            if (templateId != null) {
+                potentialPartitionKeys[DcrTable.instanceOfClient] = templateId
             }
-            return potentialKeys
-        }
+            if (username != null) {
+                potentialPartitionKeys[DcrTable.authenticatedUser] = username
+            }
 
-        private fun AttributesSorting.inferValue(): Long =
-            if (ResourceQuery.Sorting.SortOrder.DESCENDING == sortOrder) {
-                Long.MAX_VALUE
-            } else {
-                0
+            val potentialSortKeys: MutableMap<DynamoDBAttribute<*>, Any> = mutableMapOf()
+            val sortBy = DcrTable.queryCapabilities().attributeMap[sortRequest?.sortBy]
+            if (sortBy != null) {
+                potentialSortKeys[sortBy] = 0
             }
+
+
+            val potentialFilterKeys: MutableMap<DynamoDBAttribute<*>, Any> = mutableMapOf()
+            if (activeClientsOnly) {
+                potentialFilterKeys[DcrTable.status] = Status.ACTIVE.name
+            }
+            return QueryHelper.PotentialKeys(
+                potentialPartitionKeys as Map<DynamoDBAttribute<Any>, Any>,
+                potentialSortKeys as Map<DynamoDBAttribute<Any>, Any>,
+                potentialFilterKeys as Map<DynamoDBAttribute<Any>, Any>
+            )
+        }
     }
 }

@@ -21,9 +21,6 @@ import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient.Companion.logger
 import io.curity.identityserver.plugin.dynamodb.TableWithCapabilities
 import io.curity.identityserver.plugin.dynamodb.count
-import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.PotentialKey.KeyType.FILTER
-import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.PotentialKey.KeyType.PARTITION
-import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.PotentialKey.KeyType.SORT
 import io.curity.identityserver.plugin.dynamodb.queryPartialSequence
 import se.curity.identityserver.sdk.datasource.db.TableCapabilities
 import se.curity.identityserver.sdk.datasource.errors.DataSourceCapabilityException
@@ -35,16 +32,6 @@ import software.amazon.awssdk.services.dynamodb.model.Select
 import java.util.Base64
 
 object QueryHelper {
-
-    data class PotentialKey<T>(
-        val attribute: DynamoDBAttribute<T>?,
-        val value: T?,
-        val type: KeyType
-    ) {
-        enum class KeyType {
-            PARTITION, SORT, FILTER
-        }
-    }
 
     data class PotentialKeys(
         val partitionKeys: Map<DynamoDBAttribute<Any>, Any>,
@@ -95,30 +82,6 @@ object QueryHelper {
         val countRequest = countRequestBuilder.build()
 
         return count(countRequest, _dynamoDBClient)
-    }
-
-    /**
-     * Filters out potential keys with a `null` value and sort them in the appropriate member
-     * of the returned [PotentialKeys]
-     *
-     * @param potentialKeys including potential partition keys, (optional) potential sort keys and
-     * (optional) filter keys.
-     * @return only potential keys with an actual value
-     */
-    fun filterAndSortPotentialKeys(vararg potentialKeys: PotentialKey<Any>): PotentialKeys {
-        val potentialPartitionKeys: MutableMap<DynamoDBAttribute<Any>, Any> = mutableMapOf()
-        val potentialSortKeys: MutableMap<DynamoDBAttribute<Any>, Any> = mutableMapOf()
-        val potentialFilterKeys: MutableMap<DynamoDBAttribute<Any>, Any> = mutableMapOf()
-        potentialKeys.forEach { potentialKey ->
-            if ((potentialKey.attribute != null) && (potentialKey.value != null)) {
-                when (potentialKey.type) {
-                    PARTITION -> potentialPartitionKeys[potentialKey.attribute] = potentialKey.value
-                    SORT -> potentialSortKeys[potentialKey.attribute] = potentialKey.value
-                    FILTER -> potentialFilterKeys[potentialKey.attribute] = potentialKey.value
-                }
-            }
-        }
-        return PotentialKeys(potentialPartitionKeys, potentialSortKeys, potentialFilterKeys)
     }
 
     /**
