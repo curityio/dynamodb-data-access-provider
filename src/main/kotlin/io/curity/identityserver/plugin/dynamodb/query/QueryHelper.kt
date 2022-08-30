@@ -40,7 +40,7 @@ object QueryHelper {
     )
 
     fun list(
-        _dynamoDBClient: DynamoDBClient,
+        dynamoDBClient: DynamoDBClient,
         json: Json,
         tableName: String,
         table: TableWithCapabilities,
@@ -61,7 +61,7 @@ object QueryHelper {
 
         val listRequest = listRequestBuilder.build()
 
-        val (sequence, lastEvaluationKey) = queryPartialSequence(listRequest, _dynamoDBClient)
+        val (sequence, lastEvaluationKey) = queryPartialSequence(listRequest, dynamoDBClient)
 
         val encodedCursor = getEncodedCursor(json, lastEvaluationKey)
         return Pair(sequence, encodedCursor)
@@ -149,7 +149,7 @@ object QueryHelper {
      * Finds the index to use based on provided keys
      *
      * @param table             providing indexes
-     * @param potentialKeys     potential partition, sort and filter keys, as returned by [filterAndSortPotentialKeys]
+     * @param potentialKeys     potential partition, sort and filter keys
      * @return [IndexAndKeys] helper object to be used with [QueryRequest.Builder]
      */
     private fun findIndexAndKeysFrom(
