@@ -115,10 +115,7 @@ object QueryHelper {
             .expressionAttributeValues(indexAndKeys.expressionValueMap())
             .scanIndexForward(ascendingOrder)
 
-        val filterExpression = indexAndKeys.filterExpression()
-        if (filterExpression.isNotBlank()) {
-            filterExpression(filterExpression)
-        }
+        indexAndKeys.filterExpression()?.let { filterExpression(it) }
         return this
     }
 
@@ -304,7 +301,7 @@ object QueryHelper {
 
         val keyConditionExpression = "${partitionKey.first.hashName} = ${partitionKey.first.colonName}"
 
-        fun filterExpression(): String {
+        fun filterExpression(): String? {
             var filterExpression = ""
             if (filterKeys.isNotEmpty()) {
                 val filterKey = filterKeys.asSequence().first()
@@ -314,7 +311,9 @@ object QueryHelper {
                 filterExpression += " AND ${filterKey.key.hashName} = ${filterKey.key.colonName}"
 
             }
-            return filterExpression
+            return filterExpression.ifEmpty {
+                null
+            }
         }
     }
 }
