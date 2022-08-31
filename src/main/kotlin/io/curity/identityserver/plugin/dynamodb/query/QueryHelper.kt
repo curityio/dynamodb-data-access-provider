@@ -144,7 +144,16 @@ object QueryHelper {
     }
 
     /**
-     * Finds the index to use based on provided keys
+     * Finds the index to use based on provided [potentialKeys].
+     *
+     * The table's indexes are first searched for those having one of the partition keys (PKs). If some are found,
+     * they are then searched for those having one of the sort keys (SKs). If some are found, the first one will
+     * be used to build the DynamoDB request.
+     *
+     * If only indexes with one of the provided PKs are found, without any of the provided SKs, then the first one
+     * will be used to build the DynamoDB request.
+     *
+     * If no indexes are found with one of the PKs, then `null` is returned.
      *
      * @param table             providing indexes
      * @param potentialKeys     potential partition, sort and filter keys
@@ -156,16 +165,19 @@ object QueryHelper {
     ): IndexAndKeys<Any, Any, Any>? {
         var lastPotentialPartitionOnlyIndex: IndexAndKeys<Any, Any, Any>? = null
         potentialKeys.partitionKeys.forEach { potentialPartitionKey ->
+            // Search table's indexes for those having it as partition key (PK)
             val potentialIndexes = table.queryCapabilities().indexes.asSequence()
                 .filter { index ->
                     index.partitionAttribute.name == potentialPartitionKey.key.name
                 }.toSet()
             potentialKeys.sortKeys.forEach { potentialSortKey ->
+                // Search previously found indexes for those having it as sort key (SK)
                 val foundIndex = potentialIndexes.firstOrNull { index ->
                     index.sortAttribute?.name == potentialSortKey.key.name
                 }
 
                 if (foundIndex != null) {
+                    // Found an index with both PK & SK, so move other potential keys to filters
                     val filterKeys = moveLeftOverKeys(potentialKeys, potentialPartitionKey, potentialSortKey)
                     return IndexAndKeys(
                         foundIndex,
@@ -175,13 +187,25 @@ object QueryHelper {
                     )
                 }
             }
+            // Found indexes but only with one of the PKs but without any of the provided SKs,
+            // so move other potential keys to filters
             val filterKeys = moveLeftOverKeys(potentialKeys, potentialPartitionKey)
+            // And take the first as the one to work with
             lastPotentialPartitionOnlyIndex =
                 IndexAndKeys(potentialIndexes.first(), potentialPartitionKey.toPair(), null, filterKeys)
         }
+        // Found no indexes with any of the provided PKs
         return lastPotentialPartitionOnlyIndex
     }
 
+    /**
+     * Moves partition keys and sort keys to filters if they were not found in the table's indexes
+     *
+     * @param potentialKeys
+     * @param foundPartitionKey
+     * @param foundSortKey
+     * @return the filter keys
+     */
     private fun moveLeftOverKeys(
         potentialKeys: PotentialKeys,
         foundPartitionKey: Map.Entry<DynamoDBAttribute<Any>, Any>,
@@ -189,10 +213,12 @@ object QueryHelper {
     ): Map<DynamoDBAttribute<Any>, Any> {
         val filterKeys = potentialKeys.filterKeys.toMutableMap()
         potentialKeys.partitionKeys.filter { it != foundPartitionKey }
+            // Add unused partition keys to the filter keys
             .forEach { potentialPartitionKey ->
                 filterKeys += potentialPartitionKey.key to potentialPartitionKey.value
             }
         potentialKeys.sortKeys.filter { it != foundSortKey }
+            // Add unused sort keys to the filter keys
             .forEach { potentialSortKey ->
                 filterKeys += potentialSortKey.key to potentialSortKey.value
             }
@@ -209,6 +235,12 @@ object QueryHelper {
         return Base64.getEncoder().encodeToString(serializedCursor.toByteArray())
     }
 
+    /**
+     * Converts a map of [AttributeValue] to a simpler list for serialization
+     *
+     * @param cursor to be converted
+     * @return simpler representation of the cursor
+     */
     private fun toBasicAttributeValueList(cursor: Map<String, AttributeValue>): List<Map<String, Any?>> {
         return cursor.map { entry ->
             val (type, value) = getTypeAndValue(entry.value)
