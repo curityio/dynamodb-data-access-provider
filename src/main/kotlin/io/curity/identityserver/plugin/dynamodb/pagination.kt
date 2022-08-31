@@ -42,13 +42,13 @@ fun querySequence(request: QueryRequest, client: DynamoDBClient) = sequence {
 fun queryPartialSequence(
     request: QueryRequest,
     client: DynamoDBClient
-): Pair<Sequence<Map<String, AttributeValue>>, Map<String, AttributeValue>> {
+): Pair<Sequence<Map<String, AttributeValue>>, Map<String, AttributeValue>?> {
     val response = client.query(request)
-    val lastEvaluationKey: Map<String, AttributeValue> =
+    val lastEvaluationKey: Map<String, AttributeValue>? =
         if (response.hasLastEvaluatedKey()) {
             response.lastEvaluatedKey()
         } else {
-            mapOf()
+            null
         }
 
     val items = sequence {

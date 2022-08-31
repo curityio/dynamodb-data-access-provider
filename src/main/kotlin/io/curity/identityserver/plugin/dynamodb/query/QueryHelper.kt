@@ -33,6 +33,7 @@ import java.util.Base64
 
 object QueryHelper {
 
+    // Used to find index & prepare DynamoDB request
     data class PotentialKeys(
         val partitionKeys: Map<DynamoDBAttribute<Any>, Any>,
         val sortKeys: Map<DynamoDBAttribute<Any>, Any> = mapOf(),
@@ -203,17 +204,65 @@ object QueryHelper {
             return null
         }
 
-        // Convert to mutable Map in case cursor isn't, and while keeping ordering!
-        val modifiedCursor: MutableMap<String, Any> = java.util.LinkedHashMap<String, Any>(cursor)
-        val serializedCursor = json.toJson(modifiedCursor, true)
+        val cursorAsList = toBasicAttributeValueList(cursor)
+        val serializedCursor = json.toJson(cursorAsList, true)
         return Base64.getEncoder().encodeToString(serializedCursor.toByteArray())
+    }
+
+    private fun toBasicAttributeValueList(cursor: Map<String, AttributeValue>): List<Map<String, Any?>> {
+        return cursor.map { entry ->
+            val (type, value) = getTypeAndValue(entry.value)
+            mapOf("name" to entry.key, "type" to type, "value" to value)
+        }
+    }
+
+    /**
+     * @param attributeValue    to retrieve type-value from
+     * @return the first type-value pair with a non-null value
+     */
+    private fun getTypeAndValue(attributeValue: AttributeValue): Pair<String, Any?> {
+        attributeValue.s()?.let {
+            return Pair("s", attributeValue.s())
+        }
+        attributeValue.n()?.let {
+            return Pair("n", attributeValue.n())
+        }
+        attributeValue.b()?.let {
+            return Pair("b", attributeValue.b())
+        }
+        if (attributeValue.hasSs()) {
+            return Pair("ss", attributeValue.ss())
+        }
+        if (attributeValue.hasNs()) {
+            return Pair("ns", attributeValue.ns())
+        }
+        if (attributeValue.hasBs()) {
+            return Pair("bs", attributeValue.bs())
+        }
+        if (attributeValue.hasM()) {
+            return Pair("m", attributeValue.m())
+        }
+        if (attributeValue.hasL()) {
+            return Pair("l", attributeValue.l())
+        }
+        attributeValue.bool()?.let {
+            return Pair("bool", attributeValue.bool())
+        }
+        attributeValue.nul()?.let {
+            return Pair("nul", attributeValue.nul())
+        }
+
+        // Should never be reached!
+        return Pair("", null)
     }
 
     private fun getDecodedJson(cursor: String) = String(Base64.getDecoder().decode(cursor))
 
-    private fun getDeserializedMap(jsonDeserializer: Json, decodedJson: String): Map<String, Any> =
+    private fun getDeserializedList(jsonDeserializer: Json, decodedJson: String): List<Map<String, Any?>> =
         try {
-            jsonDeserializer.fromJson(decodedJson, true)
+            @Suppress("UNCHECKED_CAST")
+            jsonDeserializer.fromJsonArray(decodedJson, true) as? List<Map<String, Any?>>
+                ?: throw IllegalArgumentException(String.format("Couldn't deserialize JSON cursor: %s", decodedJson))
         } catch (e: Json.JsonException) {
             logger.debug("Couldn't deserialize JSON cursor, it's likely invalid")
             throw IllegalArgumentException(String.format("Couldn't deserialize JSON cursor: %s", decodedJson))
@@ -223,39 +272,28 @@ object QueryHelper {
         jsonDeserializer: Json,
         encodedCursor: String
     ): Map<String, AttributeValue?> {
-        val cursor = getDeserializedMap(jsonDeserializer, getDecodedJson(encodedCursor))
-        @Suppress("UNCHECKED_CAST")
-        cursor as? Map<String, Map<String, Any?>>
-            ?: throw IllegalArgumentException(String.format("Cursor has unexpected structure"))
+        val cursor = getDeserializedList(jsonDeserializer, getDecodedJson(encodedCursor))
         return cursor.toExclusiveStartKey()
     }
 
-    private fun Map<String, Map<String, Any?>>.toExclusiveStartKey(): Map<String, AttributeValue> {
+    private fun List<Map<String, Any?>>.toExclusiveStartKey(): Map<String, AttributeValue> {
         val exclusiveStartKey: MutableMap<String, AttributeValue> = mutableMapOf()
-        forEach nextKey@{ (key, value) ->
+        forEach { element ->
             val builder = AttributeValue.builder()
-            value.forEach { (subKey, subValue) ->
-                if (
-                    (subValue != null)
-                    && ((subValue !is Collection<*>) || !subValue.isEmpty())
-                ) {
-                    @Suppress("UNCHECKED_CAST")
-                    when (subKey) {
-                        "s" -> builder.s(subValue as String)
-                        "n" -> builder.n(subValue as String)
-                        "b" -> builder.b(subValue as SdkBytes)
-                        "ss" -> builder.ss(subValue as Collection<String>)
-                        "ns" -> builder.ns(subValue as Collection<String>)
-                        "bs" -> builder.bs(subValue as Collection<SdkBytes>)
-                        "m" -> builder.m(subValue as Map<String, AttributeValue>)
-                        "l" -> builder.l(subValue as Collection<AttributeValue>)
-                        "bool" -> builder.bool(subValue as Boolean)
-                        "nul" -> builder.nul(subValue as Boolean)
-                    }
-                    exclusiveStartKey[key] = builder.build()
-                    return@nextKey
-                }
+            @Suppress("UNCHECKED_CAST")
+            when (element["type"]) {
+                "s" -> builder.s(element["value"] as String)
+                "n" -> builder.n(element["value"] as String)
+                "b" -> builder.b(element["value"] as SdkBytes)
+                "ss" -> builder.ss(element["value"] as Collection<String>)
+                "ns" -> builder.ns(element["value"] as Collection<String>)
+                "bs" -> builder.bs(element["value"] as Collection<SdkBytes>)
+                "m" -> builder.m(element["value"] as Map<String, AttributeValue>)
+                "l" -> builder.l(element["value"] as Collection<AttributeValue>)
+                "bool" -> builder.bool(element["value"] as Boolean)
+                "nul" -> builder.nul(element["value"] as Boolean)
             }
+            exclusiveStartKey[element["name"] as String] = builder.build()
         }
         return exclusiveStartKey
     }
