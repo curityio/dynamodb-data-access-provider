@@ -281,13 +281,19 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         val potentialKeys = createPotentialKeys(templateId, username, activeClientsOnly, sortRequest)
         val indexAndKeys = QueryHelper.findIndexAndKeysFrom(DcrTable, potentialKeys)
 
-        validateRequest(indexAndKeys, DcrTable.queryCapabilities(), DynamoDBDialect.name, sortRequest != null)
+        validateRequest(
+            indexAndKeys,
+            _configuration.getAllowTableScans(),
+            DcrTable.queryCapabilities(),
+            DynamoDBDialect.name,
+            sortRequest != null
+        )
 
         val (values, encodedCursor) = QueryHelper.list(
             _dynamoDBClient,
             _jsonHandler,
             DcrTable.name(_configuration),
-            indexAndKeys!!,
+            indexAndKeys,
             isAscendingOrder(sortRequest),
             paginationRequest?.count,
             paginationRequest?.cursor
@@ -309,12 +315,12 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         val potentialKeys = createPotentialKeys(templateId, username, activeClientsOnly)
         val indexAndKeys = QueryHelper.findIndexAndKeysFrom(DcrTable, potentialKeys)
 
-        validateRequest(indexAndKeys)
+        validateRequest(indexAndKeys, _configuration.getAllowTableScans())
 
         return QueryHelper.count(
             _dynamoDBClient,
             DcrTable.name(_configuration),
-            indexAndKeys!!
+            indexAndKeys
         )
     }
 
