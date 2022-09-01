@@ -89,13 +89,13 @@ fun scanSequence(request: ScanRequest, client: DynamoDBClient) = sequence {
 fun scanPartialSequence(
     request: ScanRequest,
     client: DynamoDBClient
-): Pair<Sequence<Map<String, AttributeValue>>, Map<String, AttributeValue>> {
+): Pair<Sequence<Map<String, AttributeValue>>, Map<String, AttributeValue>?> {
     val response = client.scan(request)
-    val lastEvaluationKey: Map<String, AttributeValue> =
+    val lastEvaluationKey: Map<String, AttributeValue>? =
         if (response.hasLastEvaluatedKey()) {
             response.lastEvaluatedKey()
         } else {
-            mapOf()
+            null
         }
 
     val items = sequence {

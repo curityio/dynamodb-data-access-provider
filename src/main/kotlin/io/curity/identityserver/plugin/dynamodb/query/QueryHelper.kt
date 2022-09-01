@@ -52,32 +52,35 @@ object QueryHelper {
         pageCursor: String?
     ): Pair<Sequence<Map<String, AttributeValue>>, String?> {
 
-        val (sequence, lastEvaluationKey) =
-            if (indexAndKeys.useScan) {
+        var exclusiveStartKey = if (!pageCursor.isNullOrBlank()) {
+            getExclusiveStartKey(json, pageCursor)
+        } else {
+            null
+        }
+        var expectedCount = pageCount ?: DEFAULT_PAGE_SIZE
+        var more = true
+        var items: Sequence<Map<String, AttributeValue>> = sequenceOf()
+
+        val listScanBuilder = ScanRequest.builder().init(tableName, indexAndKeys)
+        val listQueryBuilder = QueryRequest.builder().init(tableName, indexAndKeys, ascendingOrder)
+
+        // Loop to get requested page count items, as DynamoDB 'limit' is:
+        // "The maximum number of items to evaluate (not necessarily the number of matching items)."
+        while (more) {
+            val (sequence, lastEvaluationKey) = if (indexAndKeys.useScan) {
                 // Items will be unsorted!
-                val listScanBuilder = ScanRequest.builder().init(tableName, indexAndKeys)
-                listScanBuilder.limit(pageCount ?: DEFAULT_PAGE_SIZE)
-                    .consistentRead(true)
-                if (!pageCursor.isNullOrBlank()) {
-                    val exclusiveStartKey = getExclusiveStartKey(json, pageCursor)
-                    listScanBuilder.exclusiveStartKey(exclusiveStartKey)
-                }
-
-                scanPartialSequence(listScanBuilder.build(), dynamoDBClient)
+                listScan(dynamoDBClient, listScanBuilder, expectedCount, exclusiveStartKey)
             } else {
-                // Use query request
-                val listQueryBuilder = QueryRequest.builder().init(tableName, indexAndKeys, ascendingOrder)
-                listQueryBuilder.limit(pageCount ?: DEFAULT_PAGE_SIZE)
-                if (!pageCursor.isNullOrBlank()) {
-                    val exclusiveStartKey = getExclusiveStartKey(json, pageCursor)
-                    listQueryBuilder.exclusiveStartKey(exclusiveStartKey)
-                }
-
-                queryPartialSequence(listQueryBuilder.build(), dynamoDBClient)
+                listQuery(dynamoDBClient, listQueryBuilder, expectedCount, exclusiveStartKey)
             }
+            items += sequence
+            expectedCount -= sequence.count()
+            exclusiveStartKey = lastEvaluationKey
+            more = !lastEvaluationKey.isNullOrEmpty() && (sequence.count() > 0) && (expectedCount > 0)
+        }
 
-        val encodedCursor = getEncodedCursor(json, lastEvaluationKey)
-        return Pair(sequence, encodedCursor)
+        val encodedCursor = getEncodedCursor(json, exclusiveStartKey)
+        return Pair(items, encodedCursor)
     }
 
     private const val DEFAULT_PAGE_SIZE = 50
@@ -139,6 +142,36 @@ object QueryHelper {
         }
         return this
     }
+
+    private fun listScan(
+        dynamoDBClient: DynamoDBClient,
+        listScanBuilder: ScanRequest.Builder,
+        count: Int,
+        exclusiveStartKey: Map<String, AttributeValue?>?
+    ): Pair<Sequence<Map<String, AttributeValue>>, Map<String, AttributeValue>?> {
+        listScanBuilder.limit(count)
+            .consistentRead(true)
+        if (!exclusiveStartKey.isNullOrEmpty()) {
+            listScanBuilder.exclusiveStartKey(exclusiveStartKey)
+        }
+
+        return scanPartialSequence(listScanBuilder.build(), dynamoDBClient)
+    }
+
+    private fun listQuery(
+        dynamoDBClient: DynamoDBClient,
+        listQueryBuilder: QueryRequest.Builder,
+        count: Int,
+        exclusiveStartKey: Map<String, AttributeValue?>?
+    ): Pair<Sequence<Map<String, AttributeValue>>, Map<String, AttributeValue>?> {
+        listQueryBuilder.limit(count)
+        if (!exclusiveStartKey.isNullOrEmpty()) {
+            listQueryBuilder.exclusiveStartKey(exclusiveStartKey)
+        }
+
+        return queryPartialSequence(listQueryBuilder.build(), dynamoDBClient)
+    }
+
 
     private const val FOR_TABLE_OR_DB_ERROR_TEMPLATE = " either for that table or with %s"
 
@@ -344,7 +377,7 @@ object QueryHelper {
     private fun getExclusiveStartKey(
         jsonDeserializer: Json,
         encodedCursor: String
-    ): Map<String, AttributeValue?> {
+    ): Map<String, AttributeValue> {
         val cursor = getDeserializedList(jsonDeserializer, getDecodedJson(encodedCursor))
         return cursor.toExclusiveStartKey()
     }
