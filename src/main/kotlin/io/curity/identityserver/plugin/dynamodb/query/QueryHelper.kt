@@ -44,14 +44,13 @@ object QueryHelper {
         dynamoDBClient: DynamoDBClient,
         json: Json,
         tableName: String,
-        table: TableWithCapabilities,
-        potentialKeys: PotentialKeys,
+        indexAndKeys: IndexAndKeys<Any, Any, Any>,
         ascendingOrder: Boolean,
         pageCount: Int?,
         pageCursor: String?
     ): Pair<Sequence<Map<String, AttributeValue>>, String?> {
 
-        val listRequestBuilder = QueryRequest.builder().init(tableName, table, potentialKeys, ascendingOrder)
+        val listRequestBuilder = QueryRequest.builder().init(tableName, indexAndKeys, ascendingOrder)
 
         listRequestBuilder.limit(pageCount ?: DEFAULT_PAGE_SIZE)
 
@@ -71,44 +70,32 @@ object QueryHelper {
     private const val DEFAULT_PAGE_SIZE = 50
 
     fun count(
-        _dynamoDBClient: DynamoDBClient,
+        dynamoDBClient: DynamoDBClient,
         tableName: String,
-        table: TableWithCapabilities,
-        potentialKeys: PotentialKeys
+        indexAndKeys: IndexAndKeys<Any, Any, Any>
     ): Long {
 
-        val countRequestBuilder = QueryRequest.builder().init(tableName, table, potentialKeys, true)
+        val countRequestBuilder = QueryRequest.builder().init(tableName, indexAndKeys, true)
 
         countRequestBuilder.select(Select.COUNT)
         val countRequest = countRequestBuilder.build()
 
-        return count(countRequest, _dynamoDBClient)
+        return count(countRequest, dynamoDBClient)
     }
 
     /**
      * [QueryRequest.Builder] extension initializing the common stuff
      *
      * @param tableName
-     * @param table
-     * @param potentialKeys
-     * @return a pre-initialized [QueryRequest.Builder]
+     * @param indexAndKeys
+     * @param ascendingOrder
+     * @return tableCapabilities: TableCapabilities, dialectName: String, sortingRequested: Boolean
      */
     private fun QueryRequest.Builder.init(
         tableName: String,
-        table: TableWithCapabilities,
-        potentialKeys: PotentialKeys,
+        indexAndKeys: IndexAndKeys<Any, Any, Any>,
         ascendingOrder: Boolean
     ): QueryRequest.Builder {
-        val indexAndKeys = findIndexAndKeysFrom(table, potentialKeys)
-        if (indexAndKeys == null) {
-            throwCapabilityException(
-                TableCapabilities.TableCapability.FILTERING_ABSENT,
-                TableCapabilities.TableCapability.FILTERING_ABSENT.unsupportedMessage + FOR_TABLE_OR_DB_ERROR_TEMPLATE
-            )
-            // Unreachable, just to prevent compiler requesting safe call notation on indexAndKeys below
-            return this
-        }
-
         tableName(tableName)
             .indexName(indexAndKeys.index.indexName)
             .keyConditionExpression(indexAndKeys.keyConditionExpression)
@@ -122,10 +109,32 @@ object QueryHelper {
 
     private const val FOR_TABLE_OR_DB_ERROR_TEMPLATE = " either for that table or with %s"
 
-    fun validateRequest(tableCapabilities: TableCapabilities, dialectName: String, sortingRequested: Boolean) {
+    fun validateRequest(
+        indexAndKeys: IndexAndKeys<Any, Any, Any>?,
+        tableCapabilities: TableCapabilities? = null,
+        dialectName: String = "",
+        sortingRequested: Boolean = false
+    ) {
+        if (indexAndKeys == null) {
+            throwCapabilityException(
+                TableCapabilities.TableCapability.FILTERING_ABSENT,
+                TableCapabilities.TableCapability.FILTERING_ABSENT.unsupportedMessage + FOR_TABLE_OR_DB_ERROR_TEMPLATE
+            )
+        }
+        validateSortingRequest(tableCapabilities, dialectName, sortingRequested)
+    }
+
+    private fun validateSortingRequest(
+        tableCapabilities: TableCapabilities?,
+        dialectName: String,
+        sortingRequested: Boolean
+    ) {
+        if (!sortingRequested || tableCapabilities == null) {
+            return
+        }
 
         // Sorting not supported by some tables
-        if (sortingRequested && tableCapabilities.unsupported.contains(TableCapabilities.TableCapability.SORTING)) {
+        if (tableCapabilities.unsupported.contains(TableCapabilities.TableCapability.SORTING)) {
             throwCapabilityException(
                 TableCapabilities.TableCapability.SORTING,
                 TableCapabilities.TableCapability.SORTING.unsupportedMessage + FOR_TABLE_OR_DB_ERROR_TEMPLATE,
@@ -159,7 +168,7 @@ object QueryHelper {
      * @param potentialKeys     potential partition, sort and filter keys
      * @return [IndexAndKeys] helper object to be used with [QueryRequest.Builder]
      */
-    private fun findIndexAndKeysFrom(
+    fun findIndexAndKeysFrom(
         table: TableWithCapabilities,
         potentialKeys: PotentialKeys
     ): IndexAndKeys<Any, Any, Any>? {
@@ -342,7 +351,7 @@ object QueryHelper {
      * @property partitionKey   [Pair] with [DynamoDBAttribute] & value
      * @property sortKey        [Pair] with [DynamoDBAttribute] & value
      */
-    private class IndexAndKeys<T1, T2, T3>(
+    class IndexAndKeys<T1, T2, T3>(
         val index: Index,
         val partitionKey: Pair<DynamoDBAttribute<T1>, T1>,
         val sortKey: Pair<DynamoDBAttribute<T2>, T2>?,
