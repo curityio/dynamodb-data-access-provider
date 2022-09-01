@@ -258,7 +258,7 @@ object QueryHelper {
 
                 if (foundIndex != null) {
                     // Found an index with both PK & SK, so move other potential keys to filters
-                    val filterKeys = moveLeftOverKeys(potentialKeys, potentialPartitionKey, potentialSortKey)
+                    val filterKeys = moveLeftOverKeys(potentialKeys, potentialPartitionKey)
                     return IndexAndKeys(foundIndex.indexName, potentialPartitionKey.toPair(), filterKeys)
                 }
             }
@@ -278,24 +278,17 @@ object QueryHelper {
      *
      * @param potentialKeys
      * @param foundPartitionKey
-     * @param foundSortKey
      * @return the filter keys
      */
     private fun moveLeftOverKeys(
         potentialKeys: PotentialKeys,
-        foundPartitionKey: Map.Entry<DynamoDBAttribute<Any>, Any>? = null,
-        foundSortKey: Map.Entry<DynamoDBAttribute<Any>, Any>? = null
+        foundPartitionKey: Map.Entry<DynamoDBAttribute<Any>, Any>? = null
     ): Map<DynamoDBAttribute<Any>, Any> {
         val filterKeys = potentialKeys.filterKeys.toMutableMap()
         potentialKeys.partitionKeys.filter { it != foundPartitionKey }
             // Add unused partition keys to the filter keys
             .forEach { potentialPartitionKey ->
                 filterKeys += potentialPartitionKey.key to potentialPartitionKey.value
-            }
-        potentialKeys.sortKeys.filter { it != foundSortKey }
-            // Add unused sort keys to the filter keys
-            .forEach { potentialSortKey ->
-                filterKeys += potentialSortKey.key to potentialSortKey.value
             }
         return filterKeys
     }
