@@ -19,6 +19,7 @@ package io.curity.identityserver.plugin.dynamodb.query
 import io.curity.identityserver.plugin.dynamodb.DynamoDBAttribute
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient.Companion.logger
+import io.curity.identityserver.plugin.dynamodb.PartialSequenceResult
 import io.curity.identityserver.plugin.dynamodb.TableWithCapabilities
 import io.curity.identityserver.plugin.dynamodb.count
 import io.curity.identityserver.plugin.dynamodb.queryPartialSequence
@@ -148,7 +149,7 @@ object QueryHelper {
         listScanBuilder: ScanRequest.Builder,
         count: Int,
         exclusiveStartKey: Map<String, AttributeValue?>?
-    ): Pair<Sequence<Map<String, AttributeValue>>, Map<String, AttributeValue>?> {
+    ): PartialSequenceResult {
         listScanBuilder.limit(count)
             .consistentRead(true)
         if (!exclusiveStartKey.isNullOrEmpty()) {
@@ -163,7 +164,7 @@ object QueryHelper {
         listQueryBuilder: QueryRequest.Builder,
         count: Int,
         exclusiveStartKey: Map<String, AttributeValue?>?
-    ): Pair<Sequence<Map<String, AttributeValue>>, Map<String, AttributeValue>?> {
+    ): PartialSequenceResult {
         listQueryBuilder.limit(count)
         if (!exclusiveStartKey.isNullOrEmpty()) {
             listQueryBuilder.exclusiveStartKey(exclusiveStartKey)

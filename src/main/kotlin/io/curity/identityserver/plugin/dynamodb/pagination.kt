@@ -39,11 +39,16 @@ fun querySequence(request: QueryRequest, client: DynamoDBClient) = sequence {
     }
 }
 
+data class PartialSequenceResult(
+    val items: Sequence<Map<String, AttributeValue>>,
+    val lastEvaluationKey: Map<String, AttributeValue>?
+)
+
 // Returns a pair with the next page's items as a sequence, along with the last evaluation key, using a query request
 fun queryPartialSequence(
     request: QueryRequest,
     client: DynamoDBClient
-): Pair<Sequence<Map<String, AttributeValue>>, Map<String, AttributeValue>?> {
+): PartialSequenceResult {
     val response = client.query(request)
     val lastEvaluationKey: Map<String, AttributeValue>? =
         if (response.hasLastEvaluatedKey()) {
@@ -60,7 +65,7 @@ fun queryPartialSequence(
         }
     }
 
-    return Pair(
+    return PartialSequenceResult(
         items,
         lastEvaluationKey
     )
@@ -89,7 +94,7 @@ fun scanSequence(request: ScanRequest, client: DynamoDBClient) = sequence {
 fun scanPartialSequence(
     request: ScanRequest,
     client: DynamoDBClient
-): Pair<Sequence<Map<String, AttributeValue>>, Map<String, AttributeValue>?> {
+): PartialSequenceResult {
     val response = client.scan(request)
     val lastEvaluationKey: Map<String, AttributeValue>? =
         if (response.hasLastEvaluatedKey()) {
@@ -106,7 +111,7 @@ fun scanPartialSequence(
         }
     }
 
-    return Pair(
+    return PartialSequenceResult(
         items,
         lastEvaluationKey
     )

@@ -286,7 +286,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             _configuration.getAllowTableScans(),
             DcrTable.queryCapabilities(),
             DynamoDBDialect.name,
-            sortRequest != null
+            sortingRequested = sortRequest != null
         )
 
         val (values, encodedCursor) = QueryHelper.list(
