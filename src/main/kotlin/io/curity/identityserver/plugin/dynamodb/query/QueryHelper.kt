@@ -76,7 +76,7 @@ object QueryHelper {
             items += sequence
             expectedCount -= sequence.count()
             exclusiveStartKey = lastEvaluationKey
-            more = !lastEvaluationKey.isNullOrEmpty() && (sequence.count() > 0) && (expectedCount > 0)
+            more = !lastEvaluationKey.isNullOrEmpty() && (expectedCount > 0)
         }
 
         val encodedCursor = getEncodedCursor(json, exclusiveStartKey)
