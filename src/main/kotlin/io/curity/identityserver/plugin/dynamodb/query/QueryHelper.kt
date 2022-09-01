@@ -54,8 +54,10 @@ object QueryHelper {
 
         val (sequence, lastEvaluationKey) =
             if (indexAndKeys.useScan) {
+                // Items will be unsorted!
                 val listScanBuilder = ScanRequest.builder().init(tableName, indexAndKeys)
                 listScanBuilder.limit(pageCount ?: DEFAULT_PAGE_SIZE)
+                    .consistentRead(true)
                 if (!pageCursor.isNullOrBlank()) {
                     val exclusiveStartKey = getExclusiveStartKey(json, pageCursor)
                     listScanBuilder.exclusiveStartKey(exclusiveStartKey)
