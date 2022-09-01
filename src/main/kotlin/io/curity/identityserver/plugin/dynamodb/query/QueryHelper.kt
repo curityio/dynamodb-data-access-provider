@@ -70,6 +70,7 @@ object QueryHelper {
                     val exclusiveStartKey = getExclusiveStartKey(json, pageCursor)
                     listQueryBuilder.exclusiveStartKey(exclusiveStartKey)
                 }
+
                 queryPartialSequence(listQueryBuilder.build(), dynamoDBClient)
             }
 
