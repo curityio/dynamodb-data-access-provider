@@ -268,8 +268,7 @@ object QueryHelper {
             return Pair("nul", attributeValue.nul())
         }
 
-        // Should never be reached!
-        return Pair("", null)
+        throw IllegalArgumentException("Couldn't determine type for 'attributeValue'")
     }
 
     private fun getDecodedJson(cursor: String) = String(Base64.getDecoder().decode(cursor))
