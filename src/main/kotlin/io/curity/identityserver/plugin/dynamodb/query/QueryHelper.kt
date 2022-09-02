@@ -278,10 +278,10 @@ object QueryHelper {
         try {
             @Suppress("UNCHECKED_CAST")
             jsonDeserializer.fromJsonArray(decodedJson, true) as? List<Map<String, Any?>>
-                ?: throw IllegalArgumentException(String.format("Couldn't deserialize JSON cursor: %s", decodedJson))
+                ?: throw IllegalArgumentException("Couldn't deserialize JSON cursor")
         } catch (e: Json.JsonException) {
             logger.debug("Couldn't deserialize JSON cursor, it's likely invalid")
-            throw IllegalArgumentException(String.format("Couldn't deserialize JSON cursor: %s", decodedJson))
+            throw IllegalArgumentException("Couldn't deserialize JSON cursor")
         }
 
     private fun getExclusiveStartKey(
