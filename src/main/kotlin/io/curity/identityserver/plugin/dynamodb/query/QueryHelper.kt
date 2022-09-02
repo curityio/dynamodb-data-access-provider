@@ -154,6 +154,8 @@ object QueryHelper {
                 .filter { index ->
                     index.partitionAttribute.name == potentialPartitionKey.key.name
                 }.toSet()
+            if (potentialIndexes.isEmpty()) return@forEach
+
             potentialKeys.sortKeys.forEach { potentialSortKey ->
                 // Search previously found indexes for those having it as sort key (SK)
                 val foundIndex = potentialIndexes.firstOrNull { index ->
