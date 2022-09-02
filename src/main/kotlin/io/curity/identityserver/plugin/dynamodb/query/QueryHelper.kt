@@ -100,14 +100,10 @@ object QueryHelper {
         ascendingOrder: Boolean
     ): QueryRequest.Builder {
         val indexAndKeys = findIndexAndKeysFrom(table, potentialKeys)
-        if (indexAndKeys == null) {
-            throwCapabilityException(
+            ?: throw DataSourceCapabilityException(
                 TableCapabilities.TableCapability.FILTERING_ABSENT,
-                TableCapabilities.TableCapability.FILTERING_ABSENT.unsupportedMessage + FOR_TABLE_OR_DB_ERROR_TEMPLATE
+                TableCapabilities.TableCapability.FILTERING_ABSENT.unsupportedMessage
             )
-            // Unreachable, just to prevent compiler requesting safe call notation on indexAndKeys below
-            return this
-        }
 
         tableName(tableName)
             .indexName(indexAndKeys.index.indexName)
@@ -120,27 +116,15 @@ object QueryHelper {
         return this
     }
 
-    private const val FOR_TABLE_OR_DB_ERROR_TEMPLATE = " either for that table or with %s"
-
-    fun validateRequest(tableCapabilities: TableCapabilities, dialectName: String, sortingRequested: Boolean) {
+    fun validateRequest(tableCapabilities: TableCapabilities, sortingRequested: Boolean) {
 
         // Sorting not supported by some tables
         if (sortingRequested && tableCapabilities.unsupported.contains(TableCapabilities.TableCapability.SORTING)) {
-            throwCapabilityException(
+            throw DataSourceCapabilityException(
                 TableCapabilities.TableCapability.SORTING,
-                TableCapabilities.TableCapability.SORTING.unsupportedMessage + FOR_TABLE_OR_DB_ERROR_TEMPLATE,
-                dialectName
+                TableCapabilities.TableCapability.SORTING.unsupportedMessage
             )
         }
-    }
-
-    private fun throwCapabilityException(
-        unsupportedCapability: TableCapabilities.TableCapability,
-        messageTemplate: String,
-        vararg arguments: String
-    ) {
-
-        throw DataSourceCapabilityException(unsupportedCapability, String.format(messageTemplate, arguments))
     }
 
     /**

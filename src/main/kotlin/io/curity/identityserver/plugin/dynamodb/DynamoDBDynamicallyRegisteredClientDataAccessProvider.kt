@@ -278,7 +278,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         activeClientsOnly: Boolean
     ): PaginatedDataAccessResult<DynamicallyRegisteredClientAttributes> {
 
-        validateRequest(DcrTable.queryCapabilities(), DynamoDBDialect.name, sortRequest != null)
+        validateRequest(DcrTable.queryCapabilities(), sortRequest != null)
 
         val potentialKeys = createPotentialKeys(templateId, username, activeClientsOnly, sortRequest)
 
