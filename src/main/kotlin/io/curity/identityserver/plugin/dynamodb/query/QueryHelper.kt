@@ -40,6 +40,11 @@ object QueryHelper {
         val filterKeys: Map<DynamoDBAttribute<Any>, Any> = mapOf()
     )
 
+    // Marker object acting as a value placeholder for potential sort keys
+    data class NoValueForSortKeys(
+        private val NOT_APPLICABLE_VALUE: Long = 0xBADBADBADBAD
+    )
+
     fun list(
         dynamoDBClient: DynamoDBClient,
         json: Json,

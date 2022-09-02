@@ -344,9 +344,8 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             val potentialSortKeys: MutableMap<DynamoDBAttribute<*>, Any> = mutableMapOf()
             val sortBy = DcrTable.queryCapabilities().attributeMap[sortRequest?.sortBy]
             if (sortBy != null) {
-                potentialSortKeys[sortBy] = 0
+                potentialSortKeys[sortBy] = QueryHelper.NoValueForSortKeys()
             }
-
 
             val potentialFilterKeys: MutableMap<DynamoDBAttribute<*>, Any> = mutableMapOf()
             if (activeClientsOnly) {
