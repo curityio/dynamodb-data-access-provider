@@ -399,14 +399,14 @@ object QueryHelper {
      * @property filterKeys     [Map] of [DynamoDBAttribute] & value
      */
     class IndexAndKeys<T1, T2>(
-        val indexName: String,
+        val indexName: String?,
         private val partitionKey: Pair<DynamoDBAttribute<T1>, T1>?,
         private val filterKeys: Map<DynamoDBAttribute<T2>, T2>
     ) {
 
         constructor(
             filterKeys: Map<DynamoDBAttribute<T2>, T2>
-        ) : this("", null, filterKeys)
+        ) : this(null, null, filterKeys)
 
         fun expressionValueMap(): Map<String, AttributeValue> {
             val expressionValueMap = if (partitionKey != null) {
