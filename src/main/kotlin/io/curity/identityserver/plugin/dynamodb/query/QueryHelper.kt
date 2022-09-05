@@ -67,16 +67,15 @@ object QueryHelper {
         var more = true
         val items: MutableList<Map<String, AttributeValue>> = mutableListOf()
 
-        val listScanBuilder = ScanRequest.builder().init(tableName, indexAndKeys)
-        val listQueryBuilder = QueryRequest.builder().init(tableName, indexAndKeys, ascendingOrder)
-
         // Loop to get requested page count items, as DynamoDB 'limit' is:
         // "The maximum number of items to evaluate (not necessarily the number of matching items)."
         while (more) {
             val (list, lastEvaluationKey) = if (indexAndKeys.useScan) {
+                val listScanBuilder = ScanRequest.builder().init(tableName, indexAndKeys)
                 // Items will be unsorted!
                 listScan(dynamoDBClient, listScanBuilder, expectedCount, exclusiveStartKey)
             } else {
+                val listQueryBuilder = QueryRequest.builder().init(tableName, indexAndKeys, ascendingOrder)
                 listQuery(dynamoDBClient, listQueryBuilder, expectedCount, exclusiveStartKey)
             }
             items += list
