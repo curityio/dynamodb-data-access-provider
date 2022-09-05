@@ -99,7 +99,7 @@ object QueryHelper {
         return if (indexAndKeys.useScan) {
             val countScanBuilder = ScanRequest.builder().init(tableName, indexAndKeys)
             countScanBuilder.select(Select.COUNT)
-                .consistentRead(true)
+            // Don't enable consistentRead as with listScan & listQuery
 
             count(countScanBuilder.build(), dynamoDBClient)
         } else {
@@ -155,7 +155,9 @@ object QueryHelper {
         exclusiveStartKey: Map<String, AttributeValue?>?
     ): PartialListResult {
         listScanBuilder.limit(count)
-            .consistentRead(true)
+        // Don't enable consistentRead: to be consistent with listQuery
+        // Also: "strongly consistent reads are twice the cost of eventually consistent reads"
+
         if (!exclusiveStartKey.isNullOrEmpty()) {
             listScanBuilder.exclusiveStartKey(exclusiveStartKey)
         }
@@ -170,6 +172,8 @@ object QueryHelper {
         exclusiveStartKey: Map<String, AttributeValue?>?
     ): PartialListResult {
         listQueryBuilder.limit(count)
+        // Don't enable consistentRead: strong consistency reads are not supported by Global Secondary Indexes
+
         if (!exclusiveStartKey.isNullOrEmpty()) {
             listQueryBuilder.exclusiveStartKey(exclusiveStartKey)
         }
