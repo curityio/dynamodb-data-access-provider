@@ -43,6 +43,11 @@ object QueryHelper {
         val filterKeys: Map<DynamoDBAttribute<Any>, Any> = mapOf()
     )
 
+    // Marker object acting as a value placeholder for potential sort keys
+    data class NoValueForSortKeys(
+        private val NOT_APPLICABLE_VALUE: Long = 0xBADBADBADBAD
+    )
+
     fun list(
         dynamoDBClient: DynamoDBClient,
         json: Json,
@@ -173,55 +178,37 @@ object QueryHelper {
         return queryPartialSequence(listQueryBuilder.build(), dynamoDBClient)
     }
 
-
-    private const val FOR_TABLE_OR_DB_ERROR_TEMPLATE = " either for that table or with %s"
-
     fun validateRequest(
         indexAndKeys: IndexAndKeys<Any, Any>,
         allowedScan: Boolean,
         tableCapabilities: TableCapabilities? = null,
-        dialectName: String = "",
         sortingRequested: Boolean = false
     ) {
         if (indexAndKeys.useScan && !allowedScan) {
-            throwCapabilityException(
+            throw DataSourceCapabilityException(
                 TableCapabilities.TableCapability.FILTERING_ABSENT,
-                TableCapabilities.TableCapability.FILTERING_ABSENT.unsupportedMessage + FOR_TABLE_OR_DB_ERROR_TEMPLATE
+                TableCapabilities.TableCapability.FILTERING_ABSENT.unsupportedMessage
             )
         }
 
         // Don't validate sorting if scan to be used
         if (!indexAndKeys.useScan) {
-            validateSortingRequest(tableCapabilities, dialectName, sortingRequested)
+            validateSortingRequest(tableCapabilities, sortingRequested)
         }
     }
 
-    private fun validateSortingRequest(
-        tableCapabilities: TableCapabilities?,
-        dialectName: String,
-        sortingRequested: Boolean
-    ) {
+    private fun validateSortingRequest(tableCapabilities: TableCapabilities?, sortingRequested: Boolean) {
         if (!sortingRequested || tableCapabilities == null) {
             return
         }
 
         // Sorting not supported by some tables
         if (tableCapabilities.unsupported.contains(TableCapabilities.TableCapability.SORTING)) {
-            throwCapabilityException(
+            throw DataSourceCapabilityException(
                 TableCapabilities.TableCapability.SORTING,
-                TableCapabilities.TableCapability.SORTING.unsupportedMessage + FOR_TABLE_OR_DB_ERROR_TEMPLATE,
-                dialectName
+                TableCapabilities.TableCapability.SORTING.unsupportedMessage
             )
         }
-    }
-
-    private fun throwCapabilityException(
-        unsupportedCapability: TableCapabilities.TableCapability,
-        messageTemplate: String,
-        vararg arguments: String
-    ) {
-
-        throw DataSourceCapabilityException(unsupportedCapability, String.format(messageTemplate, arguments))
     }
 
     /**
@@ -250,6 +237,8 @@ object QueryHelper {
                 .filter { index ->
                     index.partitionAttribute.name == potentialPartitionKey.key.name
                 }.toSet()
+            if (potentialIndexes.isEmpty()) return@forEach
+
             potentialKeys.sortKeys.forEach { potentialSortKey ->
                 // Search previously found indexes for those having it as sort key (SK)
                 val foundIndex = potentialIndexes.firstOrNull { index ->
@@ -352,8 +341,7 @@ object QueryHelper {
             return Pair("nul", attributeValue.nul())
         }
 
-        // Should never be reached!
-        return Pair("", null)
+        throw IllegalArgumentException("Couldn't determine type for 'attributeValue'")
     }
 
     private fun getDecodedJson(cursor: String) = String(Base64.getDecoder().decode(cursor))
@@ -362,10 +350,10 @@ object QueryHelper {
         try {
             @Suppress("UNCHECKED_CAST")
             jsonDeserializer.fromJsonArray(decodedJson, true) as? List<Map<String, Any?>>
-                ?: throw IllegalArgumentException(String.format("Couldn't deserialize JSON cursor: %s", decodedJson))
+                ?: throw IllegalArgumentException("Couldn't deserialize JSON cursor")
         } catch (e: Json.JsonException) {
             logger.debug("Couldn't deserialize JSON cursor, it's likely invalid")
-            throw IllegalArgumentException(String.format("Couldn't deserialize JSON cursor: %s", decodedJson))
+            throw IllegalArgumentException("Couldn't deserialize JSON cursor")
         }
 
     private fun getExclusiveStartKey(
