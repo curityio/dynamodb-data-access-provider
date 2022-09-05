@@ -39,16 +39,16 @@ fun querySequence(request: QueryRequest, client: DynamoDBClient) = sequence {
     }
 }
 
-data class PartialSequenceResult(
-    val items: Sequence<Map<String, AttributeValue>>,
+data class PartialListResult(
+    val items: List<Map<String, AttributeValue>>,
     val lastEvaluationKey: Map<String, AttributeValue>?
 )
 
-// Returns a pair with the next page's items as a sequence, along with the last evaluation key, using a query request
-fun queryPartialSequence(
+// Returns a pair with the next page's items as a list, along with the last evaluation key, using a query request
+fun queryPartialList(
     request: QueryRequest,
     client: DynamoDBClient
-): PartialSequenceResult {
+): PartialListResult {
     val response = client.query(request)
     val lastEvaluationKey: Map<String, AttributeValue>? =
         if (response.hasLastEvaluatedKey()) {
@@ -57,16 +57,8 @@ fun queryPartialSequence(
             null
         }
 
-    val items = sequence {
-        if (response.hasItems()) {
-            response.items().forEach {
-                yield(it)
-            }
-        }
-    }
-
-    return PartialSequenceResult(
-        items,
+    return PartialListResult(
+        response.items(),
         lastEvaluationKey
     )
 }
@@ -90,11 +82,11 @@ fun scanSequence(request: ScanRequest, client: DynamoDBClient) = sequence {
     }
 }
 
-// Returns a pair with the next page's items as a sequence, along with the last evaluation key, using a scan request
-fun scanPartialSequence(
+// Returns a pair with the next page's items as a list, along with the last evaluation key, using a scan request
+fun scanPartialList(
     request: ScanRequest,
     client: DynamoDBClient
-): PartialSequenceResult {
+): PartialListResult {
     val response = client.scan(request)
     val lastEvaluationKey: Map<String, AttributeValue>? =
         if (response.hasLastEvaluatedKey()) {
@@ -103,16 +95,8 @@ fun scanPartialSequence(
             null
         }
 
-    val items = sequence {
-        if (response.hasItems()) {
-            response.items().forEach {
-                yield(it)
-            }
-        }
-    }
-
-    return PartialSequenceResult(
-        items,
+    return PartialListResult(
+        response.items(),
         lastEvaluationKey
     )
 }

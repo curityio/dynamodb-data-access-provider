@@ -19,11 +19,11 @@ package io.curity.identityserver.plugin.dynamodb.query
 import io.curity.identityserver.plugin.dynamodb.DynamoDBAttribute
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient.Companion.logger
-import io.curity.identityserver.plugin.dynamodb.PartialSequenceResult
+import io.curity.identityserver.plugin.dynamodb.PartialListResult
 import io.curity.identityserver.plugin.dynamodb.TableWithCapabilities
 import io.curity.identityserver.plugin.dynamodb.count
-import io.curity.identityserver.plugin.dynamodb.queryPartialSequence
-import io.curity.identityserver.plugin.dynamodb.scanPartialSequence
+import io.curity.identityserver.plugin.dynamodb.queryPartialList
+import io.curity.identityserver.plugin.dynamodb.scanPartialList
 import se.curity.identityserver.sdk.datasource.db.TableCapabilities
 import se.curity.identityserver.sdk.datasource.errors.DataSourceCapabilityException
 import se.curity.identityserver.sdk.service.Json
@@ -56,7 +56,7 @@ object QueryHelper {
         ascendingOrder: Boolean,
         pageCount: Int?,
         pageCursor: String?
-    ): Pair<Sequence<Map<String, AttributeValue>>, String?> {
+    ): Pair<List<Map<String, AttributeValue>>, String?> {
 
         var exclusiveStartKey = if (!pageCursor.isNullOrBlank()) {
             getExclusiveStartKey(json, pageCursor)
@@ -65,7 +65,7 @@ object QueryHelper {
         }
         var expectedCount = pageCount ?: DEFAULT_PAGE_SIZE
         var more = true
-        var items: Sequence<Map<String, AttributeValue>> = sequenceOf()
+        val items: MutableList<Map<String, AttributeValue>> = mutableListOf()
 
         val listScanBuilder = ScanRequest.builder().init(tableName, indexAndKeys)
         val listQueryBuilder = QueryRequest.builder().init(tableName, indexAndKeys, ascendingOrder)
@@ -73,14 +73,14 @@ object QueryHelper {
         // Loop to get requested page count items, as DynamoDB 'limit' is:
         // "The maximum number of items to evaluate (not necessarily the number of matching items)."
         while (more) {
-            val (sequence, lastEvaluationKey) = if (indexAndKeys.useScan) {
+            val (list, lastEvaluationKey) = if (indexAndKeys.useScan) {
                 // Items will be unsorted!
                 listScan(dynamoDBClient, listScanBuilder, expectedCount, exclusiveStartKey)
             } else {
                 listQuery(dynamoDBClient, listQueryBuilder, expectedCount, exclusiveStartKey)
             }
-            items += sequence
-            expectedCount -= sequence.count()
+            items += list
+            expectedCount -= list.count()
             exclusiveStartKey = lastEvaluationKey
             more = !lastEvaluationKey.isNullOrEmpty() && (expectedCount > 0)
         }
@@ -154,14 +154,14 @@ object QueryHelper {
         listScanBuilder: ScanRequest.Builder,
         count: Int,
         exclusiveStartKey: Map<String, AttributeValue?>?
-    ): PartialSequenceResult {
+    ): PartialListResult {
         listScanBuilder.limit(count)
             .consistentRead(true)
         if (!exclusiveStartKey.isNullOrEmpty()) {
             listScanBuilder.exclusiveStartKey(exclusiveStartKey)
         }
 
-        return scanPartialSequence(listScanBuilder.build(), dynamoDBClient)
+        return scanPartialList(listScanBuilder.build(), dynamoDBClient)
     }
 
     private fun listQuery(
@@ -169,13 +169,13 @@ object QueryHelper {
         listQueryBuilder: QueryRequest.Builder,
         count: Int,
         exclusiveStartKey: Map<String, AttributeValue?>?
-    ): PartialSequenceResult {
+    ): PartialListResult {
         listQueryBuilder.limit(count)
         if (!exclusiveStartKey.isNullOrEmpty()) {
             listQueryBuilder.exclusiveStartKey(exclusiveStartKey)
         }
 
-        return queryPartialSequence(listQueryBuilder.build(), dynamoDBClient)
+        return queryPartialList(listQueryBuilder.build(), dynamoDBClient)
     }
 
     fun validateRequest(
