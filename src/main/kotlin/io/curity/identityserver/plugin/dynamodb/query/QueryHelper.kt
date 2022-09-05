@@ -154,6 +154,7 @@ object QueryHelper {
         count: Int,
         exclusiveStartKey: Map<String, AttributeValue?>?
     ): PartialListResult {
+        // Items will be unsorted!
         listScanBuilder.limit(count)
         // Don't enable consistentRead: to be consistent with listQuery
         // Also: "strongly consistent reads are twice the cost of eventually consistent reads"
@@ -194,14 +195,18 @@ object QueryHelper {
             )
         }
 
-        // Don't validate sorting if scan to be used
-        if (!indexAndKeys.useScan) {
-            validateSortingRequest(tableCapabilities, sortingRequested)
+        val sortingExpected = if (indexAndKeys.useScan) {
+            // Ignore sorting with scan as unsupported
+            false
+        } else {
+            sortingRequested
         }
+
+        validateSortingRequest(tableCapabilities, sortingExpected)
     }
 
-    private fun validateSortingRequest(tableCapabilities: TableCapabilities?, sortingRequested: Boolean) {
-        if (!sortingRequested || tableCapabilities == null) {
+    private fun validateSortingRequest(tableCapabilities: TableCapabilities?, sortingExpected: Boolean) {
+        if (!sortingExpected || tableCapabilities == null) {
             return
         }
 
