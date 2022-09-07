@@ -16,6 +16,7 @@
 
 package io.curity.identityserver.plugin.dynamodb
 
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 
@@ -36,6 +37,32 @@ fun querySequence(request: QueryRequest, client: DynamoDBClient) = sequence {
             }
         }
     }
+}
+
+fun queryPartialSequence(
+    request: QueryRequest,
+    client: DynamoDBClient
+): Pair<Sequence<Map<String, AttributeValue>>, Map<String, AttributeValue>?> {
+    val response = client.query(request)
+    val lastEvaluationKey: Map<String, AttributeValue>? =
+        if (response.hasLastEvaluatedKey()) {
+            response.lastEvaluatedKey()
+        } else {
+            null
+        }
+
+    val items = sequence {
+        if (response.hasItems()) {
+            response.items().forEach {
+                yield(it)
+            }
+        }
+    }
+
+    return Pair(
+        items,
+        lastEvaluationKey
+    )
 }
 
 // Returns a sequence with the items produced by a query, handling pagination if needed
