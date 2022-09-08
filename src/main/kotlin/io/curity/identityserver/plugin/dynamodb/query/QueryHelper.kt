@@ -19,15 +19,18 @@ package io.curity.identityserver.plugin.dynamodb.query
 import io.curity.identityserver.plugin.dynamodb.DynamoDBAttribute
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient.Companion.logger
+import io.curity.identityserver.plugin.dynamodb.PartialListResult
 import io.curity.identityserver.plugin.dynamodb.TableWithCapabilities
 import io.curity.identityserver.plugin.dynamodb.count
-import io.curity.identityserver.plugin.dynamodb.queryPartialSequence
+import io.curity.identityserver.plugin.dynamodb.queryPartialList
+import io.curity.identityserver.plugin.dynamodb.scanPartialList
 import se.curity.identityserver.sdk.datasource.db.TableCapabilities
 import se.curity.identityserver.sdk.datasource.errors.DataSourceCapabilityException
 import se.curity.identityserver.sdk.service.Json
 import software.amazon.awssdk.core.SdkBytes
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
+import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 import software.amazon.awssdk.services.dynamodb.model.Select
 import java.util.Base64
 
@@ -49,69 +52,75 @@ object QueryHelper {
         dynamoDBClient: DynamoDBClient,
         json: Json,
         tableName: String,
-        table: TableWithCapabilities,
-        potentialKeys: PotentialKeys,
+        indexAndKeys: IndexAndKeys<Any, Any>,
         ascendingOrder: Boolean,
         pageCount: Int?,
         pageCursor: String?
-    ): Pair<Sequence<Map<String, AttributeValue>>, String?> {
+    ): Pair<List<Map<String, AttributeValue>>, String?> {
 
-        val listRequestBuilder = QueryRequest.builder().init(tableName, table, potentialKeys, ascendingOrder)
+        var exclusiveStartKey = if (!pageCursor.isNullOrBlank()) {
+            getExclusiveStartKey(json, pageCursor)
+        } else {
+            null
+        }
+        var expectedCount = pageCount ?: DEFAULT_PAGE_SIZE
+        var more = true
+        val items: MutableList<Map<String, AttributeValue>> = mutableListOf()
 
-        listRequestBuilder.limit(pageCount ?: DEFAULT_PAGE_SIZE)
-
-        if (!pageCursor.isNullOrBlank()) {
-            val exclusiveStartKey = getExclusiveStartKey(json, pageCursor)
-            listRequestBuilder.exclusiveStartKey(exclusiveStartKey)
+        // Loop to get requested page count items, as DynamoDB 'limit' is:
+        // "The maximum number of items to evaluate (not necessarily the number of matching items)."
+        while (more) {
+            val (list, lastEvaluationKey) = if (indexAndKeys.useScan) {
+                val listScanBuilder = ScanRequest.builder().init(tableName, indexAndKeys)
+                // Items will be unsorted!
+                listScan(dynamoDBClient, listScanBuilder, expectedCount, exclusiveStartKey)
+            } else {
+                val listQueryBuilder = QueryRequest.builder().init(tableName, indexAndKeys, ascendingOrder)
+                listQuery(dynamoDBClient, listQueryBuilder, expectedCount, exclusiveStartKey)
+            }
+            items += list
+            expectedCount -= list.count()
+            exclusiveStartKey = lastEvaluationKey
+            more = !lastEvaluationKey.isNullOrEmpty() && (expectedCount > 0)
         }
 
-        val listRequest = listRequestBuilder.build()
-
-        val (sequence, lastEvaluationKey) = queryPartialSequence(listRequest, dynamoDBClient)
-
-        val encodedCursor = getEncodedCursor(json, lastEvaluationKey)
-        return Pair(sequence, encodedCursor)
+        val encodedCursor = getEncodedCursor(json, exclusiveStartKey)
+        return Pair(items, encodedCursor)
     }
 
     private const val DEFAULT_PAGE_SIZE = 50
 
     fun count(
-        _dynamoDBClient: DynamoDBClient,
+        dynamoDBClient: DynamoDBClient,
         tableName: String,
-        table: TableWithCapabilities,
-        potentialKeys: PotentialKeys
+        indexAndKeys: IndexAndKeys<Any, Any>
     ): Long {
 
-        val countRequestBuilder = QueryRequest.builder().init(tableName, table, potentialKeys, true)
+        return if (indexAndKeys.useScan) {
+            val countScanBuilder = ScanRequest.builder().init(tableName, indexAndKeys)
+            countScanBuilder.select(Select.COUNT)
+            // Don't enable consistentRead as with listScan & listQuery
 
-        countRequestBuilder.select(Select.COUNT)
-        val countRequest = countRequestBuilder.build()
+            count(countScanBuilder.build(), dynamoDBClient)
+        } else {
+            val countQueryBuilder = QueryRequest.builder().init(tableName, indexAndKeys, true)
+            countQueryBuilder.select(Select.COUNT)
 
-        return count(countRequest, _dynamoDBClient)
+            count(countQueryBuilder.build(), dynamoDBClient)
+
+        }
     }
 
     /**
      * [QueryRequest.Builder] extension initializing the common stuff
-     *
-     * @param tableName
-     * @param table
-     * @param potentialKeys
-     * @return a pre-initialized [QueryRequest.Builder]
      */
     private fun QueryRequest.Builder.init(
         tableName: String,
-        table: TableWithCapabilities,
-        potentialKeys: PotentialKeys,
+        indexAndKeys: IndexAndKeys<Any, Any>,
         ascendingOrder: Boolean
     ): QueryRequest.Builder {
-        val indexAndKeys = findIndexAndKeysFrom(table, potentialKeys)
-            ?: throw DataSourceCapabilityException(
-                TableCapabilities.TableCapability.FILTERING_ABSENT,
-                TableCapabilities.TableCapability.FILTERING_ABSENT.unsupportedMessage
-            )
-
         tableName(tableName)
-            .indexName(indexAndKeys.index.indexName)
+            .indexName(indexAndKeys.indexName)
             .keyConditionExpression(indexAndKeys.keyConditionExpression)
             .expressionAttributeNames(indexAndKeys.expressionNameMap())
             .expressionAttributeValues(indexAndKeys.expressionValueMap())
@@ -121,10 +130,88 @@ object QueryHelper {
         return this
     }
 
-    fun validateRequest(tableCapabilities: TableCapabilities, sortingRequested: Boolean) {
+    /**
+     * [ScanRequest.Builder] extension initializing the common stuff
+     */
+    private fun ScanRequest.Builder.init(
+        tableName: String,
+        indexAndKeys: IndexAndKeys<Any, Any>
+    ): ScanRequest.Builder {
+        tableName(tableName)
+
+        val filterExpression = indexAndKeys.filterExpression()
+        if (!filterExpression.isNullOrBlank()) {
+            expressionAttributeNames(indexAndKeys.expressionNameMap())
+            expressionAttributeValues(indexAndKeys.expressionValueMap())
+            filterExpression(filterExpression)
+        }
+        return this
+    }
+
+    private fun listScan(
+        dynamoDBClient: DynamoDBClient,
+        listScanBuilder: ScanRequest.Builder,
+        count: Int,
+        exclusiveStartKey: Map<String, AttributeValue?>?
+    ): PartialListResult {
+        // Items will be unsorted!
+        listScanBuilder.limit(count)
+        // Don't enable consistentRead: to be consistent with listQuery
+        // Also: "strongly consistent reads are twice the cost of eventually consistent reads"
+
+        if (!exclusiveStartKey.isNullOrEmpty()) {
+            listScanBuilder.exclusiveStartKey(exclusiveStartKey)
+        }
+
+        return scanPartialList(listScanBuilder.build(), dynamoDBClient)
+    }
+
+    private fun listQuery(
+        dynamoDBClient: DynamoDBClient,
+        listQueryBuilder: QueryRequest.Builder,
+        count: Int,
+        exclusiveStartKey: Map<String, AttributeValue?>?
+    ): PartialListResult {
+        listQueryBuilder.limit(count)
+        // Don't enable consistentRead: strong consistency reads are not supported by Global Secondary Indexes
+
+        if (!exclusiveStartKey.isNullOrEmpty()) {
+            listQueryBuilder.exclusiveStartKey(exclusiveStartKey)
+        }
+
+        return queryPartialList(listQueryBuilder.build(), dynamoDBClient)
+    }
+
+    fun validateRequest(
+        indexAndKeys: IndexAndKeys<Any, Any>,
+        allowedScan: Boolean,
+        tableCapabilities: TableCapabilities? = null,
+        sortingRequested: Boolean = false
+    ) {
+        if (indexAndKeys.useScan && !allowedScan) {
+            throw DataSourceCapabilityException(
+                TableCapabilities.TableCapability.FILTERING_ABSENT,
+                TableCapabilities.TableCapability.FILTERING_ABSENT.unsupportedMessage
+            )
+        }
+
+        val sortingExpected = if (indexAndKeys.useScan) {
+            // Ignore sorting with scan as unsupported
+            false
+        } else {
+            sortingRequested
+        }
+
+        validateSortingRequest(tableCapabilities, sortingExpected)
+    }
+
+    private fun validateSortingRequest(tableCapabilities: TableCapabilities?, sortingExpected: Boolean) {
+        if (!sortingExpected || tableCapabilities == null) {
+            return
+        }
 
         // Sorting not supported by some tables
-        if (sortingRequested && tableCapabilities.unsupported.contains(TableCapabilities.TableCapability.SORTING)) {
+        if (tableCapabilities.unsupported.contains(TableCapabilities.TableCapability.SORTING)) {
             throw DataSourceCapabilityException(
                 TableCapabilities.TableCapability.SORTING,
                 TableCapabilities.TableCapability.SORTING.unsupportedMessage
@@ -146,13 +233,12 @@ object QueryHelper {
      *
      * @param table             providing indexes
      * @param potentialKeys     potential partition, sort and filter keys
-     * @return [IndexAndKeys] helper object to be used with [QueryRequest.Builder]
+     * @return [IndexAndKeys] helper object to be passed to [list] or [count]
      */
-    private fun findIndexAndKeysFrom(
+    fun findIndexAndKeysFrom(
         table: TableWithCapabilities,
         potentialKeys: PotentialKeys
-    ): IndexAndKeys<Any, Any, Any>? {
-        var lastPotentialPartitionOnlyIndex: IndexAndKeys<Any, Any, Any>? = null
+    ): IndexAndKeys<Any, Any> {
         potentialKeys.partitionKeys.forEach { potentialPartitionKey ->
             // Search table's indexes for those having it as partition key (PK)
             val potentialIndexes = table.queryCapabilities().indexes.asSequence()
@@ -169,24 +255,19 @@ object QueryHelper {
 
                 if (foundIndex != null) {
                     // Found an index with both PK & SK, so move other potential keys to filters
-                    val filterKeys = moveLeftOverKeys(potentialKeys, potentialPartitionKey, potentialSortKey)
-                    return IndexAndKeys(
-                        foundIndex,
-                        potentialPartitionKey.toPair(),
-                        potentialSortKey.toPair(),
-                        filterKeys
-                    )
+                    val filterKeys = moveLeftOverKeys(potentialKeys, potentialPartitionKey)
+                    return IndexAndKeys(foundIndex.indexName, potentialPartitionKey.toPair(), filterKeys)
                 }
             }
             // Found indexes but only with one of the PKs but without any of the provided SKs,
             // so move other potential keys to filters
             val filterKeys = moveLeftOverKeys(potentialKeys, potentialPartitionKey)
             // And take the first as the one to work with
-            lastPotentialPartitionOnlyIndex =
-                IndexAndKeys(potentialIndexes.first(), potentialPartitionKey.toPair(), null, filterKeys)
+            return IndexAndKeys(potentialIndexes.first().indexName, potentialPartitionKey.toPair(), filterKeys)
         }
-        // Found no indexes with any of the provided PKs
-        return lastPotentialPartitionOnlyIndex
+        // Found no indexes with any of the provided PKs, move all potential keys to filters
+        val filterKeys = moveLeftOverKeys(potentialKeys)
+        return IndexAndKeys(filterKeys)
     }
 
     /**
@@ -194,24 +275,17 @@ object QueryHelper {
      *
      * @param potentialKeys
      * @param foundPartitionKey
-     * @param foundSortKey
      * @return the filter keys
      */
     private fun moveLeftOverKeys(
         potentialKeys: PotentialKeys,
-        foundPartitionKey: Map.Entry<DynamoDBAttribute<Any>, Any>,
-        foundSortKey: Map.Entry<DynamoDBAttribute<Any>, Any>? = null
+        foundPartitionKey: Map.Entry<DynamoDBAttribute<Any>, Any>? = null
     ): Map<DynamoDBAttribute<Any>, Any> {
         val filterKeys = potentialKeys.filterKeys.toMutableMap()
         potentialKeys.partitionKeys.filter { it != foundPartitionKey }
             // Add unused partition keys to the filter keys
             .forEach { potentialPartitionKey ->
                 filterKeys += potentialPartitionKey.key to potentialPartitionKey.value
-            }
-        potentialKeys.sortKeys.filter { it != foundSortKey }
-            // Add unused sort keys to the filter keys
-            .forEach { potentialSortKey ->
-                filterKeys += potentialSortKey.key to potentialSortKey.value
             }
         return filterKeys
     }
@@ -293,7 +367,7 @@ object QueryHelper {
     private fun getExclusiveStartKey(
         jsonDeserializer: Json,
         encodedCursor: String
-    ): Map<String, AttributeValue?> {
+    ): Map<String, AttributeValue> {
         val cursor = getDeserializedList(jsonDeserializer, getDecodedJson(encodedCursor))
         return cursor.toExclusiveStartKey()
     }
@@ -321,25 +395,33 @@ object QueryHelper {
     }
 
     /**
-     * Helper object holding found index, partition and (optional) sort & filter keys,
+     * Helper object holding found index name, partition & optional filter key,
      * along with their respective value.
      *
      * Provides methods generating parameters needed by a [QueryRequest.Builder]
      *
      * @param T1                partition key's type
-     * @param T2                sort key's type
-     * @property index          fitting provided keys
+     * @param T2                filter keys' type
+     * @property indexName      fitting provided keys
      * @property partitionKey   [Pair] with [DynamoDBAttribute] & value
-     * @property sortKey        [Pair] with [DynamoDBAttribute] & value
+     * @property filterKeys     [Map] of [DynamoDBAttribute] & value
      */
-    private class IndexAndKeys<T1, T2, T3>(
-        val index: Index,
-        val partitionKey: Pair<DynamoDBAttribute<T1>, T1>,
-        val sortKey: Pair<DynamoDBAttribute<T2>, T2>?,
-        val filterKeys: Map<DynamoDBAttribute<T3>, T3>
+    class IndexAndKeys<T1, T2>(
+        val indexName: String?,
+        private val partitionKey: Pair<DynamoDBAttribute<T1>, T1>?,
+        private val filterKeys: Map<DynamoDBAttribute<T2>, T2>
     ) {
+
+        constructor(
+            filterKeys: Map<DynamoDBAttribute<T2>, T2>
+        ) : this(null, null, filterKeys)
+
         fun expressionValueMap(): Map<String, AttributeValue> {
-            val expressionValueMap = mutableMapOf(partitionKey.first.toExpressionNameValuePair(partitionKey.second))
+            val expressionValueMap = if (partitionKey != null) {
+                mutableMapOf(partitionKey.first.toExpressionNameValuePair(partitionKey.second))
+            } else {
+                mutableMapOf()
+            }
             if (filterKeys.isNotEmpty()) {
                 filterKeys.forEach { filterKey ->
                     expressionValueMap += filterKey.key.toExpressionNameValuePair(filterKey.value)
@@ -349,8 +431,11 @@ object QueryHelper {
         }
 
         fun expressionNameMap(): Map<String?, String?> {
-            val expressionNameMap =
+            val expressionNameMap = if (partitionKey != null) {
                 mutableMapOf<String?, String?>(partitionKey.first.hashName to partitionKey.first.name)
+            } else {
+                mutableMapOf()
+            }
             if (filterKeys.isNotEmpty()) {
                 filterKeys.forEach { filterKey ->
                     expressionNameMap += filterKey.key.hashName to filterKey.key.name
@@ -359,7 +444,11 @@ object QueryHelper {
             return expressionNameMap
         }
 
-        val keyConditionExpression = "${partitionKey.first.hashName} = ${partitionKey.first.colonName}"
+        val keyConditionExpression = if (partitionKey != null) {
+            "${partitionKey.first.hashName} = ${partitionKey.first.colonName}"
+        } else {
+            ""
+        }
 
         fun filterExpression(): String? {
             var filterExpression = ""
@@ -375,5 +464,7 @@ object QueryHelper {
                 null
             }
         }
+
+        val useScan = partitionKey == null
     }
 }
