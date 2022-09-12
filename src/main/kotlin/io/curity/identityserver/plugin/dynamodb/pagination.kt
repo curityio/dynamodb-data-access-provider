@@ -16,6 +16,7 @@
 
 package io.curity.identityserver.plugin.dynamodb
 
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 
@@ -38,7 +39,31 @@ fun querySequence(request: QueryRequest, client: DynamoDBClient) = sequence {
     }
 }
 
-// Returns a sequence with the items produced by a query, handling pagination if needed
+data class PartialListResult(
+    val items: List<Map<String, AttributeValue>>,
+    val lastEvaluationKey: Map<String, AttributeValue>?
+)
+
+// Returns a pair with the next page's items as a list, along with the last evaluation key, using a query request
+fun queryPartialList(
+    request: QueryRequest,
+    client: DynamoDBClient
+): PartialListResult {
+    val response = client.query(request)
+    val lastEvaluationKey: Map<String, AttributeValue>? =
+        if (response.hasLastEvaluatedKey()) {
+            response.lastEvaluatedKey()
+        } else {
+            null
+        }
+
+    return PartialListResult(
+        response.items(),
+        lastEvaluationKey
+    )
+}
+
+// Returns a sequence with the items produced by a scan, handling pagination if needed
 fun scanSequence(request: ScanRequest, client: DynamoDBClient) = sequence {
     var response = client.scan(request)
     if (response.hasItems()) {
@@ -55,6 +80,25 @@ fun scanSequence(request: ScanRequest, client: DynamoDBClient) = sequence {
             }
         }
     }
+}
+
+// Returns a pair with the next page's items as a list, along with the last evaluation key, using a scan request
+fun scanPartialList(
+    request: ScanRequest,
+    client: DynamoDBClient
+): PartialListResult {
+    val response = client.scan(request)
+    val lastEvaluationKey: Map<String, AttributeValue>? =
+        if (response.hasLastEvaluatedKey()) {
+            response.lastEvaluatedKey()
+        } else {
+            null
+        }
+
+    return PartialListResult(
+        response.items(),
+        lastEvaluationKey
+    )
 }
 
 fun count(request: QueryRequest, client: DynamoDBClient): Long {
