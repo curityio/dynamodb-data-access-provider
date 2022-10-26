@@ -295,7 +295,8 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             indexAndKeys,
             isAscendingOrder(sortRequest),
             paginationRequest?.count,
-            paginationRequest?.cursor
+            paginationRequest?.cursor,
+            ::toLastEvaluatedKey
         )
 
         val items = values
@@ -322,6 +323,9 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             indexAndKeys
         )
     }
+
+    private fun toLastEvaluatedKey(item: Map<String, AttributeValue>): Map<String, AttributeValue> =
+        mapOf(DcrTable.clientId.name to item[DcrTable.clientId.name]!!)
 
     companion object {
         private val logger: Logger =

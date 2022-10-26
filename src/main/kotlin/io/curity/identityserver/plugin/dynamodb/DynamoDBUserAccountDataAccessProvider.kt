@@ -16,8 +16,13 @@
 package io.curity.identityserver.plugin.dynamodb
 
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
+import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeExpression
+import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeOperator
 import io.curity.identityserver.plugin.dynamodb.query.DynamoDBQueryBuilder
 import io.curity.identityserver.plugin.dynamodb.query.Index
+import io.curity.identityserver.plugin.dynamodb.query.LogicalExpression
+import io.curity.identityserver.plugin.dynamodb.query.LogicalOperator
+import io.curity.identityserver.plugin.dynamodb.query.QueryHelper
 import io.curity.identityserver.plugin.dynamodb.query.QueryPlan
 import io.curity.identityserver.plugin.dynamodb.query.QueryPlanner
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
@@ -33,14 +38,23 @@ import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.AuthenticationAttributes
 import se.curity.identityserver.sdk.attribute.ContextAttributes
 import se.curity.identityserver.sdk.attribute.SubjectAttributes
+import se.curity.identityserver.sdk.attribute.scim.v2.ComplexAttributeValue
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.LinkedAccount
+import se.curity.identityserver.sdk.attribute.scim.v2.multivalued.MultiValuedAttributeValue
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.data.query.ResourceQueryResult
 import se.curity.identityserver.sdk.data.update.AttributeUpdate
 import se.curity.identityserver.sdk.datasource.CredentialDataAccessProvider
+import se.curity.identityserver.sdk.datasource.PageableUserAccountDataAccessProvider
 import se.curity.identityserver.sdk.datasource.UserAccountDataAccessProvider
+import se.curity.identityserver.sdk.datasource.db.TableCapabilities
+import se.curity.identityserver.sdk.datasource.errors.DataSourceCapabilityException
+import se.curity.identityserver.sdk.datasource.pagination.PaginatedDataAccessResult
+import se.curity.identityserver.sdk.datasource.pagination.PaginationRequest
+import se.curity.identityserver.sdk.datasource.query.AttributesFiltering
+import se.curity.identityserver.sdk.datasource.query.AttributesSorting
 import se.curity.identityserver.sdk.errors.ConflictException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
@@ -49,6 +63,7 @@ import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
+import software.amazon.awssdk.services.dynamodb.model.Select
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
 import java.time.Instant
@@ -86,14 +101,14 @@ import java.util.UUID
  * - However, this also means that any change to an account must be reflected in the main item and all the secondary items
  * (account updates are not frequent).
  *
- * There is a version attribute to support optimistic concurrency when updating or deleting the multiple item from an user
+ * There is a version attribute to support optimistic concurrency when updating or deleting the multiple item from a user
  * on a transaction.
  *
  */
 class DynamoDBUserAccountDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient,
     private val _configuration: DynamoDBDataAccessProviderConfiguration
-) : UserAccountDataAccessProvider, CredentialDataAccessProvider {
+) : UserAccountDataAccessProvider, PageableUserAccountDataAccessProvider, CredentialDataAccessProvider {
     private val jsonHandler = _configuration.getJsonHandler()
 
     override fun getById(
@@ -175,57 +190,46 @@ class DynamoDBUserAccountDataAccessProvider(
         val writeConditionExpression = "attribute_not_exists(${AccountsTable.pk.name})"
 
         // Add main item
-        val mainItem = commonItem + mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.accountId, accountId))
-        transactionItems.add(
-            TransactWriteItem.builder()
-                .put {
-                    it.tableName(AccountsTable.name(_configuration))
-                    it.conditionExpression(writeConditionExpression)
-                    it.item(mainItem)
-                }
-                .build()
+        // Fill the initials for userName and email (if present) only for the main item,
+        // to build a partial Global Secondary Index on these attributes.
+        val mainItemAdditionalAttributes = mutableMapOf(
+            AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.accountId, accountId),
+            AccountsTable.userNameInitial.toNameValuePair(userName)
+        )
+
+        commonItem[AccountsTable.email.name]?.also {
+            mainItemAdditionalAttributes.addAttr(AccountsTable.emailInitial, it.s())
+        }
+
+        val mainItem = commonItem + mainItemAdditionalAttributes
+        addTransactionItem(
+            commonItem,
+            mainItem,
+            transactionItems, writeConditionExpression
         )
 
         // Add secondary item with userName
-        val userNameItem = commonItem + mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, userName))
-        transactionItems.add(
-            TransactWriteItem.builder()
-                .put {
-                    it.tableName(AccountsTable.name(_configuration))
-                    it.conditionExpression(writeConditionExpression)
-                    it.item(userNameItem)
-                }
-                .build()
+        addTransactionItem(
+            commonItem,
+            mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, userName)),
+            transactionItems, writeConditionExpression
         )
 
         // Add secondary item with email, if email is present
         commonItem[AccountsTable.email.name]?.also { emailAttr ->
-            val emailItem = commonItem + mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.email, emailAttr.s()))
-            transactionItems.add(
-                TransactWriteItem.builder()
-                    .put {
-                        it.tableName(AccountsTable.name(_configuration))
-                        it.conditionExpression(writeConditionExpression)
-                        it.item(emailItem)
-                    }
-                    .build()
+            addTransactionItem(
+                commonItem,
+                mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.email, emailAttr.s())),
+                transactionItems, writeConditionExpression
             )
         }
 
         // Add secondary item with phone, if phone is present
         commonItem[AccountsTable.phone.name]?.also { phoneNumberAttr ->
-            val phoneItem =
-                commonItem + mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.phone, phoneNumberAttr.s()))
-            transactionItems.add(
-                TransactWriteItem.builder()
-                    .put {
-                        it.tableName(AccountsTable.name(_configuration))
-                        it.conditionExpression(writeConditionExpression)
-                        it.item(
-                            phoneItem
-                        )
-                    }
-                    .build()
+            addTransactionItem(
+                commonItem,
+                mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.phone, phoneNumberAttr.s())),
+                transactionItems, writeConditionExpression
             )
         }
 
@@ -244,10 +248,144 @@ class DynamoDBUserAccountDataAccessProvider(
             throw ex
         }
 
-        return commonItem.toAccountAttributes()
+        return mainItem.toAccountAttributes()
+    }
+
+    private fun addTransactionItem(
+        commonItem: MutableMap<String, AttributeValue>,
+        itemAttributes: Map<String, AttributeValue>,
+        transactionItems: MutableList<TransactWriteItem>,
+        writeConditionExpression: String
+    ) {
+        val item = commonItem + itemAttributes
+        transactionItems.add(
+            TransactWriteItem.builder()
+                .put {
+                    it.tableName(AccountsTable.name(_configuration))
+                    it.conditionExpression(writeConditionExpression)
+                    it.item(item)
+                }
+                .build()
+        )
     }
 
     override fun delete(accountId: String) = retry("delete", N_OF_ATTEMPTS) { tryDelete(accountId) }
+    override fun getAllBy(
+        activeAccountsOnly: Boolean,
+        paginationRequest: PaginationRequest?,
+        sortRequest: AttributesSorting?,
+        filterRequest: AttributesFiltering?
+    ): PaginatedDataAccessResult<AccountAttributes> {
+        validateRequest(filterRequest, paginationRequest)
+        val expression = buildGetAllByExpression(filterRequest, activeAccountsOnly)
+        val queryPlan = if (expression != null) {
+            QueryPlanner(AccountsTable.queryCapabilities).build(expression)
+        } else {
+            QueryPlan.UsingScan.fullScan()
+        }
+
+        val values = when (queryPlan) {
+            is QueryPlan.UsingQueries -> query(queryPlan, sortRequest, paginationRequest)
+            is QueryPlan.UsingScan -> scan(queryPlan, paginationRequest)
+        }
+
+        return PaginatedDataAccessResult(values.first.map { it.toAccountAttributes() }.toList(), values.second)
+    }
+
+    override fun getCountBy(activeAccountsOnly: Boolean, filterRequest: AttributesFiltering?): Long {
+        validateRequest(filterRequest, null)
+        val expression = buildGetAllByExpression(filterRequest, activeAccountsOnly)
+        return if (expression == null) {
+            scanCount(null)
+        } else {
+            when (val queryPlan = QueryPlanner(AccountsTable.queryCapabilities).build(expression)) {
+                is QueryPlan.UsingQueries -> queryCount(queryPlan)
+                is QueryPlan.UsingScan -> scanCount(queryPlan)
+            }
+        }
+    }
+
+    private fun validateRequest(filterRequest: AttributesFiltering?, paginationRequest: PaginationRequest?) {
+        if (paginationRequest != null && paginationRequest.count > DEFAULT_PAGE_SIZE) {
+            throw DataSourceCapabilityException(
+                TableCapabilities.TableCapability.PAGE_SIZE_INVALID,
+                TableCapabilities.TableCapability.PAGE_SIZE_INVALID.unsupportedMessage)
+        }
+
+        if (filterRequest?.filterType == AttributesFiltering.FilterType.ENDS_WITH) {
+            throw DataSourceCapabilityException(
+                TableCapabilities.TableCapability.FILTERING_ENDS_WITH,
+                TableCapabilities.TableCapability.FILTERING_ENDS_WITH.unsupportedMessage
+            )
+        }
+
+        if (_configuration.getAllowTableScans()) {
+            return
+        }
+
+        if (filterRequest == null || filterRequest.filter.isNullOrEmpty()) {
+            throw DataSourceCapabilityException(
+                TableCapabilities.TableCapability.FILTERING_ABSENT,
+                TableCapabilities.TableCapability.FILTERING_ABSENT.unsupportedMessage
+            )
+        }
+
+        if (filterRequest.filterBy != AccountsTable.userName.name
+            && filterRequest.filterBy != AccountsTable.email.name
+        ) {
+            throw DataSourceCapabilityException(
+                TableCapabilities.TableCapability.FILTERING_INVALID_COLUMN,
+                String.format(
+                    TableCapabilities.TableCapability.FILTERING_INVALID_COLUMN.unsupportedMessage,
+                    AccountAttributes.ACTIVE
+                )
+            )
+        }
+    }
+
+    private fun buildGetAllByExpression(
+        filterRequest: AttributesFiltering?, activeAccountsOnly: Boolean
+    ): io.curity.identityserver.plugin.dynamodb.query.Expression? {
+        var expression: io.curity.identityserver.plugin.dynamodb.query.Expression? = null
+        if (filterRequest != null && filterRequest.filter?.isNotEmpty() == true) {
+            // First, build the expression on index as follows:
+            // pkAttribute = <filterInitials> and sortKeyAttribute begins_with(filter)
+
+            // filterAttribute cannot be null since the request has been checked previously.
+            val filterAttribute = AccountsTable.queryCapabilities.attributeMap[filterRequest.filterBy]!!
+            val startsWithIndex = AccountsTable.queryCapabilities.indexes.first {
+                it.partitionAttribute is StartsWithStringAttribute
+                        && it.sortAttribute == filterAttribute
+            }
+            val startsWithAttribute = startsWithIndex.partitionAttribute as StartsWithStringAttribute
+            val swExpression = BinaryAttributeExpression(
+                startsWithAttribute.fullAttribute,
+                BinaryAttributeOperator.Sw,
+                filterRequest.filter
+            )
+            val keyExpression = BinaryAttributeExpression(
+                startsWithAttribute,
+                BinaryAttributeOperator.Eq,
+                startsWithAttribute.toAttrValue(filterRequest.filter).s()
+            )
+            expression = LogicalExpression(keyExpression, LogicalOperator.And, swExpression)
+        }
+
+        if (activeAccountsOnly) {
+            val activeAccountOnlyExpression = BinaryAttributeExpression(
+                AccountsTable.active,
+                BinaryAttributeOperator.Eq,
+                AccountsTable.active.toAttrValue(true).bool()
+            )
+            expression = if (expression != null) {
+                LogicalExpression(expression, LogicalOperator.And, activeAccountOnlyExpression)
+            } else {
+                activeAccountOnlyExpression
+            }
+        }
+
+        return expression
+    }
 
     private fun tryDelete(accountId: String): TransactionAttemptResult<Unit> {
         _logger.debug(MASK_MARKER, "Received request to delete account with accountId: {}", accountId)
@@ -454,7 +592,7 @@ class DynamoDBUserAccountDataAccessProvider(
                 )
             }
 
-            var newAttributes = attributeUpdate.applyOn<Attributes>(observedAttributes)
+            var newAttributes = attributeUpdate.applyOn(observedAttributes)
                 .with(Attribute.of(ResourceAttributes.ID, accountId))
                 .removeAttribute(ResourceAttributes.META)
 
@@ -784,6 +922,47 @@ class DynamoDBUserAccountDataAccessProvider(
         }
     }
 
+    private fun scan(
+        queryPlan: QueryPlan.UsingScan?,
+        paginationRequest: PaginationRequest?
+    ): Pair<List<Map<String, AttributeValue>>, String?> {
+        val exclusiveStartKey = if (!paginationRequest?.cursor.isNullOrBlank()) {
+            paginationRequest?.let { QueryHelper.getExclusiveStartKey(jsonHandler, it.cursor) }
+        } else {
+            null
+        }
+        val limit = paginationRequest?.count ?: DEFAULT_PAGE_SIZE
+        val scanRequestBuilder = ScanRequest.builder().tableName(AccountsTable.name(_configuration))
+
+        val result = if (queryPlan != null && queryPlan.expression.products.isNotEmpty()) {
+            val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression).addPkFiltering()
+            scanRequestBuilder.configureWith(dynamoDBScan)
+            scanPartialList(_dynamoDBClient, scanRequestBuilder, limit, exclusiveStartKey, ::toLastEvaluatedKey)
+        } else {
+            scanRequestBuilder.configureWith(filterForItemsWithAccountIdPk)
+            scanPartialList(_dynamoDBClient, scanRequestBuilder, limit, exclusiveStartKey, ::toLastEvaluatedKey)
+        }
+
+        return result.items to QueryHelper.getEncodedCursor(jsonHandler, result.lastEvaluationKey)
+    }
+
+    private fun toLastEvaluatedKey(item: Map<String, AttributeValue>): Map<String, AttributeValue> =
+        mapOf(AccountsTable.pk.name to item[AccountsTable.pk.name]!!)
+
+    private fun scanCount(queryPlan: QueryPlan.UsingScan?): Long {
+        val scanRequestBuilder = ScanRequest.builder()
+            .tableName(AccountsTable.name(_configuration))
+
+        return if (queryPlan != null && queryPlan.expression.products.isNotEmpty()) {
+            val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression).addPkFiltering()
+            scanRequestBuilder.configureWith(dynamoDBScan).select(Select.COUNT)
+            count(scanRequestBuilder.build(), _dynamoDBClient)
+        } else {
+            scanRequestBuilder.configureWith(filterForItemsWithAccountIdPk).select(Select.COUNT)
+            count(scanRequestBuilder.build(), _dynamoDBClient)
+        }
+    }
+
     private fun DynamoDBScan.addPkFiltering() = DynamoDBScan(
         filterExpression = "${filterForItemsWithAccountIdPk.filterExpression} AND (${this.filterExpression})",
         valueMap = filterForItemsWithAccountIdPk.valueMap + this.valueMap,
@@ -811,6 +990,52 @@ class DynamoDBUserAccountDataAccessProvider(
                 }
         }
         return result.values.asSequence()
+    }
+
+    private fun query(
+        queryPlan: QueryPlan.UsingQueries,
+        sortRequest: AttributesSorting?,
+        paginationRequest: PaginationRequest?
+    ): Pair<List<Map<String, AttributeValue>>, String?> {
+        val nOfQueries = queryPlan.queries.entries.size
+        if (nOfQueries > 1) {
+            throw UnsupportedQueryException.QueryRequiresTooManyOperations(nOfQueries, 1)
+        }
+
+        val exclusiveStartKey = if (!paginationRequest?.cursor.isNullOrBlank()) {
+            paginationRequest?.let { QueryHelper.getExclusiveStartKey(jsonHandler, it.cursor) }
+        } else {
+            null
+        }
+        val limit = paginationRequest?.count ?: DEFAULT_PAGE_SIZE
+        val query = queryPlan.queries.entries.first()
+        val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(query.key, query.value, sortRequest?.sortOrder)
+
+        val queryRequestBuilder = QueryRequest.builder()
+            .tableName(AccountsTable.name(_configuration))
+            .configureWith(dynamoDBQuery)
+
+        val result =
+            queryPartialList(queryRequestBuilder, limit, exclusiveStartKey, _dynamoDBClient, ::toLastEvaluatedKey)
+        return result.items to QueryHelper.getEncodedCursor(jsonHandler, result.lastEvaluationKey)
+    }
+
+    private fun queryCount(queryPlan: QueryPlan.UsingQueries): Long {
+        val nOfQueries = queryPlan.queries.entries.size
+        if (nOfQueries > 1) {
+            throw UnsupportedQueryException.QueryRequiresTooManyOperations(nOfQueries, 1)
+        }
+
+        val query = queryPlan.queries.entries.first()
+        val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(query.key, query.value)
+
+        val queryRequest = QueryRequest.builder()
+            .tableName(AccountsTable.name(_configuration))
+            .configureWith(dynamoDBQuery)
+            .select(Select.COUNT)
+            .build()
+
+        return count(queryRequest, _dynamoDBClient)
     }
 
     private fun getComparatorFor(resourceQuery: ResourceQuery): Comparator<Map<String, AttributeValue>>? {
@@ -911,7 +1136,17 @@ class DynamoDBUserAccountDataAccessProvider(
                 }
                 AccountsTable.active.name -> map["active"] = value.bool()
                 AccountsTable.email.name -> {
-                } // skip, emails are in attributes
+                    // In case we query a Global Secondary Index, the "attributes" blob is not available.
+                    // The "emails" attribute must be populated from the primary email.
+                    map.computeIfAbsent(AccountAttributes.EMAILS) {
+                        listOf(
+                            mapOf(
+                                MultiValuedAttributeValue.VALUE to value.s(),
+                                ComplexAttributeValue.PRIMARY to true
+                            )
+                        )
+                    }
+                }
                 AccountsTable.phone.name -> {
                 } // skip, phones are in attributes
                 AccountsTable.attributes.name -> map.putAll(
@@ -969,13 +1204,20 @@ class DynamoDBUserAccountDataAccessProvider(
         val accountId = UniqueStringAttribute("accountId", "ai#")
         val version = NumberLongAttribute("version")
         val userName = UniqueStringAttribute("userName", "un#")
+        val userNameInitial = StartsWithStringAttribute("userNameInitial", userName, INITIAL_LENGTH)
         val email = UniqueStringAttribute("email", "em#")
+        val emailInitial = StartsWithStringAttribute("emailInitial", email, INITIAL_LENGTH)
         val phone = UniqueStringAttribute("phone", "pn#")
         val password = StringAttribute("password")
         val active = BooleanAttribute("active")
         val attributes = StringAttribute("attributes")
         val created = NumberLongAttribute("created")
         val updated = NumberLongAttribute("updated")
+
+        private val userNameInitialUserNameIndex =
+            PartitionAndSortIndex("userNameInitial-userName-index", userNameInitial, userName)
+        private val emailInitialEmailIndex =
+            PartitionAndSortIndex("emailInitial-email-index", emailInitial, email)
 
         fun keyFromAccountId(accountIdValue: String) = mapOf(
             pk.name to pk.toAttrValue(accountId.uniquenessValueFrom(accountIdValue))
@@ -989,13 +1231,18 @@ class DynamoDBUserAccountDataAccessProvider(
             indexes = listOf(
                 Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, accountId))),
                 Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, userName))),
+                Index.from(userNameInitialUserNameIndex),
                 Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, email))),
+                Index.from(emailInitialEmailIndex),
                 Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, phone)))
             ),
             attributeMap = mapOf(
                 AccountAttributes.USER_NAME to userName,
+                userNameInitial.name to userNameInitial,
+                email.name to email,
                 AccountAttributes.EMAILS to email,
                 AccountAttributes.EMAILS + ".value" to email,
+                emailInitial.name to emailInitial,
                 AccountAttributes.PHONE_NUMBERS to phone,
                 AccountAttributes.PHONE_NUMBERS + ".value" to phone,
                 AccountAttributes.ACTIVE to active
@@ -1055,6 +1302,15 @@ class DynamoDBUserAccountDataAccessProvider(
         private val NO_LINK_DESCRIPTION: String? = null
 
         private const val N_OF_ATTEMPTS = 3
+
+        /**
+         * Length of the "initial" for userName and email attributes.
+         * Since the initial attribute is used as the partition key, it is set to a value greater than one
+         * in order to well balance the partitions for increased performance and
+         * decreased DynamoDB read capacity unit cost.
+         * Warning: Changing this value is a breaking change: the indexes will need to be rebuilt.
+         */
+        const val INITIAL_LENGTH = 2
 
         private fun removeLinkedAccounts(account: AccountAttributes): AccountAttributes {
             var withoutLinks = account

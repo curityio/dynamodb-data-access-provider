@@ -16,6 +16,7 @@
 
 package io.curity.identityserver.plugin.dynamodb.query
 
+import io.curity.identityserver.plugin.dynamodb.DEFAULT_PAGE_SIZE
 import io.curity.identityserver.plugin.dynamodb.DynamoDBAttribute
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient.Companion.logger
@@ -55,7 +56,8 @@ object QueryHelper {
         indexAndKeys: IndexAndKeys<Any, Any>,
         ascendingOrder: Boolean,
         pageCount: Int?,
-        pageCursor: String?
+        pageCursor: String?,
+        toLastEvaluatedKey: (Map<String, AttributeValue>) -> Map<String, AttributeValue>
     ): Pair<List<Map<String, AttributeValue>>, String?> {
 
         var exclusiveStartKey = if (!pageCursor.isNullOrBlank()) {
@@ -73,7 +75,7 @@ object QueryHelper {
             val (list, lastEvaluationKey) = if (indexAndKeys.useScan) {
                 val listScanBuilder = ScanRequest.builder().init(tableName, indexAndKeys)
                 // Items will be unsorted!
-                listScan(dynamoDBClient, listScanBuilder, expectedCount, exclusiveStartKey)
+                scanPartialList(dynamoDBClient, listScanBuilder, expectedCount, exclusiveStartKey, toLastEvaluatedKey)
             } else {
                 val listQueryBuilder = QueryRequest.builder().init(tableName, indexAndKeys, ascendingOrder)
                 listQuery(dynamoDBClient, listQueryBuilder, expectedCount, exclusiveStartKey)
@@ -87,8 +89,6 @@ object QueryHelper {
         val encodedCursor = getEncodedCursor(json, exclusiveStartKey)
         return Pair(items, encodedCursor)
     }
-
-    private const val DEFAULT_PAGE_SIZE = 50
 
     fun count(
         dynamoDBClient: DynamoDBClient,
@@ -146,24 +146,6 @@ object QueryHelper {
             filterExpression(filterExpression)
         }
         return this
-    }
-
-    private fun listScan(
-        dynamoDBClient: DynamoDBClient,
-        listScanBuilder: ScanRequest.Builder,
-        count: Int,
-        exclusiveStartKey: Map<String, AttributeValue?>?
-    ): PartialListResult {
-        // Items will be unsorted!
-        listScanBuilder.limit(count)
-        // Don't enable consistentRead: to be consistent with listQuery
-        // Also: "strongly consistent reads are twice the cost of eventually consistent reads"
-
-        if (!exclusiveStartKey.isNullOrEmpty()) {
-            listScanBuilder.exclusiveStartKey(exclusiveStartKey)
-        }
-
-        return scanPartialList(listScanBuilder.build(), dynamoDBClient)
     }
 
     private fun listQuery(
@@ -290,7 +272,7 @@ object QueryHelper {
         return filterKeys
     }
 
-    private fun getEncodedCursor(json: Json, cursor: Map<String, AttributeValue>?): String? {
+    fun getEncodedCursor(json: Json, cursor: Map<String, AttributeValue>?): String? {
         if (cursor?.isEmpty() != false) {
             return null
         }
@@ -364,7 +346,7 @@ object QueryHelper {
             throw IllegalArgumentException("Couldn't deserialize JSON cursor")
         }
 
-    private fun getExclusiveStartKey(
+    fun getExclusiveStartKey(
         jsonDeserializer: Json,
         encodedCursor: String
     ): Map<String, AttributeValue> {
@@ -408,7 +390,7 @@ object QueryHelper {
      */
     class IndexAndKeys<T1, T2>(
         val indexName: String?,
-        private val partitionKey: Pair<DynamoDBAttribute<T1>, T1>?,
+        val partitionKey: Pair<DynamoDBAttribute<T1>, T1>?,
         private val filterKeys: Map<DynamoDBAttribute<T2>, T2>
     ) {
 

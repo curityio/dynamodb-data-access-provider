@@ -170,10 +170,10 @@ class EnumAttribute<T : Enum<T>>(
     override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
 
     companion object {
-        inline fun <reified T : Enum<T>> of(name: String) = EnumAttribute<T>(
+        inline fun <reified T : Enum<T>> of(name: String) = EnumAttribute(
             name,
             T::class.java,
-            enumValues<T>().map { it.name to it }.toMap()
+            enumValues<T>().associateBy { it.name }
         )
     }
 }
@@ -273,14 +273,30 @@ class UniquenessBasedIndexStringAttribute(
     override fun canBeUsedOnQueryTo(other: DynamoDBAttribute<*>) = _uniqueAttribute == other
 }
 
+class StartsWithStringAttribute(
+    // The attribute's name storing the first letters of the full attribute.
+    _initialsAttribute: String,
+    // The attribute storing the full value which starts with _initialAttribute value.
+    val fullAttribute: BaseAttribute<String>,
+    // The length of the initials stored in the _initialsAttribute.
+    private val _initialLength: Int
+) : BaseAttribute<String>(_initialsAttribute, AttributeType.S) {
+    private fun getInitials(value: String): String =
+        if (value.length < _initialLength) value else value.substring(0, _initialLength)
+
+    override fun from(attrValue: AttributeValue): String = attrValue.s()
+
+    override fun cast(value: Any): String? = value as? String
+
+    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
+
+    override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(getInitials(value)).build()
+}
+
 class ExpressionBuilder(
     val expression: String, vararg attributes: DynamoDBAttribute<*>
 ) {
-    val attributeNames = attributes
-        .map {
-            it.toNamePair()
-        }
-        .toMap()
+    val attributeNames = attributes.associate { it.toNamePair() }
 }
 
 abstract class Expression(

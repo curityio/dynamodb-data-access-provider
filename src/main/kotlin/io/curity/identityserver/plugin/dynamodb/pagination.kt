@@ -20,6 +20,8 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 
+const val DEFAULT_PAGE_SIZE = 50
+
 // Returns a sequence with the items produced by a query, handling pagination if needed
 fun querySequence(request: QueryRequest, client: DynamoDBClient) = sequence {
     var response = client.query(request)
@@ -63,6 +65,58 @@ fun queryPartialList(
     )
 }
 
+// Returns a pair with the next page's items as a list, along with the last evaluation key, using a query request
+fun queryPartialList(
+    requestBuilder: QueryRequest.Builder,
+    limit: Int,
+    exclusiveStartKey: Map<String, AttributeValue>?,
+    client: DynamoDBClient,
+    // Converts an item returned from DynamoDB into a lastEvaluatedKey which must only contain the key attributes.
+    toLastEvaluatedKey: (Map<String, AttributeValue>) -> Map<String, AttributeValue>
+): PartialListResult {
+    requestBuilder.limit(limit)
+
+    var lastEvaluatedKey = exclusiveStartKey
+    val items: MutableList<Map<String, AttributeValue>> = mutableListOf()
+
+    do {
+        if (lastEvaluatedKey != null) {
+            requestBuilder.exclusiveStartKey(lastEvaluatedKey)
+        }
+
+        val request = requestBuilder.build()
+        val response = client.query(request)
+        val number = limit - items.size
+        items += response.items().asSequence().take(number)
+
+        if (response.items().size > number) {
+            // There were more items than needed. The end of the response was skipped.
+            // The last evaluated key should be set to the last item added to the results.
+            lastEvaluatedKey = toLastEvaluatedKey(items.last())
+            break
+        }
+
+        lastEvaluatedKey = if (response.hasLastEvaluatedKey()) response.lastEvaluatedKey() else null
+
+        if (items.size == limit && request.filterExpression().isNullOrEmpty()) {
+            // We reach the limit, and we have no filter (to return all rows for the given key),
+            // the response.lastEvaluatedKey is the good one to return.
+            break
+        }
+
+        // Either we have not yet reached the limit or we reached it but there is a filterExpression.
+        // In the latter case, DynamoDB may have returned a lastEvaluatedKey, but we are not sure that
+        // the remaining keys will match the condition.
+        // We go on, even if items.size == limit to know if it really remains more matching rows and avoid wrongly
+        // returning a lastEvaluatedKey.
+    } while (lastEvaluatedKey != null)
+
+    return PartialListResult(
+        items,
+        lastEvaluatedKey
+    )
+}
+
 // Returns a sequence with the items produced by a scan, handling pagination if needed
 fun scanSequence(request: ScanRequest, client: DynamoDBClient) = sequence {
     var response = client.scan(request)
@@ -98,6 +152,61 @@ fun scanPartialList(
     return PartialListResult(
         response.items(),
         lastEvaluationKey
+    )
+}
+
+fun scanPartialList(
+    dynamoDBClient: DynamoDBClient,
+    listScanBuilder: ScanRequest.Builder,
+    limit: Int,
+    exclusiveStartKey: Map<String, AttributeValue>?,
+    // Converts an item returned from DynamoDB into a lastEvaluatedKey which must only contain the key attributes.
+    toLastEvaluatedKey: (Map<String, AttributeValue>) -> Map<String, AttributeValue>
+): PartialListResult {
+    // Don't enable consistentRead: to be consistent with listQuery
+    // Also: "strongly consistent reads are twice the cost of eventually consistent reads"
+
+    // Items will be unsorted!
+    listScanBuilder.limit(limit)
+
+    var lastEvaluatedKey = exclusiveStartKey
+    val items: MutableList<Map<String, AttributeValue>> = mutableListOf()
+
+    do {
+        if (lastEvaluatedKey != null) {
+            listScanBuilder.exclusiveStartKey(lastEvaluatedKey)
+        }
+
+        val request = listScanBuilder.build()
+        val response = scanPartialList(request, dynamoDBClient)
+        val number = limit - items.size
+        items += response.items.asSequence().take(number)
+
+        if (response.items.size > number) {
+            // There were more items than needed. The end of the response was skipped.
+            // The last evaluated key should be set to the last item added to the results.
+            lastEvaluatedKey = toLastEvaluatedKey(items.last())
+            break
+        }
+
+        lastEvaluatedKey = response.lastEvaluationKey
+
+        if (items.size == limit && request.filterExpression().isNullOrEmpty()) {
+            // We reach the limit, and we have no filter (to return all rows),
+            // the response.lastEvaluationKey is the good one to return.
+            break
+        }
+
+        // Either we have not yet reached the limit or we reached it but there is a filterExpression.
+        // In the latter case, DynamoDB may have returned a lastEvaluationKey, but we are not sure that
+        // the remaining keys will match the condition.
+        // We go on, even if items.size == limit to know if it really remains more matching rows and avoid wrongly
+        // returning a lastEvaluatedKey.
+    } while (lastEvaluatedKey != null)
+
+    return PartialListResult(
+        items,
+        lastEvaluatedKey
     )
 }
 
