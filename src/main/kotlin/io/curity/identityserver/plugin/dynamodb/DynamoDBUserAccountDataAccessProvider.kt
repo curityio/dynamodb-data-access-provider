@@ -49,7 +49,7 @@ import se.curity.identityserver.sdk.data.update.AttributeUpdate
 import se.curity.identityserver.sdk.datasource.CredentialDataAccessProvider
 import se.curity.identityserver.sdk.datasource.PageableUserAccountDataAccessProvider
 import se.curity.identityserver.sdk.datasource.UserAccountDataAccessProvider
-import se.curity.identityserver.sdk.datasource.db.TableCapabilities
+import se.curity.identityserver.sdk.datasource.db.TableCapabilities.TableCapability
 import se.curity.identityserver.sdk.datasource.errors.DataSourceCapabilityException
 import se.curity.identityserver.sdk.datasource.pagination.PaginatedDataAccessResult
 import se.curity.identityserver.sdk.datasource.pagination.PaginationRequest
@@ -276,7 +276,20 @@ class DynamoDBUserAccountDataAccessProvider(
         sortRequest: AttributesSorting?,
         filterRequest: AttributesFiltering?
     ): PaginatedDataAccessResult<AccountAttributes> {
-        validateRequest(filterRequest, paginationRequest)
+        if (paginationRequest != null && paginationRequest.count > DEFAULT_PAGE_SIZE) {
+            throw DataSourceCapabilityException(
+                TableCapability.PAGE_SIZE_INVALID,
+                TableCapability.PAGE_SIZE_INVALID.unsupportedMessage
+            )
+        }
+
+        QueryHelper.validateRequest(
+            { filterRequest.useScan() },
+            _configuration.getAllowTableScans(),
+            AccountsTable.queryCapabilities,
+            sortRequest
+        )
+
         val expression = buildGetAllByExpression(filterRequest, activeAccountsOnly)
         val queryPlan = if (expression != null) {
             QueryPlanner(AccountsTable.queryCapabilities).build(expression)
@@ -293,7 +306,12 @@ class DynamoDBUserAccountDataAccessProvider(
     }
 
     override fun getCountBy(activeAccountsOnly: Boolean, filterRequest: AttributesFiltering?): Long {
-        validateRequest(filterRequest, null)
+        QueryHelper.validateRequest(
+            { filterRequest.useScan() },
+            _configuration.getAllowTableScans(),
+            AccountsTable.queryCapabilities
+        )
+
         val expression = buildGetAllByExpression(filterRequest, activeAccountsOnly)
         return if (expression == null) {
             scanCount(null)
@@ -305,43 +323,8 @@ class DynamoDBUserAccountDataAccessProvider(
         }
     }
 
-    private fun validateRequest(filterRequest: AttributesFiltering?, paginationRequest: PaginationRequest?) {
-        if (paginationRequest != null && paginationRequest.count > DEFAULT_PAGE_SIZE) {
-            throw DataSourceCapabilityException(
-                TableCapabilities.TableCapability.PAGE_SIZE_INVALID,
-                TableCapabilities.TableCapability.PAGE_SIZE_INVALID.unsupportedMessage)
-        }
-
-        if (filterRequest?.filterType == AttributesFiltering.FilterType.ENDS_WITH) {
-            throw DataSourceCapabilityException(
-                TableCapabilities.TableCapability.FILTERING_ENDS_WITH,
-                TableCapabilities.TableCapability.FILTERING_ENDS_WITH.unsupportedMessage
-            )
-        }
-
-        if (_configuration.getAllowTableScans()) {
-            return
-        }
-
-        if (filterRequest == null || filterRequest.filter.isNullOrEmpty()) {
-            throw DataSourceCapabilityException(
-                TableCapabilities.TableCapability.FILTERING_ABSENT,
-                TableCapabilities.TableCapability.FILTERING_ABSENT.unsupportedMessage
-            )
-        }
-
-        if (filterRequest.filterBy != AccountsTable.userName.name
-            && filterRequest.filterBy != AccountsTable.email.name
-        ) {
-            throw DataSourceCapabilityException(
-                TableCapabilities.TableCapability.FILTERING_INVALID_COLUMN,
-                String.format(
-                    TableCapabilities.TableCapability.FILTERING_INVALID_COLUMN.unsupportedMessage,
-                    AccountAttributes.ACTIVE
-                )
-            )
-        }
-    }
+    private fun AttributesFiltering?.useScan(): Boolean =
+        this == null || this.filterBy.isNullOrEmpty() || this.filter.isNullOrEmpty()
 
     private fun buildGetAllByExpression(
         filterRequest: AttributesFiltering?, activeAccountsOnly: Boolean
@@ -1234,7 +1217,7 @@ class DynamoDBUserAccountDataAccessProvider(
                 Index.from(userNameInitialUserNameIndex),
                 Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, email))),
                 Index.from(emailInitialEmailIndex),
-                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, phone)))
+                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, phone))),
             ),
             attributeMap = mapOf(
                 AccountAttributes.USER_NAME to userName,
@@ -1245,8 +1228,9 @@ class DynamoDBUserAccountDataAccessProvider(
                 emailInitial.name to emailInitial,
                 AccountAttributes.PHONE_NUMBERS to phone,
                 AccountAttributes.PHONE_NUMBERS + ".value" to phone,
-                AccountAttributes.ACTIVE to active
-            )
+                AccountAttributes.ACTIVE to active,
+            ),
+            DynamoDBDialect().unsupportedCapabilities + TableCapability.SORTING,
         )
     }
 

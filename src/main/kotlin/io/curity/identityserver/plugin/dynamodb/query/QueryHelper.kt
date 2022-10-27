@@ -27,6 +27,7 @@ import io.curity.identityserver.plugin.dynamodb.queryPartialList
 import io.curity.identityserver.plugin.dynamodb.scanPartialList
 import se.curity.identityserver.sdk.datasource.db.TableCapabilities
 import se.curity.identityserver.sdk.datasource.errors.DataSourceCapabilityException
+import se.curity.identityserver.sdk.datasource.query.AttributesSorting
 import se.curity.identityserver.sdk.service.Json
 import software.amazon.awssdk.core.SdkBytes
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
@@ -72,7 +73,7 @@ object QueryHelper {
         // Loop to get requested page count items, as DynamoDB 'limit' is:
         // "The maximum number of items to evaluate (not necessarily the number of matching items)."
         while (more) {
-            val (list, lastEvaluationKey) = if (indexAndKeys.useScan) {
+            val (list, lastEvaluationKey) = if (indexAndKeys.useScan()) {
                 val listScanBuilder = ScanRequest.builder().init(tableName, indexAndKeys)
                 // Items will be unsorted!
                 scanPartialList(dynamoDBClient, listScanBuilder, expectedCount, exclusiveStartKey, toLastEvaluatedKey)
@@ -96,7 +97,7 @@ object QueryHelper {
         indexAndKeys: IndexAndKeys<Any, Any>
     ): Long {
 
-        return if (indexAndKeys.useScan) {
+        return if (indexAndKeys.useScan()) {
             val countScanBuilder = ScanRequest.builder().init(tableName, indexAndKeys)
             countScanBuilder.select(Select.COUNT)
             // Don't enable consistentRead as with listScan & listQuery
@@ -165,23 +166,24 @@ object QueryHelper {
     }
 
     fun validateRequest(
-        indexAndKeys: IndexAndKeys<Any, Any>,
+        isUsingScan: () -> Boolean,
         allowedScan: Boolean,
         tableCapabilities: TableCapabilities? = null,
-        sortingRequested: Boolean = false
+        sortRequest: AttributesSorting? = null
     ) {
-        if (indexAndKeys.useScan && !allowedScan) {
+        if (isUsingScan() && !allowedScan) {
             throw DataSourceCapabilityException(
                 TableCapabilities.TableCapability.FILTERING_ABSENT,
                 TableCapabilities.TableCapability.FILTERING_ABSENT.unsupportedMessage
             )
         }
 
-        val sortingExpected = if (indexAndKeys.useScan) {
+        val sortingExpected = if (isUsingScan()) {
             // Ignore sorting with scan as unsupported
             false
         } else {
-            sortingRequested
+            sortRequest?.sortBy?.isNotEmpty() == true
+                    && sortRequest.sortBy != AttributesSorting.SortAttribute.DEFAULT_SORT.toString()
         }
 
         validateSortingRequest(tableCapabilities, sortingExpected)
@@ -390,7 +392,7 @@ object QueryHelper {
      */
     class IndexAndKeys<T1, T2>(
         val indexName: String?,
-        val partitionKey: Pair<DynamoDBAttribute<T1>, T1>?,
+        private val partitionKey: Pair<DynamoDBAttribute<T1>, T1>?,
         private val filterKeys: Map<DynamoDBAttribute<T2>, T2>
     ) {
 
@@ -447,6 +449,6 @@ object QueryHelper {
             }
         }
 
-        val useScan = partitionKey == null
+        fun useScan(): Boolean = this.partitionKey == null
     }
 }

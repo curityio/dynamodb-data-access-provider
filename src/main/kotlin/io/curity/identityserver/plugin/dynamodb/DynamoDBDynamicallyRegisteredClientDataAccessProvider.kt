@@ -282,10 +282,10 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         val indexAndKeys = QueryHelper.findIndexAndKeysFrom(DcrTable, potentialKeys)
 
         validateRequest(
-            indexAndKeys,
+            indexAndKeys::useScan,
             _configuration.getAllowTableScans(),
             DcrTable.queryCapabilities(),
-            sortingRequested = sortRequest != null
+            sortRequest
         )
 
         val (values, encodedCursor) = QueryHelper.list(
@@ -315,7 +315,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         val potentialKeys = createPotentialKeys(templateId, username, activeClientsOnly)
         val indexAndKeys = QueryHelper.findIndexAndKeysFrom(DcrTable, potentialKeys)
 
-        validateRequest(indexAndKeys, _configuration.getAllowTableScans())
+        validateRequest(indexAndKeys::useScan, _configuration.getAllowTableScans())
 
         return QueryHelper.count(
             _dynamoDBClient,
