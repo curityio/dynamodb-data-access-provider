@@ -201,10 +201,9 @@ class DynamoDBUserAccountDataAccessProvider(
             mainItemAdditionalAttributes.addAttr(AccountsTable.emailInitial, it.s())
         }
 
-        val mainItem = commonItem + mainItemAdditionalAttributes
         addTransactionItem(
             commonItem,
-            mainItem,
+            mainItemAdditionalAttributes,
             transactionItems, writeConditionExpression
         )
 
@@ -248,6 +247,7 @@ class DynamoDBUserAccountDataAccessProvider(
             throw ex
         }
 
+        val mainItem = commonItem + mainItemAdditionalAttributes
         return mainItem.toAccountAttributes()
     }
 
@@ -270,13 +270,14 @@ class DynamoDBUserAccountDataAccessProvider(
     }
 
     override fun delete(accountId: String) = retry("delete", N_OF_ATTEMPTS) { tryDelete(accountId) }
+
     override fun getAllBy(
         activeAccountsOnly: Boolean,
         paginationRequest: PaginationRequest?,
         sortRequest: AttributesSorting?,
         filterRequest: AttributesFiltering?
     ): PaginatedDataAccessResult<AccountAttributes> {
-        if (paginationRequest != null && paginationRequest.count > DEFAULT_PAGE_SIZE) {
+        if (paginationRequest != null && paginationRequest.count > MAXIMUM_PAGE_SIZE) {
             throw DataSourceCapabilityException(
                 TableCapability.PAGE_SIZE_INVALID,
                 TableCapability.PAGE_SIZE_INVALID.unsupportedMessage
@@ -1230,7 +1231,7 @@ class DynamoDBUserAccountDataAccessProvider(
                 AccountAttributes.PHONE_NUMBERS + ".value" to phone,
                 AccountAttributes.ACTIVE to active,
             ),
-            DynamoDBDialect().unsupportedCapabilities + TableCapability.SORTING,
+            setOf(TableCapability.SORTING),
         )
     }
 

@@ -20,7 +20,6 @@ import io.curity.identityserver.plugin.dynamodb.DEFAULT_PAGE_SIZE
 import io.curity.identityserver.plugin.dynamodb.DynamoDBAttribute
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient.Companion.logger
-import io.curity.identityserver.plugin.dynamodb.PartialListResult
 import io.curity.identityserver.plugin.dynamodb.TableWithCapabilities
 import io.curity.identityserver.plugin.dynamodb.count
 import io.curity.identityserver.plugin.dynamodb.queryPartialList
@@ -79,7 +78,7 @@ object QueryHelper {
                 scanPartialList(dynamoDBClient, listScanBuilder, expectedCount, exclusiveStartKey, toLastEvaluatedKey)
             } else {
                 val listQueryBuilder = QueryRequest.builder().init(tableName, indexAndKeys, ascendingOrder)
-                listQuery(dynamoDBClient, listQueryBuilder, expectedCount, exclusiveStartKey)
+                queryPartialList(listQueryBuilder, expectedCount, exclusiveStartKey, dynamoDBClient, toLastEvaluatedKey)
             }
             items += list
             expectedCount -= list.count()
@@ -147,22 +146,6 @@ object QueryHelper {
             filterExpression(filterExpression)
         }
         return this
-    }
-
-    private fun listQuery(
-        dynamoDBClient: DynamoDBClient,
-        listQueryBuilder: QueryRequest.Builder,
-        count: Int,
-        exclusiveStartKey: Map<String, AttributeValue?>?
-    ): PartialListResult {
-        listQueryBuilder.limit(count)
-        // Don't enable consistentRead: strong consistency reads are not supported by Global Secondary Indexes
-
-        if (!exclusiveStartKey.isNullOrEmpty()) {
-            listQueryBuilder.exclusiveStartKey(exclusiveStartKey)
-        }
-
-        return queryPartialList(listQueryBuilder.build(), dynamoDBClient)
     }
 
     fun validateRequest(

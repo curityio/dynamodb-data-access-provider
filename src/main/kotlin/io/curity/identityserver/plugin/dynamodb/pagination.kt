@@ -21,6 +21,7 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 
 const val DEFAULT_PAGE_SIZE = 50
+const val MAXIMUM_PAGE_SIZE = DEFAULT_PAGE_SIZE
 
 // Returns a sequence with the items produced by a query, handling pagination if needed
 fun querySequence(request: QueryRequest, client: DynamoDBClient) = sequence {
@@ -45,25 +46,6 @@ data class PartialListResult(
     val items: List<Map<String, AttributeValue>>,
     val lastEvaluationKey: Map<String, AttributeValue>?
 )
-
-// Returns a pair with the next page's items as a list, along with the last evaluation key, using a query request
-fun queryPartialList(
-    request: QueryRequest,
-    client: DynamoDBClient
-): PartialListResult {
-    val response = client.query(request)
-    val lastEvaluationKey: Map<String, AttributeValue>? =
-        if (response.hasLastEvaluatedKey()) {
-            response.lastEvaluatedKey()
-        } else {
-            null
-        }
-
-    return PartialListResult(
-        response.items(),
-        lastEvaluationKey
-    )
-}
 
 // Returns a pair with the next page's items as a list, along with the last evaluation key, using a query request
 fun queryPartialList(
@@ -136,25 +118,6 @@ fun scanSequence(request: ScanRequest, client: DynamoDBClient) = sequence {
     }
 }
 
-// Returns a pair with the next page's items as a list, along with the last evaluation key, using a scan request
-fun scanPartialList(
-    request: ScanRequest,
-    client: DynamoDBClient
-): PartialListResult {
-    val response = client.scan(request)
-    val lastEvaluationKey: Map<String, AttributeValue>? =
-        if (response.hasLastEvaluatedKey()) {
-            response.lastEvaluatedKey()
-        } else {
-            null
-        }
-
-    return PartialListResult(
-        response.items(),
-        lastEvaluationKey
-    )
-}
-
 fun scanPartialList(
     dynamoDBClient: DynamoDBClient,
     listScanBuilder: ScanRequest.Builder,
@@ -178,18 +141,18 @@ fun scanPartialList(
         }
 
         val request = listScanBuilder.build()
-        val response = scanPartialList(request, dynamoDBClient)
+        val response = dynamoDBClient.scan(request)
         val number = limit - items.size
-        items += response.items.asSequence().take(number)
+        items += response.items().asSequence().take(number)
 
-        if (response.items.size > number) {
+        if (response.items().size > number) {
             // There were more items than needed. The end of the response was skipped.
             // The last evaluated key should be set to the last item added to the results.
             lastEvaluatedKey = toLastEvaluatedKey(items.last())
             break
         }
 
-        lastEvaluatedKey = response.lastEvaluationKey
+        lastEvaluatedKey = if (response.hasLastEvaluatedKey()) response.lastEvaluatedKey() else null
 
         if (items.size == limit && request.filterExpression().isNullOrEmpty()) {
             // We reach the limit, and we have no filter (to return all rows),
