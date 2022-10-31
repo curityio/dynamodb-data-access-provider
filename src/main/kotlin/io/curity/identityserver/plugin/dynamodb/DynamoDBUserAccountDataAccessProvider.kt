@@ -288,6 +288,7 @@ class DynamoDBUserAccountDataAccessProvider(
             { filterRequest.useScan() },
             _configuration.getAllowTableScans(),
             AccountsTable.queryCapabilities,
+            filterRequest,
             sortRequest
         )
 
@@ -310,7 +311,8 @@ class DynamoDBUserAccountDataAccessProvider(
         QueryHelper.validateRequest(
             { filterRequest.useScan() },
             _configuration.getAllowTableScans(),
-            AccountsTable.queryCapabilities
+            AccountsTable.queryCapabilities,
+            filterRequest
         )
 
         val expression = buildGetAllByExpression(filterRequest, activeAccountsOnly)

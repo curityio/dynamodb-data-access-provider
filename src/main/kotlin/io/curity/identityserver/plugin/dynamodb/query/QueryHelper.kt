@@ -26,6 +26,8 @@ import io.curity.identityserver.plugin.dynamodb.queryPartialList
 import io.curity.identityserver.plugin.dynamodb.scanPartialList
 import se.curity.identityserver.sdk.datasource.db.TableCapabilities
 import se.curity.identityserver.sdk.datasource.errors.DataSourceCapabilityException
+import se.curity.identityserver.sdk.datasource.query.AttributesFiltering
+import se.curity.identityserver.sdk.datasource.query.AttributesFiltering.FilterType
 import se.curity.identityserver.sdk.datasource.query.AttributesSorting
 import se.curity.identityserver.sdk.service.Json
 import software.amazon.awssdk.core.SdkBytes
@@ -152,8 +154,18 @@ object QueryHelper {
         isUsingScan: () -> Boolean,
         allowedScan: Boolean,
         tableCapabilities: TableCapabilities? = null,
+        attributesFiltering: AttributesFiltering? = null,
         sortRequest: AttributesSorting? = null
     ) {
+        if (FilterType.ENDS_WITH == attributesFiltering?.filterType
+            && tableCapabilities?.unsupported?.contains(TableCapabilities.TableCapability.FILTERING_ENDS_WITH) == true
+        ) {
+            throw DataSourceCapabilityException(
+                TableCapabilities.TableCapability.FILTERING_ENDS_WITH,
+                TableCapabilities.TableCapability.FILTERING_ENDS_WITH.unsupportedMessage
+            )
+        }
+
         if (isUsingScan() && !allowedScan) {
             throw DataSourceCapabilityException(
                 TableCapabilities.TableCapability.FILTERING_ABSENT,

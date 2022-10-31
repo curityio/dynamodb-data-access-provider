@@ -285,6 +285,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             indexAndKeys::useScan,
             _configuration.getAllowTableScans(),
             DcrTable.queryCapabilities(),
+            null,
             sortRequest
         )
 
