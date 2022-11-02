@@ -336,9 +336,8 @@ class DynamoDBUserAccountDataAccessProvider(
             AccountsTable.userNameInitialUserNameIndex
         )
         if (!_dynamoDBClient.supportsFeature(featureId)) {
-            val operationName = "getAllBy"
-            _logger.info("User account data source '{}' does not support '{}'", this, operationName)
-            throw UnsupportedOperationException(operationName)
+            _logger.info("User account data source '{}' does not support '{}'", this, GETALLBY_OPERATION)
+            throw UnsupportedOperationException(GETALLBY_OPERATION)
         }
     }
 
@@ -1314,6 +1313,8 @@ class DynamoDBUserAccountDataAccessProvider(
          * Warning: Changing this value is a breaking change: the indexes will need to be rebuilt.
          */
         const val INITIAL_LENGTH = 2
+
+        const val GETALLBY_OPERATION = "getAllBy"
 
         private fun removeLinkedAccounts(account: AccountAttributes): AccountAttributes {
             var withoutLinks = account
