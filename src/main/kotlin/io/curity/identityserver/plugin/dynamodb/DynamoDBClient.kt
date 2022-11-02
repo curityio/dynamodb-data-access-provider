@@ -67,9 +67,9 @@ class DynamoDBClient @JvmOverloads constructor(
 ) : ManagedObject<DynamoDBDataAccessProviderConfiguration>(config) {
     private val _awsRegion = Region.of(config.getAwsRegion().awsRegion)
     private val client = createClient()
-    private val supportedFeatures: Map<String, Boolean> = featuresToCheck.associate {
+    private val unsupportedFeatures: Set<String> = featuresToCheck.map {
         it.featureId() to it.checkFeature(client)
-    }
+    }.filter { !it.second }.map { it.first }.toSet()
 
     private fun createClient(): DynamoDbClient {
         val accessMethod = config.getDynamodbAccessMethod()
@@ -216,7 +216,7 @@ class DynamoDBClient @JvmOverloads constructor(
         throw UnsupportedQueryException.QueryRequiresTableScan()
     }
 
-    fun supportsFeature(featureId: String): Boolean = supportedFeatures.getOrDefault(featureId, false)
+    fun supportsFeature(featureId: String): Boolean = !unsupportedFeatures.contains(featureId)
 
     fun transactionWriteItems(request: TransactWriteItemsRequest): TransactWriteItemsResponse =
         client.call { transactWriteItems(request) }
