@@ -60,10 +60,16 @@ import software.amazon.awssdk.services.sts.model.Credentials
 import java.net.URI
 import java.time.Duration
 
-class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration) :
-    ManagedObject<DynamoDBDataAccessProviderConfiguration>(config) {
+
+class DynamoDBClient @JvmOverloads constructor(
+    private val config: DynamoDBDataAccessProviderConfiguration,
+    featuresToCheck: Collection<DynamoDBSchemaFeatureCheck> = listOf()
+) : ManagedObject<DynamoDBDataAccessProviderConfiguration>(config) {
     private val _awsRegion = Region.of(config.getAwsRegion().awsRegion)
     private val client = createClient()
+    private val supportedFeatures: Map<String, Boolean> = featuresToCheck.associate {
+        it.featureId() to it.checkFeature(client)
+    }
 
     private fun createClient(): DynamoDbClient {
         val accessMethod = config.getDynamodbAccessMethod()
@@ -209,6 +215,8 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
     } else {
         throw UnsupportedQueryException.QueryRequiresTableScan()
     }
+
+    fun supportsFeature(featureId: String): Boolean = supportedFeatures.getOrDefault(featureId, false)
 
     fun transactionWriteItems(request: TransactWriteItemsRequest): TransactWriteItemsResponse =
         client.call { transactWriteItems(request) }

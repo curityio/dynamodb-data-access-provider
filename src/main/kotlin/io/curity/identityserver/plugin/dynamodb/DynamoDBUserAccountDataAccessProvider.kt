@@ -277,6 +277,8 @@ class DynamoDBUserAccountDataAccessProvider(
         sortRequest: AttributesSorting?,
         filterRequest: AttributesFiltering?
     ): PaginatedDataAccessResult<AccountAttributes> {
+        checkGetAllBySupported()
+
         if (paginationRequest != null && paginationRequest.count > MAXIMUM_PAGE_SIZE) {
             throw DataSourceCapabilityException(
                 TableCapability.PAGE_SIZE_INVALID,
@@ -308,6 +310,8 @@ class DynamoDBUserAccountDataAccessProvider(
     }
 
     override fun getCountBy(activeAccountsOnly: Boolean, filterRequest: AttributesFiltering?): Long {
+        checkGetAllBySupported()
+
         QueryHelper.validateRequest(
             { filterRequest.useScan() },
             _configuration.getAllowTableScans(),
@@ -323,6 +327,18 @@ class DynamoDBUserAccountDataAccessProvider(
                 is QueryPlan.UsingQueries -> queryCount(queryPlan)
                 is QueryPlan.UsingScan -> scanCount(queryPlan)
             }
+        }
+    }
+
+    private fun checkGetAllBySupported() {
+        val featureId = DynamoDBGlobalSecondaryIndexFeatureCheck.buildFeatureId(
+            AccountsTable.name(_configuration),
+            AccountsTable.userNameInitialUserNameIndex
+        )
+        if (!_dynamoDBClient.supportsFeature(featureId)) {
+            val operationName = "getAllBy"
+            _logger.info("User account data source '{}' does not support '{}'", this, operationName)
+            throw UnsupportedOperationException(operationName)
         }
     }
 
@@ -1200,9 +1216,9 @@ class DynamoDBUserAccountDataAccessProvider(
         val created = NumberLongAttribute("created")
         val updated = NumberLongAttribute("updated")
 
-        private val userNameInitialUserNameIndex =
+        val userNameInitialUserNameIndex =
             PartitionAndSortIndex("userNameInitial-userName-index", userNameInitial, userName)
-        private val emailInitialEmailIndex =
+        val emailInitialEmailIndex =
             PartitionAndSortIndex("emailInitial-email-index", emailInitial, email)
 
         fun keyFromAccountId(accountIdValue: String) = mapOf(
