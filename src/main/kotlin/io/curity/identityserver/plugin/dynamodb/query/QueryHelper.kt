@@ -151,7 +151,7 @@ object QueryHelper {
     }
 
     fun validateRequest(
-        isUsingScan: () -> Boolean,
+        useScan: Boolean,
         allowedScan: Boolean,
         tableCapabilities: TableCapabilities? = null,
         attributesFiltering: AttributesFiltering? = null,
@@ -166,14 +166,14 @@ object QueryHelper {
             )
         }
 
-        if (isUsingScan() && !allowedScan) {
+        if (useScan && !allowedScan) {
             throw DataSourceCapabilityException(
                 TableCapabilities.TableCapability.FILTERING_ABSENT,
                 TableCapabilities.TableCapability.FILTERING_ABSENT.unsupportedMessage
             )
         }
 
-        val sortingExpected = if (isUsingScan()) {
+        val sortingExpected = if (useScan) {
             // Ignore sorting with scan as unsupported
             false
         } else {

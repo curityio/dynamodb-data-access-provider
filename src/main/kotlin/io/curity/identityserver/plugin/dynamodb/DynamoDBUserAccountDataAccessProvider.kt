@@ -287,7 +287,7 @@ class DynamoDBUserAccountDataAccessProvider(
         }
 
         QueryHelper.validateRequest(
-            { filterRequest.useScan() },
+            filterRequest.useScan(),
             _configuration.getAllowTableScans(),
             AccountsTable.queryCapabilities,
             filterRequest,
@@ -313,7 +313,7 @@ class DynamoDBUserAccountDataAccessProvider(
         checkGetAllBySupported()
 
         QueryHelper.validateRequest(
-            { filterRequest.useScan() },
+            filterRequest.useScan(),
             _configuration.getAllowTableScans(),
             AccountsTable.queryCapabilities,
             filterRequest
@@ -352,13 +352,14 @@ class DynamoDBUserAccountDataAccessProvider(
             // First, build the expression on index as follows:
             // pkAttribute = <filterInitials> and sortKeyAttribute begins_with(filter)
 
-            // filterAttribute cannot be null since the request has been checked previously.
+            // attributeMap[filterRequest.filterBy] cannot be null since the request has been checked previously.
             val filterAttribute = AccountsTable.queryCapabilities.attributeMap[filterRequest.filterBy]!!
-            val startsWithIndex = AccountsTable.queryCapabilities.indexes.first {
-                it.partitionAttribute is StartsWithStringAttribute
-                        && it.sortAttribute == filterAttribute
-            }
-            val startsWithAttribute = startsWithIndex.partitionAttribute as StartsWithStringAttribute
+            val startsWithAttribute = AccountsTable.queryCapabilities.indexes.asSequence()
+                .filter { it.sortAttribute == filterAttribute }
+                .map { it.partitionAttribute }
+                .filterIsInstance<StartsWithStringAttribute>()
+                .first()
+
             val swExpression = BinaryAttributeExpression(
                 startsWithAttribute.fullAttribute,
                 BinaryAttributeOperator.Sw,
