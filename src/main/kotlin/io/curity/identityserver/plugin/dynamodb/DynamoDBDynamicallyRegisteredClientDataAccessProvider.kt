@@ -282,7 +282,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         val indexAndKeys = QueryHelper.findIndexAndKeysFrom(DcrTable, potentialKeys)
 
         validateRequest(
-            indexAndKeys.useScan(),
+            indexAndKeys.useScan,
             _configuration.getAllowTableScans(),
             DcrTable.queryCapabilities(),
             null,
@@ -316,7 +316,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         val potentialKeys = createPotentialKeys(templateId, username, activeClientsOnly)
         val indexAndKeys = QueryHelper.findIndexAndKeysFrom(DcrTable, potentialKeys)
 
-        validateRequest(indexAndKeys.useScan(), _configuration.getAllowTableScans())
+        validateRequest(indexAndKeys.useScan, _configuration.getAllowTableScans())
 
         return QueryHelper.count(
             _dynamoDBClient,
@@ -325,8 +325,13 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         )
     }
 
-    private fun toLastEvaluatedKey(item: Map<String, AttributeValue>): Map<String, AttributeValue> =
-        mapOf(DcrTable.clientId.name to item[DcrTable.clientId.name]!!)
+    private fun toLastEvaluatedKey(item: Map<String, AttributeValue>): Map<String, AttributeValue> {
+        val clientId = item[DcrTable.clientId.name] ?: throw IllegalArgumentException(
+            "Cannot convert item to a key since ${DcrTable.clientId.name} " +
+                    "attribute value is missing."
+        )
+        return mapOf(DcrTable.clientId.name to clientId)
+    }
 
     companion object {
         private val logger: Logger =

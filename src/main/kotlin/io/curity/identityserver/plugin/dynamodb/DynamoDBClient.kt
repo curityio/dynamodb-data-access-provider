@@ -67,6 +67,10 @@ class DynamoDBClient @JvmOverloads constructor(
 ) : ManagedObject<DynamoDBDataAccessProviderConfiguration>(config) {
     private val _awsRegion = Region.of(config.getAwsRegion().awsRegion)
     private val client = createClient()
+
+    /**
+     * Stores all features which have been explicitly checked and not found.
+     */
     private val unsupportedFeatures: Set<String> = featuresToCheck.map {
         it.featureId() to it.checkFeature(client)
     }.filter { !it.second }.map { it.first }.toSet()
@@ -216,6 +220,12 @@ class DynamoDBClient @JvmOverloads constructor(
         throw UnsupportedQueryException.QueryRequiresTableScan()
     }
 
+    /**
+     * @param featureId The feature's ID to check support for.
+     * @return true if the feature is supported, false otherwise.
+     * Note that all features are considered supported by default: unsupported features are the one explicitly
+     * provided in the constructor and for which the check failed.
+     */
     fun supportsFeature(featureId: String): Boolean = !unsupportedFeatures.contains(featureId)
 
     fun transactionWriteItems(request: TransactWriteItemsRequest): TransactWriteItemsResponse =

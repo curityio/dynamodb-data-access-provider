@@ -26,7 +26,7 @@ data class DynamoDBQuery(
     val filterExpression: String,
     val valueMap: Map<String, AttributeValue>,
     val nameMap: Map<String, String>,
-    val sortOrder: SortOrder? = null
+    val sortOrder: SortOrder? = null,
 )
 
 fun QueryRequest.Builder.configureWith(query: DynamoDBQuery): QueryRequest.Builder {

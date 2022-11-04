@@ -30,7 +30,7 @@ class DynamoDBUserAccountDataAccessProviderTest {
     private val dap = DynamoDBUserAccountDataAccessProvider(dynamoDBClient, configuration)
 
     @Test
-    fun testGetAllByThrowsWhenFeatureIsNotSupported() {
+    fun `getAllBy throws when feature is not supported`() {
         whenever(dynamoDBClient.supportsFeature(featureId)).doReturn(false)
 
         val exception = Assertions.assertThrows(UnsupportedOperationException::class.java) {
@@ -41,7 +41,7 @@ class DynamoDBUserAccountDataAccessProviderTest {
     }
 
     @Test
-    fun testGetAllByQueriesDynamoDB() {
+    fun `getAllBy queries DynamoDB`() {
         val request = createQueryRequest().build()
         whenever(dynamoDBClient.supportsFeature(featureId)).doReturn(true)
         whenever(dynamoDBClient.query(request)).doReturn(QueryResponse.builder().build())
@@ -61,7 +61,7 @@ class DynamoDBUserAccountDataAccessProviderTest {
     }
 
     @Test
-    fun testGetCountByThrowsWhenFeatureIsNotSupported() {
+    fun `getCountBy throws when feature is not supported`() {
         whenever(dynamoDBClient.supportsFeature(featureId)).doReturn(false)
 
         val exception = Assertions.assertThrows(UnsupportedOperationException::class.java) {
@@ -72,7 +72,7 @@ class DynamoDBUserAccountDataAccessProviderTest {
     }
 
     @Test
-    fun testGetCountByQueriesDynamoDB() {
+    fun `getCountBy queries DynamoDB`() {
         val request = createQueryRequest().select(Select.COUNT).limit(null).build()
         whenever(dynamoDBClient.supportsFeature(featureId)).doReturn(true)
         whenever(dynamoDBClient.query(request)).doReturn(QueryResponse.builder().count(10).build())

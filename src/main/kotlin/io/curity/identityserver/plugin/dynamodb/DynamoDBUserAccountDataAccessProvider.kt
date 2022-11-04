@@ -301,12 +301,12 @@ class DynamoDBUserAccountDataAccessProvider(
             QueryPlan.UsingScan.fullScan()
         }
 
-        val values = when (queryPlan) {
+        val (items, cursor) = when (queryPlan) {
             is QueryPlan.UsingQueries -> query(queryPlan, sortRequest, paginationRequest)
             is QueryPlan.UsingScan -> scan(queryPlan, paginationRequest)
         }
 
-        return PaginatedDataAccessResult(values.first.map { it.toAccountAttributes() }.toList(), values.second)
+        return PaginatedDataAccessResult(items.map { it.toAccountAttributes() }.toList(), cursor)
     }
 
     override fun getCountBy(activeAccountsOnly: Boolean, filterRequest: AttributesFiltering?): Long {
@@ -353,7 +353,11 @@ class DynamoDBUserAccountDataAccessProvider(
             // pkAttribute = <filterInitials> and sortKeyAttribute begins_with(filter)
 
             // attributeMap[filterRequest.filterBy] cannot be null since the request has been checked previously.
-            val filterAttribute = AccountsTable.queryCapabilities.attributeMap[filterRequest.filterBy]!!
+            val filterAttribute = AccountsTable.queryCapabilities.attributeMap[filterRequest.filterBy]
+                ?: IllegalArgumentException(
+                    "Filtering using the ${filterRequest.filterBy} attribute " +
+                            "is not supported in DynamoDB."
+                )
             val startsWithAttribute = AccountsTable.queryCapabilities.indexes.asSequence()
                 .filter { it.sortAttribute == filterAttribute }
                 .map { it.partitionAttribute }
@@ -1154,12 +1158,17 @@ class DynamoDBUserAccountDataAccessProvider(
                 AccountsTable.attributes.name -> map.putAll(
                     jsonHandler.fromJson(AccountsTable.attributes.optionalFrom(this)) ?: emptyMap<String, Any>()
                 )
+
                 AccountsTable.created.name -> {
                 } // skip, this goes to meta
                 AccountsTable.updated.name -> {
                 } // skip, this goes to meta
                 AccountsTable.password.name -> {
                 } // do not return passwords
+                AccountsTable.userNameInitial.name -> {
+                } // Ignore: attribute specific to DynamoDB
+                AccountsTable.emailInitial.name -> {
+                } // Ignore: attribute specific to DynamoDB
                 else -> map[key] = value.s()
             }
         }

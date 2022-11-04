@@ -74,7 +74,7 @@ object QueryHelper {
         // Loop to get requested page count items, as DynamoDB 'limit' is:
         // "The maximum number of items to evaluate (not necessarily the number of matching items)."
         while (more) {
-            val (list, lastEvaluationKey) = if (indexAndKeys.useScan()) {
+            val (list, lastEvaluationKey) = if (indexAndKeys.useScan) {
                 val listScanBuilder = ScanRequest.builder().init(tableName, indexAndKeys)
                 // Items will be unsorted!
                 scanPartialList(dynamoDBClient, listScanBuilder, expectedCount, exclusiveStartKey, toLastEvaluatedKey)
@@ -98,7 +98,7 @@ object QueryHelper {
         indexAndKeys: IndexAndKeys<Any, Any>
     ): Long {
 
-        return if (indexAndKeys.useScan()) {
+        return if (indexAndKeys.useScan) {
             val countScanBuilder = ScanRequest.builder().init(tableName, indexAndKeys)
             countScanBuilder.select(Select.COUNT)
             // Don't enable consistentRead as with listScan & listQuery
@@ -444,6 +444,6 @@ object QueryHelper {
             }
         }
 
-        fun useScan(): Boolean = this.partitionKey == null
+        val useScan = this.partitionKey == null
     }
 }
