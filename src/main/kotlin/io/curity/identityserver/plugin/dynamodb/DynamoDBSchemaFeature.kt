@@ -1,5 +1,7 @@
 package io.curity.identityserver.plugin.dynamodb
 
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient
 import software.amazon.awssdk.services.dynamodb.model.DescribeTableRequest
 
@@ -13,6 +15,8 @@ class DynamoDBGlobalSecondaryIndexFeatureCheck(
     private val partitionAndSortIndex: PartitionAndSortIndex<*, *>
 ) : DynamoDBSchemaFeatureCheck {
     companion object {
+        val logger: Logger = LoggerFactory.getLogger(DynamoDBGlobalSecondaryIndexFeatureCheck::class.java)
+
         fun buildFeatureId(tableName: String, partitionAndSortIndex: PartitionAndSortIndex<*, *>) =
             tableName + ":" + partitionAndSortIndex.name
     }
@@ -22,8 +26,18 @@ class DynamoDBGlobalSecondaryIndexFeatureCheck(
     }
 
     override fun checkFeature(dynamoDBClient: DynamoDbClient): Boolean {
-        val request = DescribeTableRequest.builder().tableName(tableName).build()
-        val response = dynamoDBClient.describeTable(request)
-        return response.table().globalSecondaryIndexes().any { it.indexName() == partitionAndSortIndex.name }
+        return try {
+            val request = DescribeTableRequest.builder().tableName(tableName).build()
+            val response = dynamoDBClient.describeTable(request)
+            response.table().globalSecondaryIndexes().any { it.indexName() == partitionAndSortIndex.name }
+        } catch (e: Exception) {
+            // If DynamoDB database is not reachable during plugin initialization,
+            // assumes that the feature is available by default.
+            logger.warn(
+                "An exception occurred while checking feature ${featureId()} into DynamoDB database. " +
+                        "The feature is assumed to be available.", e
+            )
+            true
+        }
     }
 }

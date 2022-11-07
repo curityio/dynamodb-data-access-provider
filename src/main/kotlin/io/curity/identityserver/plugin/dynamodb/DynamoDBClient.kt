@@ -35,10 +35,15 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider
 import software.amazon.awssdk.core.exception.SdkClientException
 import software.amazon.awssdk.core.exception.SdkException
+import software.amazon.awssdk.core.retry.RetryPolicy
+import software.amazon.awssdk.core.retry.conditions.AndRetryCondition
+import software.amazon.awssdk.core.retry.conditions.RetryCondition
+import software.amazon.awssdk.core.retry.conditions.SdkRetryCondition
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemResponse
+import software.amazon.awssdk.services.dynamodb.model.DescribeTableRequest
 import software.amazon.awssdk.services.dynamodb.model.DynamoDbException
 import software.amazon.awssdk.services.dynamodb.model.DynamoDbResponse
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
@@ -110,6 +115,18 @@ class DynamoDBClient @JvmOverloads constructor(
             c
                 .apiCallAttemptTimeout(config.getApiCallAttemptTimeout().map { Duration.ofSeconds(it) }.orElse(null))
                 .apiCallTimeout(config.getApiCallTimeout().map { Duration.ofSeconds(it) }.orElse(null))
+                .retryPolicy(
+                    RetryPolicy.builder().retryCondition(
+                        // Retry on SDK defaults for all requests but DescribeTableRequest ones.
+                        // DescribeTableRequest are executed at plugin startup and should return quickly (without retries)
+                        // if DynamoDB is not reachable yet. The plugin initialization timeout will not be triggered, and it
+                        // will be considered available in the application.
+                        AndRetryCondition.create(
+                            SdkRetryCondition.DEFAULT,
+                            RetryCondition { it.originalRequest() !is DescribeTableRequest })
+                    )
+                        .build()
+                )
         }
 
         return builder.build()
