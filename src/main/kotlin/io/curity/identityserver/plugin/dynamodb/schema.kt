@@ -70,6 +70,7 @@ interface DynamoDBAttribute<T> {
     fun toExpressionNameValuePair(value: T): Pair<String, AttributeValue>
     fun optionalFrom(map: Map<String, AttributeValue>): T?
     fun from(map: Map<String, AttributeValue>): T
+    fun attributeValueFrom(map: Map<String, AttributeValue>): AttributeValue
     val hashName: String
     val colonName: String
     fun toAttrValue(value: T): AttributeValue
@@ -102,6 +103,7 @@ abstract class BaseAttribute<T>(
     override fun toExpressionNameValuePair(value: T) = ":${name}" to toAttrValue(value)
     override fun optionalFrom(map: Map<String, AttributeValue>): T? = map[name]?.let { from(it) }
     override fun from(map: Map<String, AttributeValue>) = optionalFrom(map) ?: throw SchemaErrorException(this)
+    override fun attributeValueFrom(map: Map<String, AttributeValue>) = map[name] ?: throw SchemaErrorException(this)
     override fun addTo(map: MutableMap<String, AttributeValue>, value: T) {
         map[name] = toAttrValue(value)
     }

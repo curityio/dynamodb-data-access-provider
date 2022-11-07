@@ -122,7 +122,7 @@ object QueryHelper {
         ascendingOrder: Boolean
     ): QueryRequest.Builder {
         tableName(tableName)
-            .indexName(indexAndKeys.indexName)
+            .indexName(indexAndKeys.index?.name)
             .keyConditionExpression(indexAndKeys.keyConditionExpression)
             .expressionAttributeNames(indexAndKeys.expressionNameMap())
             .expressionAttributeValues(indexAndKeys.expressionValueMap())
@@ -235,14 +235,14 @@ object QueryHelper {
                 if (foundIndex != null) {
                     // Found an index with both PK & SK, so move other potential keys to filters
                     val filterKeys = moveLeftOverKeys(potentialKeys, potentialPartitionKey)
-                    return IndexAndKeys(foundIndex.indexName, potentialPartitionKey.toPair(), filterKeys)
+                    return IndexAndKeys(foundIndex, potentialPartitionKey.toPair(), filterKeys)
                 }
             }
             // Found indexes but only with one of the PKs but without any of the provided SKs,
             // so move other potential keys to filters
             val filterKeys = moveLeftOverKeys(potentialKeys, potentialPartitionKey)
             // And take the first as the one to work with
-            return IndexAndKeys(potentialIndexes.first().indexName, potentialPartitionKey.toPair(), filterKeys)
+            return IndexAndKeys(potentialIndexes.first(), potentialPartitionKey.toPair(), filterKeys)
         }
         // Found no indexes with any of the provided PKs, move all potential keys to filters
         val filterKeys = moveLeftOverKeys(potentialKeys)
@@ -381,12 +381,12 @@ object QueryHelper {
      *
      * @param T1                partition key's type
      * @param T2                filter keys' type
-     * @property indexName      fitting provided keys
+     * @property index          fitting provided keys
      * @property partitionKey   [Pair] with [DynamoDBAttribute] & value
      * @property filterKeys     [Map] of [DynamoDBAttribute] & value
      */
     class IndexAndKeys<T1, T2>(
-        val indexName: String?,
+        val index: Index?,
         private val partitionKey: Pair<DynamoDBAttribute<T1>, T1>?,
         private val filterKeys: Map<DynamoDBAttribute<T2>, T2>
     ) {

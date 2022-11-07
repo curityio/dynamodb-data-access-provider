@@ -940,7 +940,7 @@ class DynamoDBUserAccountDataAccessProvider(
     }
 
     private fun toLastEvaluatedKey(item: Map<String, AttributeValue>): Map<String, AttributeValue> =
-        mapOf(AccountsTable.pk.name to item[AccountsTable.pk.name]!!)
+        mapOf(AccountsTable.primaryKey.attribute.name to AccountsTable.primaryKey.attribute.attributeValueFrom(item))
 
     private fun scanCount(queryPlan: QueryPlan.UsingScan?): Long {
         val scanRequestBuilder = ScanRequest.builder()
@@ -1009,7 +1009,9 @@ class DynamoDBUserAccountDataAccessProvider(
             .configureWith(dynamoDBQuery)
 
         val result =
-            queryPartialList(queryRequestBuilder, limit, exclusiveStartKey, _dynamoDBClient, ::toLastEvaluatedKey)
+            queryPartialList(queryRequestBuilder, limit, exclusiveStartKey, _dynamoDBClient) {
+                query.key.index.toKey(it, AccountsTable.primaryKey)
+            }
         return result.items to QueryHelper.getEncodedCursor(jsonHandler, result.lastEvaluationKey)
     }
 
@@ -1212,6 +1214,7 @@ class DynamoDBUserAccountDataAccessProvider(
         val created = NumberLongAttribute("created")
         val updated = NumberLongAttribute("updated")
 
+        val primaryKey = PrimaryKey(pk)
         val userNameInitialUserNameIndex =
             PartitionAndSortIndex("userNameInitial-userName-index", userNameInitial, userName)
         val emailInitialEmailIndex =

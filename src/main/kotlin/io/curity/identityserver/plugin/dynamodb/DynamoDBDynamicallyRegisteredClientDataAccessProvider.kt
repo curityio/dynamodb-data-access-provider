@@ -74,7 +74,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         val redirectUris = ListStringAttribute("redirectUris")
         val grantTypes = ListStringAttribute("grantTypes")
 
-        private val primaryKey = PrimaryKey(clientId)
+        val primaryKey = PrimaryKey(clientId)
         private val authenticatedUserCreatedIndex =
             PartitionAndSortIndex("authenticatedUser-created-index", authenticatedUser, created)
         private val authenticatedUserUpdatedIndex =
@@ -297,7 +297,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             isAscendingOrder(sortRequest),
             paginationRequest?.count,
             paginationRequest?.cursor,
-            ::toLastEvaluatedKey
+            getLastEvaluatedKeyFun(indexAndKeys)
         )
 
         val items = values
@@ -325,13 +325,11 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         )
     }
 
-    private fun toLastEvaluatedKey(item: Map<String, AttributeValue>): Map<String, AttributeValue> {
-        val clientId = item[DcrTable.clientId.name] ?: throw IllegalArgumentException(
-            "Cannot convert item to a key since ${DcrTable.clientId.name} " +
-                    "attribute value is missing."
-        )
-        return mapOf(DcrTable.clientId.name to clientId)
-    }
+    private fun getLastEvaluatedKeyFun(
+        indexAndKeys: QueryHelper.IndexAndKeys<Any, Any>
+    ): (Map<String, AttributeValue>) -> Map<String, AttributeValue> =
+        if (indexAndKeys.index != null) ({ indexAndKeys.index.toKey(it, DcrTable.primaryKey) })
+        else ({ mapOf(DcrTable.primaryKey.attribute.name to DcrTable.primaryKey.attribute.attributeValueFrom(it)) })
 
     companion object {
         private val logger: Logger =
