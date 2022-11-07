@@ -291,6 +291,8 @@ class StartsWithStringAttribute(
     override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
 
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(getInitials(value)).build()
+
+    override fun canBeUsedOnQueryTo(other: DynamoDBAttribute<*>) = this == other || fullAttribute == other
 }
 
 class ExpressionBuilder(

@@ -18,12 +18,13 @@ package io.curity.identityserver.plugin.dynamodb
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeExpression
 import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeOperator
+import io.curity.identityserver.plugin.dynamodb.query.DisjunctiveNormalForm
 import io.curity.identityserver.plugin.dynamodb.query.DynamoDBQueryBuilder
 import io.curity.identityserver.plugin.dynamodb.query.Index
-import io.curity.identityserver.plugin.dynamodb.query.LogicalExpression
-import io.curity.identityserver.plugin.dynamodb.query.LogicalOperator
+import io.curity.identityserver.plugin.dynamodb.query.Product
 import io.curity.identityserver.plugin.dynamodb.query.QueryHelper
 import io.curity.identityserver.plugin.dynamodb.query.QueryPlan
+import io.curity.identityserver.plugin.dynamodb.query.QueryPlan.RangeCondition
 import io.curity.identityserver.plugin.dynamodb.query.QueryPlanner
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
 import io.curity.identityserver.plugin.dynamodb.query.UnsupportedQueryException
@@ -287,21 +288,11 @@ class DynamoDBUserAccountDataAccessProvider(
         }
 
         QueryHelper.validateRequest(
-            filterRequest.useScan(),
-            _configuration.getAllowTableScans(),
-            AccountsTable.queryCapabilities,
-            filterRequest,
-            sortRequest
+            filterRequest.useScan(), _configuration.getAllowTableScans(),
+            AccountsTable.queryCapabilities, filterRequest, sortRequest
         )
 
-        val expression = buildGetAllByExpression(filterRequest, activeAccountsOnly)
-        val queryPlan = if (expression != null) {
-            QueryPlanner(AccountsTable.queryCapabilities).build(expression)
-        } else {
-            QueryPlan.UsingScan.fullScan()
-        }
-
-        val (items, cursor) = when (queryPlan) {
+        val (items, cursor) = when (val queryPlan = buildQueryPlan(filterRequest, activeAccountsOnly)) {
             is QueryPlan.UsingQueries -> query(queryPlan, sortRequest, paginationRequest)
             is QueryPlan.UsingScan -> scan(queryPlan, paginationRequest)
         }
@@ -313,20 +304,13 @@ class DynamoDBUserAccountDataAccessProvider(
         checkGetAllBySupported()
 
         QueryHelper.validateRequest(
-            filterRequest.useScan(),
-            _configuration.getAllowTableScans(),
-            AccountsTable.queryCapabilities,
-            filterRequest
+            filterRequest.useScan(), _configuration.getAllowTableScans(),
+            AccountsTable.queryCapabilities, filterRequest
         )
 
-        val expression = buildGetAllByExpression(filterRequest, activeAccountsOnly)
-        return if (expression == null) {
-            scanCount(null)
-        } else {
-            when (val queryPlan = QueryPlanner(AccountsTable.queryCapabilities).build(expression)) {
-                is QueryPlan.UsingQueries -> queryCount(queryPlan)
-                is QueryPlan.UsingScan -> scanCount(queryPlan)
-            }
+        return when (val queryPlan = buildQueryPlan(filterRequest, activeAccountsOnly)) {
+            is QueryPlan.UsingQueries -> queryCount(queryPlan)
+            is QueryPlan.UsingScan -> scanCount(queryPlan)
         }
     }
 
@@ -344,53 +328,56 @@ class DynamoDBUserAccountDataAccessProvider(
     private fun AttributesFiltering?.useScan(): Boolean =
         this == null || this.filterBy.isNullOrEmpty() || this.filter.isNullOrEmpty()
 
-    private fun buildGetAllByExpression(
+    private fun buildQueryPlan(
         filterRequest: AttributesFiltering?, activeAccountsOnly: Boolean
-    ): io.curity.identityserver.plugin.dynamodb.query.Expression? {
-        var expression: io.curity.identityserver.plugin.dynamodb.query.Expression? = null
-        if (filterRequest != null && filterRequest.filter?.isNotEmpty() == true) {
-            // First, build the expression on index as follows:
-            // pkAttribute = <filterInitials> and sortKeyAttribute begins_with(filter)
-
-            // attributeMap[filterRequest.filterBy] cannot be null since the request has been checked previously.
-            val filterAttribute = AccountsTable.queryCapabilities.attributeMap[filterRequest.filterBy]
-                ?: IllegalArgumentException(
-                    "Filtering using the ${filterRequest.filterBy} attribute " +
-                            "is not supported in DynamoDB."
+    ): QueryPlan {
+        val activeAccountsOnlyProduct = if (activeAccountsOnly) {
+            DisjunctiveNormalForm(
+                setOf(
+                    Product.of(
+                        BinaryAttributeExpression(
+                            AccountsTable.active,
+                            BinaryAttributeOperator.Eq,
+                            AccountsTable.active.toAttrValue(true).bool()
+                        )
+                    )
                 )
-            val startsWithAttribute = AccountsTable.queryCapabilities.indexes.asSequence()
-                .filter { it.sortAttribute == filterAttribute }
-                .map { it.partitionAttribute }
-                .filterIsInstance<StartsWithStringAttribute>()
-                .first()
-
-            val swExpression = BinaryAttributeExpression(
-                startsWithAttribute.fullAttribute,
-                BinaryAttributeOperator.Sw,
-                filterRequest.filter
             )
-            val keyExpression = BinaryAttributeExpression(
-                startsWithAttribute,
-                BinaryAttributeOperator.Eq,
-                startsWithAttribute.toAttrValue(filterRequest.filter).s()
-            )
-            expression = LogicalExpression(keyExpression, LogicalOperator.And, swExpression)
+        } else {
+            DisjunctiveNormalForm(setOf())
         }
 
-        if (activeAccountsOnly) {
-            val activeAccountOnlyExpression = BinaryAttributeExpression(
-                AccountsTable.active,
-                BinaryAttributeOperator.Eq,
-                AccountsTable.active.toAttrValue(true).bool()
+        if (filterRequest == null || filterRequest.useScan()) {
+            return QueryPlan.UsingScan(activeAccountsOnlyProduct)
+        }
+
+        val filterAttribute = AccountsTable.queryCapabilities.attributeMap[filterRequest.filterBy]
+            ?: throw IllegalArgumentException(
+                "Filtering using the ${filterRequest.filterBy} attribute is not supported in DynamoDB."
             )
-            expression = if (expression != null) {
-                LogicalExpression(expression, LogicalOperator.And, activeAccountOnlyExpression)
-            } else {
-                activeAccountOnlyExpression
+        // Search for an index implementing the StartsWith pattern for this filterBy attribute.
+        val index = AccountsTable.queryCapabilities.indexes.asSequence()
+            .filter {
+                it.partitionAttribute is StartsWithStringAttribute
+                        && it.partitionAttribute.canBeUsedOnQueryTo(filterAttribute)
             }
-        }
+            .first()
+        val startsWithAttribute = index.partitionAttribute as StartsWithStringAttribute
+        val keyCondition = QueryPlan.KeyCondition(
+            index,
+            BinaryAttributeExpression(
+                startsWithAttribute, BinaryAttributeOperator.Eq,
+                startsWithAttribute.toAttrValue(filterRequest.filter).s()
+            ),
+            RangeCondition.Binary(
+                BinaryAttributeExpression(
+                    startsWithAttribute.fullAttribute, BinaryAttributeOperator.Sw,
+                    startsWithAttribute.fullAttribute.toAttrValue(filterRequest.filter).s()
+                )
+            )
+        )
 
-        return expression
+        return QueryPlan.UsingQueries(mapOf(keyCondition to activeAccountsOnlyProduct.products.toList()))
     }
 
     private fun tryDelete(accountId: String): TransactionAttemptResult<Unit> {
