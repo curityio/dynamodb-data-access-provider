@@ -278,7 +278,32 @@ class DynamoDBUserAccountDataAccessProvider(
         sortRequest: AttributesSorting?,
         filterRequest: AttributesFiltering?
     ): PaginatedDataAccessResult<AccountAttributes> {
-        checkGetAllBySupported()
+        validateGetAllByRequest(GETALLBY_OPERATION, paginationRequest, sortRequest, filterRequest)
+
+        val (items, cursor) = when (val queryPlan = buildQueryPlan(filterRequest, activeAccountsOnly)) {
+            is QueryPlan.UsingQueries -> query(queryPlan, sortRequest, paginationRequest)
+            is QueryPlan.UsingScan -> scan(queryPlan, paginationRequest)
+        }
+
+        return PaginatedDataAccessResult(items.map { it.toAccountAttributes() }.toList(), cursor)
+    }
+
+    override fun getCountBy(activeAccountsOnly: Boolean, filterRequest: AttributesFiltering?): Long {
+        validateGetAllByRequest(COUNTBY_OPERATION,null, null, filterRequest)
+
+        return when (val queryPlan = buildQueryPlan(filterRequest, activeAccountsOnly)) {
+            is QueryPlan.UsingQueries -> queryCount(queryPlan)
+            is QueryPlan.UsingScan -> scanCount(queryPlan)
+        }
+    }
+
+    private fun validateGetAllByRequest(
+        operation: String,
+        paginationRequest: PaginationRequest?,
+        sortRequest: AttributesSorting?,
+        filterRequest: AttributesFiltering?,
+    ) {
+        checkGetAllBySupported(operation)
 
         if (paginationRequest != null && paginationRequest.count > MAXIMUM_PAGE_SIZE) {
             throw DataSourceCapabilityException(
@@ -292,35 +317,22 @@ class DynamoDBUserAccountDataAccessProvider(
             AccountsTable.queryCapabilities, filterRequest, sortRequest
         )
 
-        val (items, cursor) = when (val queryPlan = buildQueryPlan(filterRequest, activeAccountsOnly)) {
-            is QueryPlan.UsingQueries -> query(queryPlan, sortRequest, paginationRequest)
-            is QueryPlan.UsingScan -> scan(queryPlan, paginationRequest)
-        }
-
-        return PaginatedDataAccessResult(items.map { it.toAccountAttributes() }.toList(), cursor)
-    }
-
-    override fun getCountBy(activeAccountsOnly: Boolean, filterRequest: AttributesFiltering?): Long {
-        checkGetAllBySupported()
-
-        QueryHelper.validateRequest(
-            filterRequest.useScan(), _configuration.getAllowTableScans(),
-            AccountsTable.queryCapabilities, filterRequest
-        )
-
-        return when (val queryPlan = buildQueryPlan(filterRequest, activeAccountsOnly)) {
-            is QueryPlan.UsingQueries -> queryCount(queryPlan)
-            is QueryPlan.UsingScan -> scanCount(queryPlan)
+        if (filterRequest?.filter != null && filterRequest.filter.length < INITIAL_LENGTH) {
+            throw DataSourceCapabilityException(
+                TableCapability.FILTERING_FILTER_TOO_SMALL,
+                TableCapability.FILTERING_FILTER_TOO_SMALL.unsupportedMessage
+            )
         }
     }
 
-    private fun checkGetAllBySupported() {
+    private fun checkGetAllBySupported(operation: String) {
         val featureId = DynamoDBGlobalSecondaryIndexFeatureCheck.buildFeatureId(
             AccountsTable.name(_configuration),
             AccountsTable.userNameInitialUserNameIndex
         )
         if (!_dynamoDBClient.supportsFeature(featureId)) {
-            _logger.info("User account data source '{}' does not support '{}'", this, GETALLBY_OPERATION)
+            _logger.info("User account data source '{}' does not support '{}' because feature {} is missing",
+                this, operation, featureId)
             throw UnsupportedOperationException(GETALLBY_OPERATION)
         }
     }
@@ -930,10 +942,10 @@ class DynamoDBUserAccountDataAccessProvider(
         val result = if (queryPlan != null && queryPlan.expression.products.isNotEmpty()) {
             val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression).addPkFiltering()
             scanRequestBuilder.configureWith(dynamoDBScan)
-            scanPartialList(_dynamoDBClient, scanRequestBuilder, limit, exclusiveStartKey, ::toLastEvaluatedKey)
+            scanWithPagination(_dynamoDBClient, scanRequestBuilder, limit, exclusiveStartKey, ::toLastEvaluatedKey)
         } else {
             scanRequestBuilder.configureWith(filterForItemsWithAccountIdPk)
-            scanPartialList(_dynamoDBClient, scanRequestBuilder, limit, exclusiveStartKey, ::toLastEvaluatedKey)
+            scanWithPagination(_dynamoDBClient, scanRequestBuilder, limit, exclusiveStartKey, ::toLastEvaluatedKey)
         }
 
         return result.items to QueryHelper.getEncodedCursor(jsonHandler, result.lastEvaluationKey)
@@ -1009,7 +1021,7 @@ class DynamoDBUserAccountDataAccessProvider(
             .configureWith(dynamoDBQuery)
 
         val result =
-            queryPartialList(queryRequestBuilder, limit, exclusiveStartKey, _dynamoDBClient) {
+            queryWithPagination(queryRequestBuilder, limit, exclusiveStartKey, _dynamoDBClient) {
                 query.key.index.toKey(it, AccountsTable.primaryKey)
             }
         return result.items to QueryHelper.getEncodedCursor(jsonHandler, result.lastEvaluationKey)
@@ -1217,7 +1229,7 @@ class DynamoDBUserAccountDataAccessProvider(
         val primaryKey = PrimaryKey(pk)
         val userNameInitialUserNameIndex =
             PartitionAndSortIndex("userNameInitial-userName-index", userNameInitial, userName)
-        val emailInitialEmailIndex =
+        private val emailInitialEmailIndex =
             PartitionAndSortIndex("emailInitial-email-index", emailInitial, email)
 
         fun keyFromAccountId(accountIdValue: String) = mapOf(
@@ -1315,6 +1327,7 @@ class DynamoDBUserAccountDataAccessProvider(
         const val INITIAL_LENGTH = 2
 
         const val GETALLBY_OPERATION = "getAllBy"
+        const val COUNTBY_OPERATION = "countBy"
 
         private fun removeLinkedAccounts(account: AccountAttributes): AccountAttributes {
             var withoutLinks = account

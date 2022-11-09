@@ -22,8 +22,8 @@ import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient.Companion.logger
 import io.curity.identityserver.plugin.dynamodb.TableWithCapabilities
 import io.curity.identityserver.plugin.dynamodb.count
-import io.curity.identityserver.plugin.dynamodb.queryPartialList
-import io.curity.identityserver.plugin.dynamodb.scanPartialList
+import io.curity.identityserver.plugin.dynamodb.queryWithPagination
+import io.curity.identityserver.plugin.dynamodb.scanWithPagination
 import se.curity.identityserver.sdk.datasource.db.TableCapabilities
 import se.curity.identityserver.sdk.datasource.errors.DataSourceCapabilityException
 import se.curity.identityserver.sdk.datasource.query.AttributesFiltering
@@ -77,10 +77,10 @@ object QueryHelper {
             val (list, lastEvaluationKey) = if (indexAndKeys.useScan) {
                 val listScanBuilder = ScanRequest.builder().init(tableName, indexAndKeys)
                 // Items will be unsorted!
-                scanPartialList(dynamoDBClient, listScanBuilder, expectedCount, exclusiveStartKey, toLastEvaluatedKey)
+                scanWithPagination(dynamoDBClient, listScanBuilder, expectedCount, exclusiveStartKey, toLastEvaluatedKey)
             } else {
                 val listQueryBuilder = QueryRequest.builder().init(tableName, indexAndKeys, ascendingOrder)
-                queryPartialList(listQueryBuilder, expectedCount, exclusiveStartKey, dynamoDBClient, toLastEvaluatedKey)
+                queryWithPagination(listQueryBuilder, expectedCount, exclusiveStartKey, dynamoDBClient, toLastEvaluatedKey)
             }
             items += list
             expectedCount -= list.count()

@@ -73,8 +73,10 @@ class DynamoDBDataAccessProviderDescriptor :
             Optional<out ManagedObject<DynamoDBDataAccessProviderConfiguration>> {
         val accountsTableName = AccountsTable.name(configuration)
         val featuresToCheck = listOf(
-            DynamoDBGlobalSecondaryIndexFeatureCheck(accountsTableName, AccountsTable.userNameInitialUserNameIndex),
-            DynamoDBGlobalSecondaryIndexFeatureCheck(accountsTableName, AccountsTable.emailInitialEmailIndex)
+            // Since Curity 7.6.0: two global secondary indexes where created on the curity-accounts table.
+            // Presence of the userNameInitial-userName-index implies that start_with search on userName or email
+            // is possible in the underlying DynamoDB database.
+            DynamoDBGlobalSecondaryIndexFeatureCheck(accountsTableName, AccountsTable.userNameInitialUserNameIndex)
         )
         return Optional.of(DynamoDBClient(configuration, featuresToCheck))
     }

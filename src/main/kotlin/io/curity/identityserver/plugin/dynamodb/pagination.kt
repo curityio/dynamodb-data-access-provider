@@ -48,7 +48,7 @@ data class PartialListResult(
 )
 
 // Returns a pair with the next page's items as a list, along with the last evaluation key, using a query request
-fun queryPartialList(
+fun queryWithPagination(
     requestBuilder: QueryRequest.Builder,
     limit: Int,
     exclusiveStartKey: Map<String, AttributeValue>?,
@@ -118,7 +118,7 @@ fun scanSequence(request: ScanRequest, client: DynamoDBClient) = sequence {
     }
 }
 
-fun scanPartialList(
+fun scanWithPagination(
     dynamoDBClient: DynamoDBClient,
     listScanBuilder: ScanRequest.Builder,
     limit: Int,
