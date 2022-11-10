@@ -21,7 +21,7 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 
 const val DEFAULT_PAGE_SIZE = 50
-const val MAXIMUM_PAGE_SIZE = DEFAULT_PAGE_SIZE
+const val MAXIMUM_PAGE_SIZE = 100
 
 // Returns a sequence with the items produced by a query, handling pagination if needed
 fun querySequence(request: QueryRequest, client: DynamoDBClient) = sequence {
@@ -50,12 +50,13 @@ data class PartialListResult(
 // Returns a pair with the next page's items as a list, along with the last evaluation key, using a query request
 fun queryWithPagination(
     requestBuilder: QueryRequest.Builder,
-    limit: Int,
+    pageSize: Int,
     exclusiveStartKey: Map<String, AttributeValue>?,
     client: DynamoDBClient,
     // Converts an item returned from DynamoDB into a lastEvaluatedKey which must only contain the key attributes.
     toLastEvaluatedKey: (Map<String, AttributeValue>) -> Map<String, AttributeValue>
 ): PartialListResult {
+    val limit = if (pageSize > MAXIMUM_PAGE_SIZE) MAXIMUM_PAGE_SIZE else pageSize
     requestBuilder.limit(limit)
 
     var lastEvaluatedKey = exclusiveStartKey
@@ -121,7 +122,7 @@ fun scanSequence(request: ScanRequest, client: DynamoDBClient) = sequence {
 fun scanWithPagination(
     dynamoDBClient: DynamoDBClient,
     listScanBuilder: ScanRequest.Builder,
-    limit: Int,
+    pageSize: Int,
     exclusiveStartKey: Map<String, AttributeValue>?,
     // Converts an item returned from DynamoDB into a lastEvaluatedKey which must only contain the key attributes.
     toLastEvaluatedKey: (Map<String, AttributeValue>) -> Map<String, AttributeValue>
@@ -130,6 +131,7 @@ fun scanWithPagination(
     // Also: "strongly consistent reads are twice the cost of eventually consistent reads"
 
     // Items will be unsorted!
+    val limit = if (pageSize > MAXIMUM_PAGE_SIZE) MAXIMUM_PAGE_SIZE else pageSize
     listScanBuilder.limit(limit)
 
     var lastEvaluatedKey = exclusiveStartKey

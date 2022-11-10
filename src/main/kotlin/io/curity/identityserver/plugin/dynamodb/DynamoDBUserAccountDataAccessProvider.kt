@@ -278,7 +278,7 @@ class DynamoDBUserAccountDataAccessProvider(
         sortRequest: AttributesSorting?,
         filterRequest: AttributesFiltering?
     ): PaginatedDataAccessResult<AccountAttributes> {
-        validateGetAllByRequest(GETALLBY_OPERATION, paginationRequest, sortRequest, filterRequest)
+        validateGetAllByRequest(GETALLBY_OPERATION, sortRequest, filterRequest)
 
         val (items, cursor) = when (val queryPlan = buildQueryPlan(filterRequest, activeAccountsOnly)) {
             is QueryPlan.UsingQueries -> query(queryPlan, sortRequest, paginationRequest)
@@ -289,7 +289,7 @@ class DynamoDBUserAccountDataAccessProvider(
     }
 
     override fun getCountBy(activeAccountsOnly: Boolean, filterRequest: AttributesFiltering?): Long {
-        validateGetAllByRequest(COUNTBY_OPERATION,null, null, filterRequest)
+        validateGetAllByRequest(COUNTBY_OPERATION,null, filterRequest)
 
         return when (val queryPlan = buildQueryPlan(filterRequest, activeAccountsOnly)) {
             is QueryPlan.UsingQueries -> queryCount(queryPlan)
@@ -299,18 +299,10 @@ class DynamoDBUserAccountDataAccessProvider(
 
     private fun validateGetAllByRequest(
         operation: String,
-        paginationRequest: PaginationRequest?,
         sortRequest: AttributesSorting?,
         filterRequest: AttributesFiltering?,
     ) {
         checkGetAllBySupported(operation)
-
-        if (paginationRequest != null && paginationRequest.count > MAXIMUM_PAGE_SIZE) {
-            throw DataSourceCapabilityException(
-                TableCapability.PAGE_SIZE_INVALID,
-                TableCapability.PAGE_SIZE_INVALID.unsupportedMessage
-            )
-        }
 
         QueryHelper.validateRequest(
             filterRequest.useScan(), _configuration.getAllowTableScans(),
@@ -1324,7 +1316,7 @@ class DynamoDBUserAccountDataAccessProvider(
          * decreased DynamoDB read capacity unit cost.
          * Warning: Changing this value is a breaking change: the indexes will need to be rebuilt.
          */
-        const val INITIAL_LENGTH = 2
+        const val INITIAL_LENGTH = 3
 
         const val GETALLBY_OPERATION = "getAllBy"
         const val COUNTBY_OPERATION = "countBy"

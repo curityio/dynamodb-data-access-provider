@@ -158,7 +158,7 @@ object QueryHelper {
         sortRequest: AttributesSorting? = null
     ) {
         if (FilterType.ENDS_WITH == attributesFiltering?.filterType
-            && tableCapabilities?.isSupported(TableCapabilities.TableCapability.FILTERING_ENDS_WITH) == true
+            && tableCapabilities?.isSupported(TableCapabilities.TableCapability.FILTERING_ENDS_WITH) == false
         ) {
             throw DataSourceCapabilityException(
                 TableCapabilities.TableCapability.FILTERING_ENDS_WITH,
