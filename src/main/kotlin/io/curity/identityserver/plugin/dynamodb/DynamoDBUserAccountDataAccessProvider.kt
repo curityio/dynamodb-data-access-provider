@@ -528,6 +528,14 @@ class DynamoDBUserAccountDataAccessProvider(
             commonItem[AccountsTable.password.name] = AccountsTable.password.toAttrValue(maybePassword)
         }
 
+        // Fill the initials for userName and email (if present) only for the main item,
+        // to build a partial Global Secondary Index on these attributes.
+        val mainItemAttributes = mutableMapOf<String, AttributeValue>()
+        mainItemAttributes.addAttr(AccountsTable.userNameInitial, accountAttributes.userName)
+        commonItem[AccountsTable.email.name]?.also {
+            mainItemAttributes.addAttr(AccountsTable.emailInitial, it.s())
+        }
+
         val updateBuilder = UpdateBuilderWithMultipleUniquenessConstraints(
             _configuration,
             AccountsTable,
@@ -539,7 +547,8 @@ class DynamoDBUserAccountDataAccessProvider(
         updateBuilder.handleUniqueAttribute(
             AccountsTable.accountId,
             accountId,
-            accountId
+            accountId,
+            mainItemAttributes
         )
 
         updateBuilder.handleUniqueAttribute(
