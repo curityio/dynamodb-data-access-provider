@@ -328,7 +328,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
     private fun getLastEvaluatedKeyFun(
         indexAndKeys: QueryHelper.IndexAndKeys<Any, Any>
     ): (Map<String, AttributeValue>) -> Map<String, AttributeValue> =
-        if (indexAndKeys.index != null) ({ indexAndKeys.index.toKey(it, DcrTable.primaryKey) })
+        if (indexAndKeys.index != null) ({ indexAndKeys.index.toIndexPrimaryKey(it, DcrTable.primaryKey) })
         else ({ mapOf(DcrTable.primaryKey.attribute.name to DcrTable.primaryKey.attribute.attributeValueFrom(it)) })
 
     companion object {

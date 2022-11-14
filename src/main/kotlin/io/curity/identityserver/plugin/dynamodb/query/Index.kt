@@ -53,16 +53,16 @@ data class Index(
         )
 
     /**
-     * Converts the given item into a DynamoDB primary key object, suitable to be used as
+     * Converts the given item into a DynamoDB index primary key object, suitable to be used as
      * <code>exclusiveStartKey</code>.
-     * A primary key is composed of the table primary key, the index Partition Key, and the sort key, if any.
+     * An index primary key is composed of the table primary key, the index Partition Key, and the sort key, if any.
      * @param item Item to convert into its primary key.
-     * @param primaryKey The primary key of the table targeted by this index
+     * @param tablePrimaryKey The primary key of the table targeted by this index
      * @return the primary key for the given item.
      */
-    fun toKey(item: Map<String, AttributeValue>, primaryKey: PrimaryKey<*>): Map<String, AttributeValue> {
+    fun toIndexPrimaryKey(item: Map<String, AttributeValue>, tablePrimaryKey: PrimaryKey<*>): Map<String, AttributeValue> {
         val key = mutableMapOf(
-            primaryKey.attribute.name to primaryKey.attribute.attributeValueFrom(item),
+            tablePrimaryKey.attribute.name to tablePrimaryKey.attribute.attributeValueFrom(item),
             partitionAttribute.name to partitionAttribute.attributeValueFrom(item)
         )
 

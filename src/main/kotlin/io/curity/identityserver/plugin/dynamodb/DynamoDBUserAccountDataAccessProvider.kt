@@ -1023,7 +1023,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val result =
             queryWithPagination(queryRequestBuilder, limit, exclusiveStartKey, _dynamoDBClient) {
-                query.key.index.toKey(it, AccountsTable.primaryKey)
+                query.key.index.toIndexPrimaryKey(it, AccountsTable.primaryKey)
             }
         return result.items to QueryHelper.getEncodedCursor(jsonHandler, result.lastEvaluationKey)
     }
