@@ -74,7 +74,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         val redirectUris = ListStringAttribute("redirectUris")
         val grantTypes = ListStringAttribute("grantTypes")
 
-        private val primaryKey = PrimaryKey(clientId)
+        val primaryKey = PrimaryKey(clientId)
         private val authenticatedUserCreatedIndex =
             PartitionAndSortIndex("authenticatedUser-created-index", authenticatedUser, created)
         private val authenticatedUserUpdatedIndex =
@@ -282,10 +282,11 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         val indexAndKeys = QueryHelper.findIndexAndKeysFrom(DcrTable, potentialKeys)
 
         validateRequest(
-            indexAndKeys,
+            indexAndKeys.useScan,
             _configuration.getAllowTableScans(),
             DcrTable.queryCapabilities(),
-            sortingRequested = sortRequest != null
+            null,
+            sortRequest
         )
 
         val (values, encodedCursor) = QueryHelper.list(
@@ -295,7 +296,8 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             indexAndKeys,
             isAscendingOrder(sortRequest),
             paginationRequest?.count,
-            paginationRequest?.cursor
+            paginationRequest?.cursor,
+            getLastEvaluatedKeyFun(indexAndKeys)
         )
 
         val items = values
@@ -314,7 +316,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         val potentialKeys = createPotentialKeys(templateId, username, activeClientsOnly)
         val indexAndKeys = QueryHelper.findIndexAndKeysFrom(DcrTable, potentialKeys)
 
-        validateRequest(indexAndKeys, _configuration.getAllowTableScans())
+        validateRequest(indexAndKeys.useScan, _configuration.getAllowTableScans())
 
         return QueryHelper.count(
             _dynamoDBClient,
@@ -322,6 +324,12 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             indexAndKeys
         )
     }
+
+    private fun getLastEvaluatedKeyFun(
+        indexAndKeys: QueryHelper.IndexAndKeys<Any, Any>
+    ): (Map<String, AttributeValue>) -> Map<String, AttributeValue> =
+        if (indexAndKeys.index != null) ({ indexAndKeys.index.toIndexPrimaryKey(it, DcrTable.primaryKey) })
+        else ({ mapOf(DcrTable.primaryKey.attribute.name to DcrTable.primaryKey.attribute.attributeValueFrom(it)) })
 
     companion object {
         private val logger: Logger =

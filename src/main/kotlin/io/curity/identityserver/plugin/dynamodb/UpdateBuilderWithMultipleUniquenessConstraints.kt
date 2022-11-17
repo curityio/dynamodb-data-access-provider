@@ -38,17 +38,18 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
     private val _transactionItems = mutableListOf<TransactWriteItem>()
 
     // Handles the update of an unique attribute
-    fun <T> handleUniqueAttribute(attribute: UniqueAttribute<T>, before: T?, after: T?) {
+    fun <T> handleUniqueAttribute(attribute: UniqueAttribute<T>, before: T?, after: T?,
+                                  additionalAttributes: Map<String, AttributeValue> = mapOf()) {
         if (before == after) {
             if (after != null) {
                 // Even if the key value doesn't change, we still need to update the item's data.
-                updateItem(attribute.uniquenessValueFrom(after))
+                updateItem(attribute.uniquenessValueFrom(after), additionalAttributes)
             }
         } else if (after != null) {
             if (before != null) {
                 removeItem(attribute.uniquenessValueFrom(before))
             }
-            insertItem(attribute.uniquenessValueFrom(after))
+            insertItem(attribute.uniquenessValueFrom(after), additionalAttributes)
         } else {
             if (before != null) {
                 removeItem(attribute.uniquenessValueFrom(before))
@@ -68,8 +69,8 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
         )
     }
 
-    private fun insertItem(pkValue: String) {
-        val secondaryItem = _commonItem + setOf(_keyAttribute.toNameValuePair(pkValue))
+    private fun insertItem(pkValue: String, additionalAttributes: Map<String, AttributeValue>) {
+        val secondaryItem = _commonItem + setOf(_keyAttribute.toNameValuePair(pkValue)) + additionalAttributes
         _transactionItems.add(
             TransactWriteItem.builder()
                 .put {
@@ -83,8 +84,8 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
         )
     }
 
-    private fun updateItem(pkValue: String) {
-        val secondaryItem = _commonItem + setOf(_keyAttribute.toNameValuePair(pkValue))
+    private fun updateItem(pkValue: String, additionalAttributes: Map<String, AttributeValue>) {
+        val secondaryItem = _commonItem + setOf(_keyAttribute.toNameValuePair(pkValue)) + additionalAttributes
         _transactionItems.add(
             TransactWriteItem.builder()
                 .put {
