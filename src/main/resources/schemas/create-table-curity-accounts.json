@@ -36,16 +36,7 @@
         }
       ],
       "Projection" : {
-        "NonKeyAttributes" : [
-          "accountId",
-          "active",
-          "userName",
-          "email",
-          "phone",
-          "created",
-          "updated"
-        ],
-        "ProjectionType" : "INCLUDE"
+        "ProjectionType" : "ALL"
       },
       "ProvisionedThroughput" : {
         "WriteCapacityUnits" : 5,
@@ -65,16 +56,7 @@
         }
       ],
       "Projection" : {
-        "NonKeyAttributes" : [
-          "accountId",
-          "active",
-          "userName",
-          "email",
-          "phone",
-          "created",
-          "updated"
-        ],
-        "ProjectionType" : "INCLUDE"
+        "ProjectionType" : "ALL"
       },
       "ProvisionedThroughput" : {
         "WriteCapacityUnits" : 5,
