@@ -39,11 +39,9 @@ import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.AuthenticationAttributes
 import se.curity.identityserver.sdk.attribute.ContextAttributes
 import se.curity.identityserver.sdk.attribute.SubjectAttributes
-import se.curity.identityserver.sdk.attribute.scim.v2.ComplexAttributeValue
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.LinkedAccount
-import se.curity.identityserver.sdk.attribute.scim.v2.multivalued.MultiValuedAttributeValue
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.data.query.ResourceQueryResult
 import se.curity.identityserver.sdk.data.update.AttributeUpdate
@@ -1144,17 +1142,7 @@ class DynamoDBUserAccountDataAccessProvider(
                 }
                 AccountsTable.active.name -> map["active"] = value.bool()
                 AccountsTable.email.name -> {
-                    // In case we query a Global Secondary Index, the "attributes" blob is not available.
-                    // The "emails" attribute must be populated from the primary email.
-                    map.computeIfAbsent(AccountAttributes.EMAILS) {
-                        listOf(
-                            mapOf(
-                                MultiValuedAttributeValue.VALUE to value.s(),
-                                ComplexAttributeValue.PRIMARY to true
-                            )
-                        )
-                    }
-                }
+                } // skip, emails are in attributes
                 AccountsTable.phone.name -> {
                 } // skip, phones are in attributes
                 AccountsTable.attributes.name -> map.putAll(
