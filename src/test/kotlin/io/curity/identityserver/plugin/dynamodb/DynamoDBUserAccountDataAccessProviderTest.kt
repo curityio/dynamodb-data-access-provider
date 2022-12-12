@@ -92,7 +92,7 @@ class DynamoDBUserAccountDataAccessProviderTest {
         return QueryRequest.builder()
             .tableName(AccountsTable.name(configuration))
             .indexName(AccountsTable.userNameInitialUserNameIndex.name)
-            .limit(DEFAULT_PAGE_SIZE)
+            .limit(DEFAULT_PAGE_SIZE + 1)
             .keyConditionExpression("#userNameInitial = :userNameInitial_1 AND begins_with(#userName, :userName_1)")
             .expressionAttributeNames(mapOf("#userNameInitial" to "userNameInitial", "#userName" to "userName"))
             .expressionAttributeValues(
