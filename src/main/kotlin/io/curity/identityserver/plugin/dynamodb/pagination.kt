@@ -57,7 +57,9 @@ fun queryWithPagination(
     toLastEvaluatedKey: (Map<String, AttributeValue>) -> Map<String, AttributeValue>
 ): PartialListResult {
     val limit = if (pageSize > MAXIMUM_PAGE_SIZE) MAXIMUM_PAGE_SIZE else pageSize
-    requestBuilder.limit(limit)
+    // Ask for one more result. When filtering on the sort key, it helps to determine if more results are available
+    // without doing an additional call to DynamoDB.
+    requestBuilder.limit(limit + 1)
 
     var lastEvaluatedKey = exclusiveStartKey
     val items: MutableList<Map<String, AttributeValue>> = mutableListOf()
@@ -81,17 +83,15 @@ fun queryWithPagination(
 
         lastEvaluatedKey = if (response.hasLastEvaluatedKey()) response.lastEvaluatedKey() else null
 
-        if (items.size == limit && request.filterExpression().isNullOrEmpty()) {
-            // We reach the limit, and we have no filter (to return all rows for the given key),
-            // the response.lastEvaluatedKey is the good one to return.
-            break
-        }
-
-        // Either we have not yet reached the limit or we reached it but there is a filterExpression.
+        // Either we have not yet reached the limit or we reached it but because of additional sort key filter
+        // or filterExpression, more results might be available.
         // In the latter case, DynamoDB may have returned a lastEvaluatedKey, but we are not sure that
         // the remaining keys will match the condition.
         // We go on, even if items.size == limit to know if it really remains more matching rows and avoid wrongly
         // returning a lastEvaluatedKey.
+        // Note that even when there is no filterExpression but a sort key expression, DynamoDB returns
+        // a lastEvaluatedKey when it reads the last row of a given partition as if it does not know itself
+        // that the whole partition was read.
     } while (lastEvaluatedKey != null)
 
     return PartialListResult(
