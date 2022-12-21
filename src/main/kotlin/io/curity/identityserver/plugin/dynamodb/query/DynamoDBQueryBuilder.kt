@@ -19,11 +19,16 @@ package io.curity.identityserver.plugin.dynamodb.query
 import io.curity.identityserver.plugin.dynamodb.DynamoDBAttribute
 import io.curity.identityserver.plugin.dynamodb.DynamoDBQuery
 import io.curity.identityserver.plugin.dynamodb.DynamoDBScan
+import se.curity.identityserver.sdk.data.query.ResourceQuery.Sorting.SortOrder
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 
 class DynamoDBQueryBuilder {
     companion object {
-        fun buildQuery(keyCondition: QueryPlan.KeyCondition, products: List<Product>): DynamoDBQuery {
+        fun buildQuery(
+            keyCondition: QueryPlan.KeyCondition,
+            products: List<Product>,
+            sortOrder: SortOrder? = null
+        ): DynamoDBQuery {
             val builder = DynamoDBQueryBuilder()
             val filterExpression = builder.toDynamoExpression(products)
             val keyExpression = builder.toDynamoExpression(keyCondition)
@@ -32,7 +37,8 @@ class DynamoDBQueryBuilder {
                 keyExpression,
                 filterExpression,
                 builder.valueMap,
-                builder.nameMap
+                builder.nameMap,
+                sortOrder
             )
         }
 

@@ -1,21 +1,77 @@
 {
-  "TableName": "curity-accounts",
-  "AttributeDefinitions": [
+  "TableName" : "curity-accounts",
+  "AttributeDefinitions" : [
     {
-      "AttributeName": "pk",
-      "AttributeType": "S"
+      "AttributeName" : "pk",
+      "AttributeType" : "S"
+    },
+    {
+      "AttributeName" : "userName",
+      "AttributeType" : "S"
+    },
+    {
+      "AttributeName" : "userNameInitial",
+      "AttributeType" : "S"
+    },
+    {
+      "AttributeName" : "email",
+      "AttributeType" : "S"
+    },
+    {
+      "AttributeName" : "emailInitial",
+      "AttributeType" : "S"
     }
   ],
-  "KeySchema": [
+  "GlobalSecondaryIndexes" : [
     {
-      "AttributeName": "pk",
-      "KeyType": "HASH"
+      "IndexName" : "userNameInitial-userName-index",
+      "KeySchema" : [
+        {
+          "KeyType" : "HASH",
+          "AttributeName" : "userNameInitial"
+        },
+        {
+          "KeyType" : "RANGE",
+          "AttributeName" : "userName"
+        }
+      ],
+      "Projection" : {
+        "ProjectionType" : "ALL"
+      },
+      "ProvisionedThroughput" : {
+        "WriteCapacityUnits" : 5,
+        "ReadCapacityUnits" : 10
+      }
+    },
+    {
+      "IndexName" : "emailInitial-email-index",
+      "KeySchema" : [
+        {
+          "KeyType" : "HASH",
+          "AttributeName" : "emailInitial"
+        },
+        {
+          "KeyType" : "RANGE",
+          "AttributeName" : "email"
+        }
+      ],
+      "Projection" : {
+        "ProjectionType" : "ALL"
+      },
+      "ProvisionedThroughput" : {
+        "WriteCapacityUnits" : 5,
+        "ReadCapacityUnits" : 10
+      }
     }
   ],
-  "ProvisionedThroughput": {
-    "WriteCapacityUnits": 5,
-    "ReadCapacityUnits": 10
+  "KeySchema" : [
+    {
+      "AttributeName" : "pk",
+      "KeyType" : "HASH"
+    }
+  ],
+  "ProvisionedThroughput" : {
+    "WriteCapacityUnits" : 5,
+    "ReadCapacityUnits" : 10
   }
 }
-
-

@@ -23,10 +23,12 @@ import se.curity.identityserver.sdk.datasource.db.TableCapabilities.TableCapabil
 
 class TableQueryCapabilities(
     val indexes: List<Index>,
-    val attributeMap: Map<String, DynamoDBAttribute<*>>
+    val attributeMap: Map<String, DynamoDBAttribute<*>>,
+    unsupportedCapabilities: Set<TableCapability> = emptySet()
 ) : TableCapabilities {
 
     val dialect = DynamoDBDialect()
+    private val unsupportedCapabilities = dialect.unsupportedCapabilities + unsupportedCapabilities
 
-    override fun getUnsupported(): Set<TableCapability> = dialect.unsupportedCapabilities
+    override fun getUnsupported(): Set<TableCapability> = unsupportedCapabilities
 }

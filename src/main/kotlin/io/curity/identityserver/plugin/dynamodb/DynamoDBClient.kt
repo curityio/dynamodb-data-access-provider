@@ -35,10 +35,15 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider
 import software.amazon.awssdk.core.exception.SdkClientException
 import software.amazon.awssdk.core.exception.SdkException
+import software.amazon.awssdk.core.retry.RetryPolicy
+import software.amazon.awssdk.core.retry.conditions.AndRetryCondition
+import software.amazon.awssdk.core.retry.conditions.RetryCondition
+import software.amazon.awssdk.core.retry.conditions.SdkRetryCondition
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemResponse
+import software.amazon.awssdk.services.dynamodb.model.DescribeTableRequest
 import software.amazon.awssdk.services.dynamodb.model.DynamoDbException
 import software.amazon.awssdk.services.dynamodb.model.DynamoDbResponse
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
@@ -60,10 +65,20 @@ import software.amazon.awssdk.services.sts.model.Credentials
 import java.net.URI
 import java.time.Duration
 
-class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration) :
-    ManagedObject<DynamoDBDataAccessProviderConfiguration>(config) {
+
+class DynamoDBClient @JvmOverloads constructor(
+    private val config: DynamoDBDataAccessProviderConfiguration,
+    featuresToCheck: Collection<DynamoDBSchemaFeatureCheck> = listOf()
+) : ManagedObject<DynamoDBDataAccessProviderConfiguration>(config) {
     private val _awsRegion = Region.of(config.getAwsRegion().awsRegion)
     private val client = createClient()
+
+    /**
+     * Stores all features which have been explicitly checked and not found.
+     */
+    private val unsupportedFeatures: Set<String> = featuresToCheck.map {
+        it.featureId() to it.checkFeature(client)
+    }.filter { !it.second }.map { it.first }.toSet()
 
     private fun createClient(): DynamoDbClient {
         val accessMethod = config.getDynamodbAccessMethod()
@@ -100,6 +115,18 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
             c
                 .apiCallAttemptTimeout(config.getApiCallAttemptTimeout().map { Duration.ofSeconds(it) }.orElse(null))
                 .apiCallTimeout(config.getApiCallTimeout().map { Duration.ofSeconds(it) }.orElse(null))
+                .retryPolicy(
+                    RetryPolicy.builder().retryCondition(
+                        // Retry on SDK defaults for all requests but DescribeTableRequest ones.
+                        // DescribeTableRequest are executed at plugin startup and should return quickly (without retries)
+                        // if DynamoDB is not reachable yet. The plugin initialization timeout will not be triggered, and it
+                        // will be considered available in the application.
+                        AndRetryCondition.create(
+                            SdkRetryCondition.DEFAULT,
+                            RetryCondition { it.originalRequest() !is DescribeTableRequest })
+                    )
+                        .build()
+                )
         }
 
         return builder.build()
@@ -209,6 +236,14 @@ class DynamoDBClient(private val config: DynamoDBDataAccessProviderConfiguration
     } else {
         throw UnsupportedQueryException.QueryRequiresTableScan()
     }
+
+    /**
+     * @param featureId The feature's ID to check support for.
+     * @return true if the feature is supported, false otherwise.
+     * Note that all features are considered supported by default: unsupported features are the one explicitly
+     * provided in the constructor and for which the check failed.
+     */
+    fun supportsFeature(featureId: String): Boolean = !unsupportedFeatures.contains(featureId)
 
     fun transactionWriteItems(request: TransactWriteItemsRequest): TransactWriteItemsResponse =
         client.call { transactWriteItems(request) }

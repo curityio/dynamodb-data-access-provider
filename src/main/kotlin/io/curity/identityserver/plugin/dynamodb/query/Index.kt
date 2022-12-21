@@ -20,6 +20,7 @@ import io.curity.identityserver.plugin.dynamodb.DynamoDBAttribute
 import io.curity.identityserver.plugin.dynamodb.PartitionAndSortIndex
 import io.curity.identityserver.plugin.dynamodb.PartitionOnlyIndex
 import io.curity.identityserver.plugin.dynamodb.PrimaryKey
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 
 /**
  * Represents a queryable DynamoDB index
@@ -51,6 +52,24 @@ data class Index(
                 }.toSet()
         )
 
+    /**
+     * Converts the given item into a DynamoDB index primary key object, suitable to be used as
+     * <code>exclusiveStartKey</code>.
+     * An index primary key is composed of the table primary key, the index Partition Key, and the sort key, if any.
+     * @param item Item to convert into its primary key.
+     * @param tablePrimaryKey The primary key of the table targeted by this index
+     * @return the primary key for the given item.
+     */
+    fun toIndexPrimaryKey(item: Map<String, AttributeValue>, tablePrimaryKey: PrimaryKey<*>): Map<String, AttributeValue> {
+        val key = mutableMapOf(
+            tablePrimaryKey.attribute.name to tablePrimaryKey.attribute.attributeValueFrom(item),
+            partitionAttribute.name to partitionAttribute.attributeValueFrom(item)
+        )
+
+        if (sortAttribute != null) {
+            key[sortAttribute.name] = sortAttribute.attributeValueFrom(item)
+        }
+
+        return key
+    }
 }
-
-
