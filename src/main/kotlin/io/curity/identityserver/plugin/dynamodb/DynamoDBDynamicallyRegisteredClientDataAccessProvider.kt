@@ -40,7 +40,7 @@ import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegi
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.STATUS
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.Status
 import se.curity.identityserver.sdk.data.query.ResourceQuery
-import se.curity.identityserver.sdk.datasource.DynamicallyRegisteredClientRepository
+import se.curity.identityserver.sdk.datasource.DynamicallyRegisteredClientDataAccessProvider
 import se.curity.identityserver.sdk.datasource.pagination.PaginatedDataAccessResult
 import se.curity.identityserver.sdk.datasource.pagination.PaginationRequest
 import se.curity.identityserver.sdk.datasource.query.AttributesSorting
@@ -57,7 +57,7 @@ import java.time.Instant.ofEpochSecond
 class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
     private val _configuration: DynamoDBDataAccessProviderConfiguration,
     private val _dynamoDBClient: DynamoDBClient
-) : DynamicallyRegisteredClientRepository {
+) : DynamicallyRegisteredClientDataAccessProvider {
     private val _jsonHandler = _configuration.getJsonHandler()
 
     private object DcrTable : TableWithCapabilities("curity-dynamic-clients") {
@@ -270,7 +270,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         _dynamoDBClient.deleteItem(request)
     }
 
-    override fun getAllDynamicallyRegisteredClientsBy(
+    override fun getAllDcrClientsBy(
         templateId: String?,
         username: String?,
         paginationRequest: PaginationRequest?,
@@ -307,7 +307,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         return PaginatedDataAccessResult<DynamicallyRegisteredClientAttributes>(items, encodedCursor)
     }
 
-    override fun getCountOfAllDynamicallyRegisteredClientsBy(
+    override fun getDcrClientCountBy(
         templateId: String?,
         username: String?,
         activeClientsOnly: Boolean
