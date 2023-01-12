@@ -307,12 +307,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         return PaginatedDataAccessResult<DynamicallyRegisteredClientAttributes>(items, encodedCursor)
     }
 
-    override fun getDcrClientCountBy(
-        templateId: String?,
-        username: String?,
-        activeClientsOnly: Boolean
-    ): Long {
-
+    override fun getDcrClientCountBy(templateId: String?, username: String?, activeClientsOnly: Boolean): Long {
         val potentialKeys = createPotentialKeys(templateId, username, activeClientsOnly)
         val indexAndKeys = QueryHelper.findIndexAndKeysFrom(DcrTable, potentialKeys)
 
