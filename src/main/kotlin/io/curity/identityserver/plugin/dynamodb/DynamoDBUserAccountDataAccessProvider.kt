@@ -1317,26 +1317,26 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val queryCapabilities = TableQueryCapabilities(
             indexes = buildList {
-                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, accountId)))
-                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, userName)))
-                Index.from(userNameInitialUserNameIndex)
-                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, email)))
-                Index.from(emailInitialEmailIndex)
+                add(Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, accountId))))
+                add(Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, userName))))
+                add(Index.from(userNameInitialUserNameIndex))
+                add(Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, email))))
+                add(Index.from(emailInitialEmailIndex))
                 if (UNIQUE_ACCOUNT_PHONE_NUMBER) {
-                    Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, phone)))
+                    add(Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, phone))))
                 }
             },
             attributeMap = buildMap {
-                AccountAttributes.USER_NAME to userName
-                userNameInitial.name to userNameInitial
-                email.name to email
-                AccountAttributes.EMAILS to email
-                AccountAttributes.EMAILS + ".value" to email
-                emailInitial.name to emailInitial
-                AccountAttributes.ACTIVE to active
+                put(AccountAttributes.USER_NAME, userName)
+                put(userNameInitial.name, userNameInitial)
+                put(email.name, email)
+                put(AccountAttributes.EMAILS, email)
+                put(AccountAttributes.EMAILS + ".value", email)
+                put(emailInitial.name, emailInitial)
+                put(AccountAttributes.ACTIVE, active)
                 if (UNIQUE_ACCOUNT_PHONE_NUMBER) {
-                    AccountAttributes.PHONE_NUMBERS to phone
-                    AccountAttributes.PHONE_NUMBERS + ".value" to phone
+                    put(AccountAttributes.PHONE_NUMBERS, phone)
+                    put(AccountAttributes.PHONE_NUMBERS + ".value", phone)
                 }
             },
             setOf(TableCapability.SORTING),
