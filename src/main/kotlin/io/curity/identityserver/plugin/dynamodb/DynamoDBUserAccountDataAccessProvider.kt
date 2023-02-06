@@ -1180,7 +1180,7 @@ class DynamoDBUserAccountDataAccessProvider(
             }
         }
 
-        if ((phoneNumbers != null) && UNIQUE_ACCOUNT_PHONE_NUMBER) {
+        if (phoneNumbers != null) {
             val phone = phoneNumbers.primaryOrFirst
             if (phone != null && !phone.isEmpty) {
                 item.addAttr(AccountsTable.phone, phone.significantValue)
