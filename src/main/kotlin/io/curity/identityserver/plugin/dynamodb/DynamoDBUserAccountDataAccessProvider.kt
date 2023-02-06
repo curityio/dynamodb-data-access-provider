@@ -1316,35 +1316,27 @@ class DynamoDBUserAccountDataAccessProvider(
         )
 
         val queryCapabilities = TableQueryCapabilities(
-            indexes = listOf(
-                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, accountId))),
-                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, userName))),
-                Index.from(userNameInitialUserNameIndex),
-                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, email))),
-                Index.from(emailInitialEmailIndex),
-            ).apply {
+            indexes = buildList {
+                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, accountId)))
+                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, userName)))
+                Index.from(userNameInitialUserNameIndex)
+                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, email)))
+                Index.from(emailInitialEmailIndex)
                 if (UNIQUE_ACCOUNT_PHONE_NUMBER) {
-                    toMutableList()
-                        .add(Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, phone))))
+                    Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, phone)))
                 }
             },
-            attributeMap = mapOf(
-                AccountAttributes.USER_NAME to userName,
-                userNameInitial.name to userNameInitial,
-                email.name to email,
-                AccountAttributes.EMAILS to email,
-                AccountAttributes.EMAILS + ".value" to email,
-                emailInitial.name to emailInitial,
-                AccountAttributes.ACTIVE to active,
-            ).apply {
+            attributeMap = buildMap {
+                AccountAttributes.USER_NAME to userName
+                userNameInitial.name to userNameInitial
+                email.name to email
+                AccountAttributes.EMAILS to email
+                AccountAttributes.EMAILS + ".value" to email
+                emailInitial.name to emailInitial
+                AccountAttributes.ACTIVE to active
                 if (UNIQUE_ACCOUNT_PHONE_NUMBER) {
-                    toMutableMap()
-                        .putAll(
-                            mapOf(
-                                AccountAttributes.PHONE_NUMBERS to phone,
-                                AccountAttributes.PHONE_NUMBERS + ".value" to phone
-                            )
-                        )
+                    AccountAttributes.PHONE_NUMBERS to phone
+                    AccountAttributes.PHONE_NUMBERS + ".value" to phone
                 }
             },
             setOf(TableCapability.SORTING),
