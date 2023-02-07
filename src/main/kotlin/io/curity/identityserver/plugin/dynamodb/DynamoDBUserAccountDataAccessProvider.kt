@@ -113,6 +113,15 @@ class DynamoDBUserAccountDataAccessProvider(
     private val jsonHandler = _configuration.getJsonHandler()
 
     companion object {
+        /**
+         * As explained above, by default the phone number of an account must be unique among all accounts of the table,
+         * and leads to the creation of a secondary item. However it is possible to lift this restriction by setting this
+         * system property to ``false`` on all nodes.
+         *
+         * Once done, it will be possible to have a given phone number shared by more than one of the accounts created
+         * after this change. But it will no longer be possible to request accounts using [getByPhone], ``null`` will
+         * be systematically returned.
+         */
         const val UNIQUE_ACCOUNT_PHONE_NUMBER_PROPERTY =
             "se.curity:identity-server.plugin.dynamodb:unique-account-phone-number"
         private val UNIQUE_ACCOUNT_PHONE_NUMBER =
