@@ -34,35 +34,23 @@ The folder `src/main/resources/schemas <src/main/resources/schemas>`_ contains J
 as well as their key and index schemas.
 The included ``ProvisionedThroughput`` values are illustrative and need to be adapted to the final usage scenario.
 
-System property
-~~~~~~~~~~~~~~~
+Phone number uniqueness requirement
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-By default, the phone number of an account must be unique among all accounts of the accounts table, and leads to the
-creation of a secondary item (used by the GraphQL ``accountByPhoneNumber`` request). Though it is not the recommended behavior, it is possible to
-lift this restriction by setting the ``se.curity:identity-server.plugin.dynamodb:unique-account-phone-number`` system
-property to ``false`` on all nodes.
+By default, the phone number of an account must be unique among all accounts of the accounts table. Though it is not the
+recommended behavior, from version 8.0, it is possible to lift this restriction by setting the
+``se.curity:identity-server.plugin.dynamodb:unique-account-phone-number`` system property to ``false`` on all nodes.
 
 Once done, it will be possible to have a given phone number shared by more than one of the accounts created after this
-change. But note that it will no longer be possible to request accounts using ``accountByPhoneNumber``, ``null`` will be systematically returned.
+change. But note that it will no longer be possible to retrieve accounts using the GraphQL ``accountByPhoneNumber`` request, ``null`` will be systematically returned.
 
-However, beware that, once set to ``false``, this system property should no longer be set to ``true`` or removed (as
-its default value is ``true``)! Indeed, doing so could lead to stale data:
+.. warning:: However, beware that, once set to ``false``, this system property should no longer be set to ``true`` or removed (as its default value is ``true``)! Indeed, doing so could lead to stale data, for instance:
 
-* Once the property is ``false``:
+* Without the property, when an account "123" is created with a phone number, it can be requested by its phone number.
 
-     * Upon creation of a new account, the phone-related secondary item will not be created.
+* Then, the property is set to ``false`` and account "123" is updated.
 
-     * Accounts created before setting the property will keep their phone-related secondary item, but this item will not be updated upon modifications.
-
-* If the property is then reverted to ``true``:
-
-     * The new accounts to be created will then have a phone-related secondary item. So there will be a mix with accounts with and without the secondary item.
-
-     * For an account created before reverting the property, it will not be found if requested using ``accountByPhoneNumber``.
-
-     * For an account created before setting the property to ``false``, then updated once to ``false``, it will be returned when requested using ``accountByPhoneNumber`` but will contain stale attributes.
-
-     * For an account created before setting the property to ``false``, then updated after reverting the property, the secondary item will no longer be updated as it will hold a different version from the main item. So that, if it is requested using ``accountByPhoneNumber``, it will contain stale attributes.
+* If the property is finally reverted to default, then the account can again be requested by its phone number, but it will hold stale attributes.
 
 More Information
 ~~~~~~~~~~~~~~~~
