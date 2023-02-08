@@ -46,11 +46,11 @@ change. But note that it will no longer be possible to retrieve accounts using t
 
 .. warning:: However, beware that, once set to ``false``, this system property should no longer be set to ``true`` or removed (as its default value is ``true``)! Indeed, doing so could lead to stale data, for instance:
 
-* Without the property, when an account "123" is created with a phone number, it can be requested by its phone number.
+  * Without the property, when an account "123" is created with a phone number, it can be requested by its phone number.
 
-* Then, the property is set to ``false`` and account "123" is updated.
+  * Then, the property is set to ``false`` and account "123" is updated.
 
-* If the property is finally reverted to default, then the account can again be requested by its phone number, but it will hold stale attributes.
+  * If the property is finally reverted to default, then the account can again be requested by its phone number, but it will hold stale attributes.
 
 More Information
 ~~~~~~~~~~~~~~~~
