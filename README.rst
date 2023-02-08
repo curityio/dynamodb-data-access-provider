@@ -42,7 +42,7 @@ recommended behavior, from version 8.0, it is possible to lift this restriction 
 ``se.curity:identity-server.plugin.dynamodb:unique-account-phone-number`` system property to ``false`` on all nodes.
 
 Once done, it will be possible to have a given phone number shared by more than one of the accounts created after this
-change. But note that it will no longer be possible to retrieve accounts using the GraphQL ``accountByPhoneNumber`` request, ``null`` will be systematically returned.
+change. But note that it will no longer be possible to retrieve accounts using the ``accountByPhoneNumber`` request on the User Management GraphQL endpoint, ``null`` will be systematically returned.
 
 .. warning:: However, beware that, once set to ``false``, this system property should no longer be set to ``true`` or removed (as its default value is ``true``)! Indeed, doing so could lead to stale data, for instance:
 
