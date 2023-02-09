@@ -1343,10 +1343,8 @@ class DynamoDBUserAccountDataAccessProvider(
                 put(AccountAttributes.EMAILS + ".value", email)
                 put(emailInitial.name, emailInitial)
                 put(AccountAttributes.ACTIVE, active)
-                if (UNIQUE_ACCOUNT_PHONE_NUMBER) {
-                    put(AccountAttributes.PHONE_NUMBERS, phone)
-                    put(AccountAttributes.PHONE_NUMBERS + ".value", phone)
-                }
+                put(AccountAttributes.PHONE_NUMBERS, phone)
+                put(AccountAttributes.PHONE_NUMBERS + ".value", phone)
             },
             setOf(TableCapability.SORTING),
         )
