@@ -15,6 +15,7 @@
  */
 package io.curity.identityserver.plugin.dynamodb
 
+import io.curity.identityserver.plugin.dynamodb.DynamoDBUserAccountDataAccessProvider.Companion.UNIQUE_ACCOUNT_PHONE_NUMBER
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeExpression
 import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeOperator
@@ -74,12 +75,13 @@ import java.util.UUID
  * The users table has three additional uniqueness restrictions, other than the accountId:
  * - The `username` must be unique.
  * - The optional `email` must be unique.
- * - The optional `phone` must be unique.
+ * - The optional `phone` must be unique (only when [UNIQUE_ACCOUNT_PHONE_NUMBER] is true, which is the default).
  * The users table uses the following design to support these additional uniqueness constraints
  * [https://aws.amazon.com/blogs/database/simulating-amazon-dynamodb-unique-constraints-using-transactions/],
  * which is based on adding multiple items per "entity", which in this case is an account.
  *
- * Also, getting by `userName`, `email`, and `phone` number should use reads with strong consistency guarantees.
+ * Also, getting by `userName`, and `email` should use reads with strong consistency guarantees.
+ * This is also the case for `phone` number when [UNIQUE_ACCOUNT_PHONE_NUMBER] is true.
  * Since strong consistency reads are not supported by Global Secondary Indexes, the design used here replicates all the data
  * into all the items inserted for the same entity.
  * The cost should be similar to having the indexes, because those also replicate the data.
@@ -90,10 +92,10 @@ import java.util.UUID
  * | ai#1234               | 12      | 1234       | alice    | alice@example.com | 123456789 | ...      // main item
  * | un#alice              | 12      | 1234       | alice    | alice@example.com | 123456789 | ...      // secondary item
  * | em#alice@example.com  | 12      | 1234       | alice    | alice@example.com | 123456789 | ...      // secondary item
- * | pn#123456789          | 12      | 1234       | alice    | alice@example.com | 123456789 | ...      // secondary item
+ * | pn#123456789          | 12      | 1234       | alice    | alice@example.com | 123456789 | ...      // secondary item only when [UNIQUE_ACCOUNT_PHONE_NUMBER] true
  *
- * In the following we call "main item" to the item using the `accountId` for the partition key.
- * We call "secondary item" to the items using the `userName`, `email`, and `phone` for the partition key.
+ * In the following we call "main item" the item using the `accountId` for the partition key.
+ * We call "secondary item" the items using the `userName`, `email`, and `phone` for the partition key.
  * Both the main item and the secondary items carry all the information.
  * - This means that a `getByEmail` can use the email secondary item without needing an additional index and therefore
  * allowing for strong consistent reads.
@@ -109,6 +111,86 @@ class DynamoDBUserAccountDataAccessProvider(
     private val _configuration: DynamoDBDataAccessProviderConfiguration
 ) : UserAccountDataAccessProvider, PageableUserAccountDataAccessProvider, CredentialDataAccessProvider {
     private val jsonHandler = _configuration.getJsonHandler()
+
+    companion object {
+        /**
+         * As explained above, by default the phone number of an account must be unique among all accounts of the table,
+         * and leads to the creation of a secondary item. However it is possible to lift this restriction by setting this
+         * system property to ``false`` on all nodes.
+         *
+         * Once done, it will be possible to have a given phone number shared by more than one of the accounts created
+         * after this change. But it will no longer be possible to request accounts using [getByPhone], ``null`` will
+         * be systematically returned.
+         */
+        const val UNIQUE_ACCOUNT_PHONE_NUMBER_PROPERTY =
+            "se.curity:identity-server.plugin.dynamodb:unique-account-phone-number"
+        private val UNIQUE_ACCOUNT_PHONE_NUMBER =
+            System.getProperty(UNIQUE_ACCOUNT_PHONE_NUMBER_PROPERTY, "true").toBoolean()
+
+        private val _conditionExpressionBuilder = ExpressionBuilder(
+            "#version = :oldVersion AND #accountId = :accountId",
+            AccountsTable.version, AccountsTable.accountId
+        )
+
+        private val _logger: Logger = LoggerFactory.getLogger(DynamoDBUserAccountDataAccessProvider::class.java)
+        private val MASK_MARKER: Marker = MarkerFactory.getMarker("MASK")
+
+        private val attributesToRemove = listOf(
+            // these are SDK attribute names and not DynamoDB table attribute names
+            "active", "password", "userName", "id", "schemas"
+        )
+
+        private val NO_LINK_DESCRIPTION: String? = null
+
+        private const val N_OF_ATTEMPTS = 3
+
+        /**
+         * Length of the "initial" for userName and email attributes.
+         * Since the initial attribute is used as the partition key, it is set to a value greater than one
+         * in order to well balance the partitions for increased performance and
+         * decreased DynamoDB read capacity unit cost.
+         * Warning: Changing this value is a breaking change: the indexes will need to be rebuilt.
+         */
+        const val INITIAL_LENGTH = 3
+
+        const val GETALLBY_OPERATION = "getAllBy"
+        const val COUNTBY_OPERATION = "countBy"
+
+        private fun removeLinkedAccounts(account: AccountAttributes): AccountAttributes {
+            var withoutLinks = account
+            for (linkedAccount in account.linkedAccounts.toList()) {
+                _logger.trace(
+                    MASK_MARKER,
+                    "Removing linked account before persisting to accounts table '{}'",
+                    linkedAccount
+                )
+                withoutLinks = account.removeLinkedAccounts(linkedAccount)
+            }
+            return withoutLinks.removeAttribute(AccountAttributes.LINKED_ACCOUNTS)
+        }
+
+        private fun DynamoDBItem.version(): Long =
+            AccountsTable.version.optionalFrom(this)
+                ?: throw SchemaErrorException(
+                    AccountsTable,
+                    AccountsTable.version
+                )
+
+        private fun DynamoDBItem.accountId(): String =
+            AccountsTable.accountId.optionalFrom(this)
+                ?: throw SchemaErrorException(
+                    AccountsTable,
+                    AccountsTable.accountId
+                )
+
+        private val filterForItemsWithAccountIdPk = DynamoDBScan(
+            filterExpression = "begins_with(pk, :pkPrefix)",
+            valueMap = mapOf(":pkPrefix" to AttributeValue.builder().s(AccountsTable.accountId.prefix).build()),
+            nameMap = mapOf()
+        )
+
+        private const val MAX_QUERIES = 8
+    }
 
     override fun getById(
         accountId: String
@@ -147,7 +229,12 @@ class DynamoDBUserAccountDataAccessProvider(
     ): ResourceAttributes<*>? {
         _logger.debug(MASK_MARKER, "Received request to get account by phone number : {}", phone)
 
-        return retrieveByUniqueAttribute(AccountsTable.phone, phone, attributesEnumeration)
+        return if (UNIQUE_ACCOUNT_PHONE_NUMBER) {
+            retrieveByUniqueAttribute(AccountsTable.phone, phone, attributesEnumeration)
+        } else {
+            _logger.debug("Returning null as '{}' is false", UNIQUE_ACCOUNT_PHONE_NUMBER_PROPERTY)
+            null
+        }
     }
 
     private fun retrieveByUniqueAttribute(
@@ -222,13 +309,15 @@ class DynamoDBUserAccountDataAccessProvider(
             )
         }
 
-        // Add secondary item with phone, if phone is present
-        commonItem[AccountsTable.phone.name]?.also { phoneNumberAttr ->
-            addTransactionItem(
-                commonItem,
-                mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.phone, phoneNumberAttr.s())),
-                transactionItems, writeConditionExpression
-            )
+        if (UNIQUE_ACCOUNT_PHONE_NUMBER) {
+            // Add secondary item with phone, if phone is present
+            commonItem[AccountsTable.phone.name]?.also { phoneNumberAttr ->
+                addTransactionItem(
+                    commonItem,
+                    mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.phone, phoneNumberAttr.s())),
+                    transactionItems, writeConditionExpression
+                )
+            }
         }
 
         val request = TransactWriteItemsRequest.builder()
@@ -447,7 +536,7 @@ class DynamoDBUserAccountDataAccessProvider(
                     .build()
             )
         }
-        if (phone != null) {
+        if ((phone != null) && UNIQUE_ACCOUNT_PHONE_NUMBER) {
             transactionItems.add(
                 TransactWriteItem.builder()
                     .delete {
@@ -561,11 +650,13 @@ class DynamoDBUserAccountDataAccessProvider(
             accountAttributes.emails.primaryOrFirst?.significantValue
         )
 
-        updateBuilder.handleUniqueAttribute(
-            AccountsTable.phone,
-            AccountsTable.phone.optionalFrom(observedItem),
-            accountAttributes.phoneNumbers.primaryOrFirst?.significantValue
-        )
+        if (UNIQUE_ACCOUNT_PHONE_NUMBER) {
+            updateBuilder.handleUniqueAttribute(
+                AccountsTable.phone,
+                AccountsTable.phone.optionalFrom(observedItem),
+                accountAttributes.phoneNumbers.primaryOrFirst?.significantValue
+            )
+        }
 
         try {
             _dynamoDBClient.transactionWriteItems(updateBuilder.build())
@@ -664,13 +755,15 @@ class DynamoDBUserAccountDataAccessProvider(
                 maybeEmail
             )
 
-            val maybePhone = AccountsTable.phone.optionalFrom(observedItem)
+            if (UNIQUE_ACCOUNT_PHONE_NUMBER) {
+                val maybePhone = AccountsTable.phone.optionalFrom(observedItem)
 
-            updateBuilder.handleUniqueAttribute(
-                AccountsTable.phone,
-                maybePhone,
-                maybePhone
-            )
+                updateBuilder.handleUniqueAttribute(
+                    AccountsTable.phone,
+                    maybePhone,
+                    maybePhone
+                )
+            }
 
             try {
                 _dynamoDBClient.transactionWriteItems(updateBuilder.build())
@@ -1208,6 +1301,8 @@ class DynamoDBUserAccountDataAccessProvider(
         val userNameInitial = StartsWithStringAttribute("userNameInitial", userName, INITIAL_LENGTH)
         val email = UniqueStringAttribute("email", "em#")
         val emailInitial = StartsWithStringAttribute("emailInitial", email, INITIAL_LENGTH)
+
+        // Used only if UNIQUE_ACCOUNT_PHONE_NUMBER is true
         val phone = UniqueStringAttribute("phone", "pn#")
         val password = StringAttribute("password")
         val active = BooleanAttribute("active")
@@ -1230,25 +1325,29 @@ class DynamoDBUserAccountDataAccessProvider(
         )
 
         val queryCapabilities = TableQueryCapabilities(
-            indexes = listOf(
-                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, accountId))),
-                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, userName))),
-                Index.from(userNameInitialUserNameIndex),
-                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, email))),
-                Index.from(emailInitialEmailIndex),
-                Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, phone))),
-            ),
-            attributeMap = mapOf(
-                AccountAttributes.USER_NAME to userName,
-                userNameInitial.name to userNameInitial,
-                email.name to email,
-                AccountAttributes.EMAILS to email,
-                AccountAttributes.EMAILS + ".value" to email,
-                emailInitial.name to emailInitial,
-                AccountAttributes.PHONE_NUMBERS to phone,
-                AccountAttributes.PHONE_NUMBERS + ".value" to phone,
-                AccountAttributes.ACTIVE to active,
-            ),
+            indexes = buildList {
+                add(Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, accountId))))
+                add(Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, userName))))
+                add(Index.from(userNameInitialUserNameIndex))
+                add(Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, email))))
+                add(Index.from(emailInitialEmailIndex))
+                if (UNIQUE_ACCOUNT_PHONE_NUMBER) {
+                    add(Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, phone))))
+                }
+            },
+            attributeMap = buildMap {
+                put(AccountAttributes.USER_NAME, userName)
+                put(userNameInitial.name, userNameInitial)
+                put(email.name, email)
+                put(AccountAttributes.EMAILS, email)
+                put(AccountAttributes.EMAILS + ".value", email)
+                put(emailInitial.name, emailInitial)
+                put(AccountAttributes.ACTIVE, active)
+                if (UNIQUE_ACCOUNT_PHONE_NUMBER) {
+                    put(AccountAttributes.PHONE_NUMBERS, phone)
+                    put(AccountAttributes.PHONE_NUMBERS + ".value", phone)
+                }
+            },
             setOf(TableCapability.SORTING),
         )
     }
@@ -1288,69 +1387,5 @@ class DynamoDBUserAccountDataAccessProvider(
         )
     }
 
-    companion object {
-        private val _conditionExpressionBuilder = ExpressionBuilder(
-            "#version = :oldVersion AND #accountId = :accountId",
-            AccountsTable.version, AccountsTable.accountId
-        )
 
-        private val _logger: Logger = LoggerFactory.getLogger(DynamoDBUserAccountDataAccessProvider::class.java)
-        private val MASK_MARKER: Marker = MarkerFactory.getMarker("MASK")
-
-        private val attributesToRemove = listOf(
-            // these are SDK attribute names and not DynamoDB table attribute names
-            "active", "password", "userName", "id", "schemas"
-        )
-
-        private val NO_LINK_DESCRIPTION: String? = null
-
-        private const val N_OF_ATTEMPTS = 3
-
-        /**
-         * Length of the "initial" for userName and email attributes.
-         * Since the initial attribute is used as the partition key, it is set to a value greater than one
-         * in order to well balance the partitions for increased performance and
-         * decreased DynamoDB read capacity unit cost.
-         * Warning: Changing this value is a breaking change: the indexes will need to be rebuilt.
-         */
-        const val INITIAL_LENGTH = 3
-
-        const val GETALLBY_OPERATION = "getAllBy"
-        const val COUNTBY_OPERATION = "countBy"
-
-        private fun removeLinkedAccounts(account: AccountAttributes): AccountAttributes {
-            var withoutLinks = account
-            for (linkedAccount in account.linkedAccounts.toList()) {
-                _logger.trace(
-                    MASK_MARKER,
-                    "Removing linked account before persisting to accounts table '{}'",
-                    linkedAccount
-                )
-                withoutLinks = account.removeLinkedAccounts(linkedAccount)
-            }
-            return withoutLinks.removeAttribute(AccountAttributes.LINKED_ACCOUNTS)
-        }
-
-        private fun DynamoDBItem.version(): Long =
-            AccountsTable.version.optionalFrom(this)
-                ?: throw SchemaErrorException(
-                    AccountsTable,
-                    AccountsTable.version
-                )
-
-        private fun DynamoDBItem.accountId(): String =
-            AccountsTable.accountId.optionalFrom(this)
-                ?: throw SchemaErrorException(
-                    AccountsTable,
-                    AccountsTable.accountId
-                )
-
-        private val filterForItemsWithAccountIdPk = DynamoDBScan(
-            filterExpression = "begins_with(pk, :pkPrefix)",
-            valueMap = mapOf(":pkPrefix" to AttributeValue.builder().s(AccountsTable.accountId.prefix).build()),
-            nameMap = mapOf()
-        )
-
-        private const val MAX_QUERIES = 8
-    }
 }

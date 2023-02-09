@@ -34,6 +34,24 @@ The folder `src/main/resources/schemas <src/main/resources/schemas>`_ contains J
 as well as their key and index schemas.
 The included ``ProvisionedThroughput`` values are illustrative and need to be adapted to the final usage scenario.
 
+Phone number uniqueness requirement
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+By default, the phone number of an account must be unique among all accounts of the accounts table. Though it is not the
+recommended behavior, from version 8.0, it is possible to lift this restriction by setting the
+``se.curity:identity-server.plugin.dynamodb:unique-account-phone-number`` system property to ``false`` on all nodes.
+
+Once done, it will be possible to have a given phone number shared by more than one of the accounts created after this
+change. But note that it will no longer be possible to retrieve accounts using the GraphQL ``accountByPhoneNumber`` request, ``null`` will be systematically returned.
+
+.. warning:: However, beware that, once set to ``false``, this system property should no longer be set to ``true`` or removed (as its default value is ``true``)! Indeed, doing so could lead to stale data, for instance:
+
+  * Without the property, when an account "123" is created with a phone number, it can be requested by its phone number.
+
+  * Then, the property is set to ``false`` and account "123" is updated.
+
+  * If the property is finally reverted to default, then the account can again be requested by its phone number, but it will hold stale attributes.
+
 More Information
 ~~~~~~~~~~~~~~~~
 
