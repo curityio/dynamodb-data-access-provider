@@ -16,6 +16,7 @@
 
 package io.curity.identityserver.plugin.dynamodb
 
+import se.curity.identityserver.sdk.data.query.ResourceQuery.Sorting.SortOrder
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 
@@ -24,12 +25,16 @@ data class DynamoDBQuery(
     val keyExpression: String,
     val filterExpression: String,
     val valueMap: Map<String, AttributeValue>,
-    val nameMap: Map<String, String>
+    val nameMap: Map<String, String>,
+    val sortOrder: SortOrder? = null,
 )
 
 fun QueryRequest.Builder.configureWith(query: DynamoDBQuery): QueryRequest.Builder {
     if (query.indexName != null) {
         indexName(query.indexName)
+        if (query.sortOrder == SortOrder.DESCENDING) {
+            scanIndexForward(false)
+        }
     }
     keyConditionExpression(query.keyExpression)
     if (query.filterExpression.isNotBlank()) {
@@ -43,4 +48,3 @@ fun QueryRequest.Builder.configureWith(query: DynamoDBQuery): QueryRequest.Build
     }
     return this
 }
-

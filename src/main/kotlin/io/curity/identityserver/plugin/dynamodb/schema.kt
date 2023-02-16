@@ -17,6 +17,7 @@
 package io.curity.identityserver.plugin.dynamodb
 
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
+import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.Delete
 import software.amazon.awssdk.services.dynamodb.model.Put
@@ -52,6 +53,14 @@ abstract class Table(
     // toString is not overridden on purpose, so that it isn't mistakenly used as the table name
 }
 
+abstract class TableWithCapabilities(
+    suffixName: String
+) : Table(suffixName) {
+    abstract fun queryCapabilities(): TableQueryCapabilities
+
+    abstract fun keyAttribute(): StringAttribute
+}
+
 // A DynamoDB attribute
 interface DynamoDBAttribute<T> {
     val name: String
@@ -61,6 +70,7 @@ interface DynamoDBAttribute<T> {
     fun toExpressionNameValuePair(value: T): Pair<String, AttributeValue>
     fun optionalFrom(map: Map<String, AttributeValue>): T?
     fun from(map: Map<String, AttributeValue>): T
+    fun attributeValueFrom(map: Map<String, AttributeValue>): AttributeValue
     val hashName: String
     val colonName: String
     fun toAttrValue(value: T): AttributeValue
@@ -93,6 +103,7 @@ abstract class BaseAttribute<T>(
     override fun toExpressionNameValuePair(value: T) = ":${name}" to toAttrValue(value)
     override fun optionalFrom(map: Map<String, AttributeValue>): T? = map[name]?.let { from(it) }
     override fun from(map: Map<String, AttributeValue>) = optionalFrom(map) ?: throw SchemaErrorException(this)
+    override fun attributeValueFrom(map: Map<String, AttributeValue>) = map[name] ?: throw SchemaErrorException(this)
     override fun addTo(map: MutableMap<String, AttributeValue>, value: T) {
         map[name] = toAttrValue(value)
     }
@@ -161,10 +172,10 @@ class EnumAttribute<T : Enum<T>>(
     override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
 
     companion object {
-        inline fun <reified T : Enum<T>> of(name: String) = EnumAttribute<T>(
+        inline fun <reified T : Enum<T>> of(name: String) = EnumAttribute(
             name,
             T::class.java,
-            enumValues<T>().map { it.name to it }.toMap()
+            enumValues<T>().associateBy { it.name }
         )
     }
 }
@@ -253,7 +264,7 @@ class UniquenessBasedIndexStringAttribute(
     // the attribute name comes from the primary key, however the value uses the unique attribute mapping function
     override fun toAttrValue(value: String) = _primaryKeyAttribute.toAttrValue(
         _uniqueAttribute.uniquenessValueFrom(value)
-    );
+    )
 
     override fun from(attrValue: AttributeValue) = _primaryKeyAttribute.from(attrValue)
 
@@ -264,14 +275,32 @@ class UniquenessBasedIndexStringAttribute(
     override fun canBeUsedOnQueryTo(other: DynamoDBAttribute<*>) = _uniqueAttribute == other
 }
 
+class StartsWithStringAttribute(
+    // The attribute's name storing the first letters of the full attribute.
+    _initialsAttribute: String,
+    // The attribute storing the full value which starts with _initialAttribute value.
+    val fullAttribute: BaseAttribute<String>,
+    // The length of the initials stored in the _initialsAttribute.
+    private val _initialLength: Int
+) : BaseAttribute<String>(_initialsAttribute, AttributeType.S) {
+    private fun getInitials(value: String): String =
+        if (value.length < _initialLength) value else value.substring(0, _initialLength)
+
+    override fun from(attrValue: AttributeValue): String = attrValue.s()
+
+    override fun cast(value: Any): String? = value as? String
+
+    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
+
+    override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(getInitials(value)).build()
+
+    override fun canBeUsedOnQueryTo(other: DynamoDBAttribute<*>) = this == other || fullAttribute == other
+}
+
 class ExpressionBuilder(
     val expression: String, vararg attributes: DynamoDBAttribute<*>
 ) {
-    val attributeNames = attributes
-        .map {
-            it.toNamePair()
-        }
-        .toMap()
+    val attributeNames = attributes.associate { it.toNamePair() }
 }
 
 abstract class Expression(

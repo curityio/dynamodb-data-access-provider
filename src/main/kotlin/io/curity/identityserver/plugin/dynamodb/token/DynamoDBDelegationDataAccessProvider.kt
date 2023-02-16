@@ -160,7 +160,7 @@ class DynamoDBDelegationDataAccessProvider(
         expires = DelegationTable.expires.from(this),
         clientId = DelegationTable.clientId.from(this),
         redirectUri = DelegationTable.redirectUri.optionalFrom(this),
-        authorizationCodeHash = DelegationTable.redirectUri.optionalFrom(this),
+        authorizationCodeHash = DelegationTable.authorizationCodeHash.optionalFrom(this),
         authenticationAttributes = DelegationTable.authenticationAttributes.from(this).let {
             AuthenticationAttributes.fromAttributes(
                 Attributes.fromMap(

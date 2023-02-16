@@ -16,6 +16,10 @@
 package io.curity.identityserver.plugin.dynamodb
 
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
+import io.curity.identityserver.plugin.dynamodb.query.Index
+import io.curity.identityserver.plugin.dynamodb.query.QueryHelper
+import io.curity.identityserver.plugin.dynamodb.query.QueryHelper.validateRequest
+import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.attribute.Attribute
@@ -34,7 +38,12 @@ import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegi
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.REDIRECT_URIS
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.SCOPE
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.STATUS
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.Status
+import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.datasource.DynamicallyRegisteredClientDataAccessProvider
+import se.curity.identityserver.sdk.datasource.pagination.PaginatedDataAccessResult
+import se.curity.identityserver.sdk.datasource.pagination.PaginationRequest
+import se.curity.identityserver.sdk.datasource.query.AttributesSorting
 import se.curity.identityserver.sdk.errors.ConflictException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
@@ -51,7 +60,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
 ) : DynamicallyRegisteredClientDataAccessProvider {
     private val _jsonHandler = _configuration.getJsonHandler()
 
-    private object DcrTable : Table("curity-dynamic-clients") {
+    private object DcrTable : TableWithCapabilities("curity-dynamic-clients") {
         val clientId = StringAttribute("clientId")
         val clientSecret = StringAttribute("clientSecret")
         val instanceOfClient = StringAttribute("instanceOfClient")
@@ -65,7 +74,37 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         val redirectUris = ListStringAttribute("redirectUris")
         val grantTypes = ListStringAttribute("grantTypes")
 
-        fun key(value: String) = mapOf(clientId.toNameValuePair(value))
+        val primaryKey = PrimaryKey(clientId)
+        private val authenticatedUserCreatedIndex =
+            PartitionAndSortIndex("authenticatedUser-created-index", authenticatedUser, created)
+        private val authenticatedUserUpdatedIndex =
+            PartitionAndSortIndex("authenticatedUser-updated-index", authenticatedUser, updated)
+        private val instanceOfClientCreatedIndex =
+            PartitionAndSortIndex("instanceOfClient-created-index", instanceOfClient, created)
+        private val instanceOfClientUpdatedIndex =
+            PartitionAndSortIndex("instanceOfClient-updated-index", instanceOfClient, updated)
+
+        override fun queryCapabilities(): TableQueryCapabilities = TableQueryCapabilities(
+            indexes = listOf(
+                Index.from(primaryKey),
+                Index.from(authenticatedUserCreatedIndex),
+                Index.from(authenticatedUserUpdatedIndex),
+                Index.from(instanceOfClientCreatedIndex),
+                Index.from(instanceOfClientUpdatedIndex)
+            ),
+            attributeMap = mapOf(
+                CLIENT_ID to clientId,
+                AUTHENTICATED_USER to authenticatedUser,
+                INSTANCE_OF_CLIENT to instanceOfClient,
+                Meta.CREATED to created,
+                Meta.LAST_MODIFIED to updated,
+                STATUS to status
+            )
+        )
+
+        override fun keyAttribute(): StringAttribute = clientId
+
+        fun key(value: String) = mapOf(keyAttribute().toNameValuePair(value))
     }
 
     private fun DynamoDBItem.toAttributes(): DynamicallyRegisteredClientAttributes {
@@ -213,9 +252,9 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         try {
             _dynamoDBClient.updateItem(requestBuilder.build())
         } catch (_: ConditionalCheckFailedException) {
-            // this exceptions means the entry does not exists, which should be signalled with an exception
+            // this exception means the entry does not exist, which should be signalled with an exception
             throw RuntimeException(
-                "Client with ID '${dynamicallyRegisteredClientAttributes.getClientId()}' could not be updated."
+                "Client with ID '${dynamicallyRegisteredClientAttributes.clientId}' could not be updated."
             )
         }
     }
@@ -231,8 +270,102 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         _dynamoDBClient.deleteItem(request)
     }
 
+    override fun getAllDcrClientsBy(
+        templateId: String?,
+        username: String?,
+        paginationRequest: PaginationRequest?,
+        sortRequest: AttributesSorting?,
+        activeClientsOnly: Boolean
+    ): PaginatedDataAccessResult<DynamicallyRegisteredClientAttributes> {
+
+        val potentialKeys = createPotentialKeys(templateId, username, activeClientsOnly, sortRequest)
+        val indexAndKeys = QueryHelper.findIndexAndKeysFrom(DcrTable, potentialKeys)
+
+        validateRequest(
+            indexAndKeys.useScan,
+            _configuration.getAllowTableScans(),
+            DcrTable.queryCapabilities(),
+            null,
+            sortRequest
+        )
+
+        val (values, encodedCursor) = QueryHelper.list(
+            _dynamoDBClient,
+            _jsonHandler,
+            DcrTable.name(_configuration),
+            indexAndKeys,
+            isAscendingOrder(sortRequest),
+            paginationRequest?.count,
+            paginationRequest?.cursor,
+            getLastEvaluatedKeyFun(indexAndKeys)
+        )
+
+        val items = values
+            .map { it.toAttributes() }
+            .toList()
+
+        return PaginatedDataAccessResult<DynamicallyRegisteredClientAttributes>(items, encodedCursor)
+    }
+
+    override fun getDcrClientCountBy(templateId: String?, username: String?, activeClientsOnly: Boolean): Long {
+        val potentialKeys = createPotentialKeys(templateId, username, activeClientsOnly)
+        val indexAndKeys = QueryHelper.findIndexAndKeysFrom(DcrTable, potentialKeys)
+
+        validateRequest(indexAndKeys.useScan, _configuration.getAllowTableScans())
+
+        return QueryHelper.count(
+            _dynamoDBClient,
+            DcrTable.name(_configuration),
+            indexAndKeys
+        )
+    }
+
+    private fun getLastEvaluatedKeyFun(
+        indexAndKeys: QueryHelper.IndexAndKeys<Any, Any>
+    ): (Map<String, AttributeValue>) -> Map<String, AttributeValue> =
+        if (indexAndKeys.index != null) ({ indexAndKeys.index.toIndexPrimaryKey(it, DcrTable.primaryKey) })
+        else ({ mapOf(DcrTable.primaryKey.attribute.name to DcrTable.primaryKey.attribute.attributeValueFrom(it)) })
+
     companion object {
         private val logger: Logger =
             LoggerFactory.getLogger(DynamoDBDynamicallyRegisteredClientDataAccessProvider::class.java)
+
+        private fun isAscendingOrder(sortRequest: AttributesSorting?): Boolean =
+            if (sortRequest != null) {
+                sortRequest.sortOrder == ResourceQuery.Sorting.SortOrder.ASCENDING
+            } else {
+                true
+            }
+
+        private fun createPotentialKeys(
+            templateId: String?,
+            username: String?,
+            activeClientsOnly: Boolean,
+            sortRequest: AttributesSorting? = null
+        ): QueryHelper.PotentialKeys {
+            val potentialPartitionKeys: MutableMap<DynamoDBAttribute<*>, Any> = mutableMapOf()
+            if (templateId != null) {
+                potentialPartitionKeys[DcrTable.instanceOfClient] = templateId
+            }
+            if (username != null) {
+                potentialPartitionKeys[DcrTable.authenticatedUser] = username
+            }
+
+            val potentialSortKeys: MutableMap<DynamoDBAttribute<*>, Any> = mutableMapOf()
+            val sortBy = DcrTable.queryCapabilities().attributeMap[sortRequest?.sortBy]
+            if (sortBy != null) {
+                potentialSortKeys[sortBy] = QueryHelper.NoValueForSortKeys()
+            }
+
+            val potentialFilterKeys: MutableMap<DynamoDBAttribute<*>, Any> = mutableMapOf()
+            if (activeClientsOnly) {
+                potentialFilterKeys[DcrTable.status] = Status.ACTIVE.name
+            }
+            return QueryHelper.PotentialKeys(
+                potentialPartitionKeys as Map<DynamoDBAttribute<Any>, Any>,
+                potentialSortKeys as Map<DynamoDBAttribute<Any>, Any>,
+                potentialFilterKeys as Map<DynamoDBAttribute<Any>, Any>
+            )
+        }
     }
 }
