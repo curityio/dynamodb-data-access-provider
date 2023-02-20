@@ -325,24 +325,6 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         )
     }
 
-    override fun getAllDbClientsBy(
-        profileId: String,
-        tags: Set<String>?,
-        paginationRequest: PaginationRequest?,
-        sortRequest: AttributesSorting?,
-        activeClientsOnly: Boolean
-    ): PaginatedDataAccessResult<DynamicallyRegisteredClientAttributes> {
-        TODO("Not yet implemented")
-    }
-
-    override fun getDbClientCountBy(
-        profileId: String,
-        tags: Set<String>?,
-        activeClientsOnly: Boolean
-    ): Long {
-        TODO("Not yet implemented")
-    }
-
     private fun getLastEvaluatedKeyFun(
         indexAndKeys: QueryHelper.IndexAndKeys<Any, Any>
     ): (Map<String, AttributeValue>) -> Map<String, AttributeValue> =
