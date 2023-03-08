@@ -20,6 +20,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient
 import software.amazon.awssdk.services.dynamodb.model.DescribeTableRequest
+import software.amazon.awssdk.services.dynamodb.model.ResourceNotFoundException
 
 interface DynamoDBSchemaFeatureCheck {
     fun featureId(): String
@@ -46,12 +47,20 @@ class DynamoDBGlobalSecondaryIndexFeatureCheck(
             val request = DescribeTableRequest.builder().tableName(tableName).build()
             val response = dynamoDBClient.describeTable(request)
             response.table().globalSecondaryIndexes().any { it.indexName() == partitionAndSortIndex.name }
+        } catch (e: ResourceNotFoundException) {
+            // The table to probe was not found in the database, disable the feature.
+            logger.debug(
+                "The {} table targeted by the {} GSI was not found into DynamoDB database. " +
+                        "The {} feature has been disabled",
+                tableName, partitionAndSortIndex.name, featureId(), e
+            )
+            false
         } catch (e: Exception) {
             // If DynamoDB database is not reachable during plugin initialization,
-            // assumes that the feature is available by default.
+            // assume that the feature is available by default.
             logger.warn(
-                "An exception occurred while checking feature ${featureId()} into DynamoDB database. " +
-                        "The feature is assumed to be available.", e
+                "An exception occurred while checking feature {} into DynamoDB database. " +
+                        "The feature is assumed to be available.", featureId(), e
             )
             true
         }
