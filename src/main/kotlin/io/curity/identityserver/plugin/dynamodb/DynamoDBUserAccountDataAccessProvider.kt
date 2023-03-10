@@ -328,9 +328,17 @@ class DynamoDBUserAccountDataAccessProvider(
             _dynamoDBClient.transactionWriteItems(request)
         } catch (ex: Exception) {
             if (ex.isTransactionCancelledDueToConditionFailure()) {
-                throw ConflictException(
-                    "Unable to create user with username '${accountAttributes.userName}' as uniqueness check failed"
-                )
+                if (ex.cause is TransactionCanceledException) {
+                    ex.validateKnownUniqueConstraints(
+                        (ex.cause as TransactionCanceledException).cancellationReasons(),
+                        transactionItems
+                    )
+                }
+                else {
+                    throw ConflictException(
+                        "Unable to create user with username '${accountAttributes.userName}' as uniqueness check failed"
+                    )
+                }
             }
             throw ex
         }

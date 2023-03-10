@@ -40,6 +40,26 @@ fun Exception.isTransactionCancelledDueToConditionFailure(): Boolean {
     }
 }
 
+fun Exception.validateKnownUniqueConstraints(
+    cancellationReasons: List<CancellationReason>,
+    transactionItems: MutableList<TransactWriteItem>
+) {
+    cancellationReasons.forEachIndexed { index, reason ->
+        // Cancellation reason does not contain any reference to field causing the failure,
+        // this can be established by position of the cancellationReasons list which corresponds to position in
+        // transactionItems list
+        if (reason.code().equals("ConditionalCheckFailed") && transactionItems[index].put().item()["pk"]?.s() != null) {
+            if (transactionItems[index].put().item()["pk"]!!.s().startsWith("un")) {
+                throw UsernameConflictException("The username provided is already registered")
+            } else if (transactionItems[index].put().item()["pk"]!!.s().startsWith("pn")) {
+                throw PhoneNumberConflictException("The phone number provided is already registered")
+            } else if (transactionItems[index].put().item()["pk"]!!.s().startsWith("em")) {
+                throw EmailConflictException("The e-mail address provided is already registered")
+            }
+        }
+    }
+}
+
 sealed class TransactionAttemptResult<out T> {
     class Success<T>(val value: T) : TransactionAttemptResult<T>()
     class Failure(val exception: Exception) : TransactionAttemptResult<Nothing>()
