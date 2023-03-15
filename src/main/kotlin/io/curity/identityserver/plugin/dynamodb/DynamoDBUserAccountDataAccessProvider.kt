@@ -56,6 +56,9 @@ import se.curity.identityserver.sdk.datasource.pagination.PaginationRequest
 import se.curity.identityserver.sdk.datasource.query.AttributesFiltering
 import se.curity.identityserver.sdk.datasource.query.AttributesSorting
 import se.curity.identityserver.sdk.errors.ConflictException
+import se.curity.identityserver.sdk.errors.UsernameConflictException
+import se.curity.identityserver.sdk.errors.PhoneNumberConflictException
+import se.curity.identityserver.sdk.errors.EmailConflictException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
@@ -66,6 +69,7 @@ import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 import software.amazon.awssdk.services.dynamodb.model.Select
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
+import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime

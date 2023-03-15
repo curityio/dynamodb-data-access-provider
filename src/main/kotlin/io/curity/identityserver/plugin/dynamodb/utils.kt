@@ -18,6 +18,11 @@ package io.curity.identityserver.plugin.dynamodb
 
 import org.slf4j.LoggerFactory
 import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException
+import software.amazon.awssdk.services.dynamodb.model.CancellationReason
+import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
+import se.curity.identityserver.sdk.errors.UsernameConflictException
+import se.curity.identityserver.sdk.errors.PhoneNumberConflictException
+import se.curity.identityserver.sdk.errors.EmailConflictException
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 
