@@ -333,7 +333,7 @@ class DynamoDBUserAccountDataAccessProvider(
         } catch (ex: Exception) {
             if (ex.isTransactionCancelledDueToConditionFailure()) {
                 if (ex.cause is TransactionCanceledException) {
-                    ex.validateKnownUniqueConstraints(
+                    ex.validateKnownUniqueConstraintsForAccountMutations(
                         (ex.cause as TransactionCanceledException).cancellationReasons(),
                         transactionItems
                     )

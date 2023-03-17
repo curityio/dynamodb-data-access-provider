@@ -16,6 +16,7 @@
 
 package io.curity.identityserver.plugin.dynamodb
 
+import io.curity.identityserver.plugin.dynamodb.DynamoDBUserAccountDataAccessProvider.AccountsTable
 import org.slf4j.LoggerFactory
 import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException
 import software.amazon.awssdk.services.dynamodb.model.CancellationReason
@@ -45,7 +46,7 @@ fun Exception.isTransactionCancelledDueToConditionFailure(): Boolean {
     }
 }
 
-fun Exception.validateKnownUniqueConstraints(
+fun Exception.validateKnownUniqueConstraintsForAccountMutations(
     cancellationReasons: List<CancellationReason>,
     transactionItems: MutableList<TransactWriteItem>
 ) {
@@ -53,13 +54,18 @@ fun Exception.validateKnownUniqueConstraints(
         // Cancellation reason does not contain any reference to field causing the failure,
         // this can be established by position of the cancellationReasons list which corresponds to position in
         // transactionItems list
-        if (reason.code().equals("ConditionalCheckFailed") && transactionItems[index].put().item()["pk"]?.s() != null) {
-            if (transactionItems[index].put().item()["pk"]!!.s().startsWith("un")) {
-                throw UsernameConflictException("The username provided is already registered")
-            } else if (transactionItems[index].put().item()["pk"]!!.s().startsWith("pn")) {
-                throw PhoneNumberConflictException("The phone number provided is already registered")
-            } else if (transactionItems[index].put().item()["pk"]!!.s().startsWith("em")) {
-                throw EmailConflictException("The e-mail address provided is already registered")
+        if (reason.code().equals("ConditionalCheckFailed") &&
+            transactionItems[index].put() != null &&
+            transactionItems[index].put().item()[AccountsTable.pk.name]?.s() != null) {
+
+            val pk = transactionItems[index].put().item()[AccountsTable.pk.name]!!.s()
+
+            if (pk.startsWith(AccountsTable.userName.prefix)) {
+                throw UsernameConflictException()
+            } else if (pk.startsWith(AccountsTable.phone.prefix)) {
+                throw PhoneNumberConflictException()
+            } else if (pk.startsWith(AccountsTable.email.prefix)) {
+                throw EmailConflictException()
             }
         }
     }
