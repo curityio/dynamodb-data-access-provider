@@ -332,9 +332,10 @@ class DynamoDBUserAccountDataAccessProvider(
             _dynamoDBClient.transactionWriteItems(request)
         } catch (ex: Exception) {
             if (ex.isTransactionCancelledDueToConditionFailure()) {
-                if (ex.cause is TransactionCanceledException) {
+                val exceptionCause = ex.cause
+                if (exceptionCause is TransactionCanceledException) {
                     ex.validateKnownUniqueConstraintsForAccountMutations(
-                        (ex.cause as TransactionCanceledException).cancellationReasons(),
+                        exceptionCause.cancellationReasons(),
                         transactionItems
                     )
                 }
