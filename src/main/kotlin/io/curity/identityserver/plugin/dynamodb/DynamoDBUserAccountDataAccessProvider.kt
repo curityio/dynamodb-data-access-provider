@@ -56,6 +56,9 @@ import se.curity.identityserver.sdk.datasource.pagination.PaginationRequest
 import se.curity.identityserver.sdk.datasource.query.AttributesFiltering
 import se.curity.identityserver.sdk.datasource.query.AttributesSorting
 import se.curity.identityserver.sdk.errors.ConflictException
+import se.curity.identityserver.sdk.errors.UsernameConflictException
+import se.curity.identityserver.sdk.errors.PhoneNumberConflictException
+import se.curity.identityserver.sdk.errors.EmailConflictException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
@@ -66,6 +69,7 @@ import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 import software.amazon.awssdk.services.dynamodb.model.Select
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
+import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -328,9 +332,18 @@ class DynamoDBUserAccountDataAccessProvider(
             _dynamoDBClient.transactionWriteItems(request)
         } catch (ex: Exception) {
             if (ex.isTransactionCancelledDueToConditionFailure()) {
-                throw ConflictException(
-                    "Unable to create user with username '${accountAttributes.userName}' as uniqueness check failed"
-                )
+                val exceptionCause = ex.cause
+                if (exceptionCause is TransactionCanceledException) {
+                    ex.validateKnownUniqueConstraintsForAccountMutations(
+                        exceptionCause.cancellationReasons(),
+                        transactionItems
+                    )
+                }
+                else {
+                    throw ConflictException(
+                        "Unable to create user with username '${accountAttributes.userName}' as uniqueness check failed"
+                    )
+                }
             }
             throw ex
         }
