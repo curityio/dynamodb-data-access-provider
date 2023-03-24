@@ -18,12 +18,10 @@ package io.curity.identityserver.plugin.dynamodb
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBUserAccountDataAccessProvider.AccountsTable
 import org.slf4j.LoggerFactory
+import se.curity.identityserver.sdk.errors.ConflictException
 import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException
 import software.amazon.awssdk.services.dynamodb.model.CancellationReason
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
-import se.curity.identityserver.sdk.errors.UsernameConflictException
-import se.curity.identityserver.sdk.errors.PhoneNumberConflictException
-import se.curity.identityserver.sdk.errors.EmailConflictException
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 
@@ -61,11 +59,11 @@ fun Exception.validateKnownUniqueConstraintsForAccountMutations(
             val pk = transactionItems[index].put().item()[AccountsTable.pk.name]!!.s()
 
             if (pk.startsWith(AccountsTable.userName.prefix)) {
-                throw UsernameConflictException()
+                throw ConflictException("User name is conflicting")
             } else if (pk.startsWith(AccountsTable.phone.prefix)) {
-                throw PhoneNumberConflictException()
+                throw ConflictException("Phone is conflicting")
             } else if (pk.startsWith(AccountsTable.email.prefix)) {
-                throw EmailConflictException()
+                throw ConflictException("Email is conflicting")
             }
         }
     }
