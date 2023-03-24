@@ -56,9 +56,6 @@ import se.curity.identityserver.sdk.datasource.pagination.PaginationRequest
 import se.curity.identityserver.sdk.datasource.query.AttributesFiltering
 import se.curity.identityserver.sdk.datasource.query.AttributesSorting
 import se.curity.identityserver.sdk.errors.ConflictException
-import se.curity.identityserver.sdk.errors.UsernameConflictException
-import se.curity.identityserver.sdk.errors.PhoneNumberConflictException
-import se.curity.identityserver.sdk.errors.EmailConflictException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
@@ -338,8 +335,7 @@ class DynamoDBUserAccountDataAccessProvider(
                         exceptionCause.cancellationReasons(),
                         transactionItems
                     )
-                }
-                else {
+                } else {
                     throw ConflictException(
                         "Unable to create user with username '${accountAttributes.userName}' as uniqueness check failed"
                     )
@@ -389,7 +385,7 @@ class DynamoDBUserAccountDataAccessProvider(
     }
 
     override fun getCountBy(activeAccountsOnly: Boolean, filterRequest: AttributesFiltering?): Long {
-        validateGetAllByRequest(COUNTBY_OPERATION,null, filterRequest)
+        validateGetAllByRequest(COUNTBY_OPERATION, null, filterRequest)
 
         return when (val queryPlan = buildQueryPlan(filterRequest, activeAccountsOnly)) {
             is QueryPlan.UsingQueries -> queryCount(queryPlan)
@@ -423,8 +419,10 @@ class DynamoDBUserAccountDataAccessProvider(
             AccountsTable.userNameInitialUserNameIndex
         )
         if (!_dynamoDBClient.supportsFeature(featureId)) {
-            _logger.info("User account data source '{}' does not support '{}' because feature {} is missing",
-                this, operation, featureId)
+            _logger.info(
+                "User account data source '{}' does not support '{}' because feature {} is missing",
+                this, operation, featureId
+            )
             throw UnsupportedOperationException(GETALLBY_OPERATION)
         }
     }
@@ -740,6 +738,14 @@ class DynamoDBUserAccountDataAccessProvider(
                 AccountsTable.version.toNameValuePair(newVersion)
             )
 
+            // Fill the initials for userName and email (if present) only for the main item,
+            // to build a partial Global Secondary Index on these attributes.
+            val additionalAttributesForTheMainItem = mutableMapOf<String, AttributeValue>()
+            additionalAttributesForTheMainItem.addAttr(AccountsTable.userNameInitial, accountAttributes.userName)
+            commonItem[AccountsTable.email.name]?.also {
+                additionalAttributesForTheMainItem.addAttr(AccountsTable.emailInitial, it.s())
+            }
+
             val updateBuilder = UpdateBuilderWithMultipleUniquenessConstraints(
                 _configuration,
                 AccountsTable,
@@ -751,7 +757,8 @@ class DynamoDBUserAccountDataAccessProvider(
             updateBuilder.handleUniqueAttribute(
                 AccountsTable.accountId,
                 accountId,
-                accountId
+                accountId,
+                additionalAttributesForTheMainItem,
             )
 
             updateBuilder.handleUniqueAttribute(
