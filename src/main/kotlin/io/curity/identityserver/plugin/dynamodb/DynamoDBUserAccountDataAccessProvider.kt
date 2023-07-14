@@ -37,8 +37,6 @@ import org.slf4j.MarkerFactory
 import se.curity.identityserver.sdk.attribute.AccountAttributes
 import se.curity.identityserver.sdk.attribute.Attribute
 import se.curity.identityserver.sdk.attribute.Attributes
-import se.curity.identityserver.sdk.attribute.AuthenticationAttributes
-import se.curity.identityserver.sdk.attribute.ContextAttributes
 import se.curity.identityserver.sdk.attribute.CredentialAttributes
 import se.curity.identityserver.sdk.attribute.SubjectAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
@@ -47,7 +45,6 @@ import se.curity.identityserver.sdk.attribute.scim.v2.extensions.LinkedAccount
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.data.query.ResourceQueryResult
 import se.curity.identityserver.sdk.data.update.AttributeUpdate
-import se.curity.identityserver.sdk.datasource.CredentialDataAccessProvider
 import se.curity.identityserver.sdk.datasource.CredentialDataAccessProviderFactory
 import se.curity.identityserver.sdk.datasource.CredentialStoringDataAccessProvider
 import se.curity.identityserver.sdk.datasource.CredentialStoringDataAccessProvider.GetResult
@@ -847,10 +844,6 @@ class DynamoDBUserAccountDataAccessProvider(
     }
 
     override fun store(subjectAttributes: SubjectAttributes, passwordData: String, credentialAttributes: CredentialAttributes) {
-        TODO("Not yet implemented")
-    }
-
-    override fun getAttributes(subjectAttributes: SubjectAttributes): CredentialAttributes? {
         TODO("Not yet implemented")
     }
 
