@@ -1,0 +1,147 @@
+{
+  "TableName": "curity-database-clients",
+  "AttributeDefinitions": [
+    {
+      "AttributeName": "profileId",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "clientKey",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "clientName",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "tag",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "created",
+      "AttributeType": "N"
+    },
+    {
+      "AttributeName": "updated",
+      "AttributeType": "N"
+    }
+  ],
+  "GlobalSecondaryIndexes": [
+    {
+      "IndexName": "clientName-created-index",
+      "Projection": {
+        "ProjectionType": "ALL"
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName": "clientName"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "created"
+        }
+      ]
+    },
+    {
+      "IndexName": "clientName-updated-index",
+      "Projection": {
+        "ProjectionType": "ALL"
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName": "clientName"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "updated"
+        }
+      ]
+    },
+    {
+      "IndexName": "tag-created-index",
+      "Projection": {
+        "ProjectionType": "ALL"
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName": "tag"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "created"
+        }
+      ]
+    },
+    {
+      "IndexName": "tag-updated-index",
+      "Projection": {
+        "ProjectionType": "ALL"
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName": "tag"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "updated"
+        }
+      ]
+    },
+    {
+      "IndexName": "tag-clientName-index",
+      "Projection": {
+        "ProjectionType": "ALL"
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName": "tag"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "clientName"
+        }
+      ]
+    }
+  ],
+  "KeySchema": [
+    {
+      "KeyType": "HASH",
+      "AttributeName": "profileId"
+    },
+    {
+      "KeyType": "RANGE",
+      "AttributeName": "clientKey"
+    }
+  ],
+  "ProvisionedThroughput": {
+    "WriteCapacityUnits": 5,
+    "ReadCapacityUnits": 10
+  }
+}
+
+
