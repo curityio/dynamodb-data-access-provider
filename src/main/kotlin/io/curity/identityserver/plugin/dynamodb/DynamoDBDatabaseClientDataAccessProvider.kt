@@ -30,16 +30,17 @@ class DynamoDBDatabaseClientDataAccessProvider(
 ) : DatabaseClientDataAccessProvider {
     private val _jsonHandler = _configuration.getJsonHandler()
 
-    private object DatabaseTable : TableWithCapabilities("curity-database-clients") {
-        val profileId = StringAttribute("profileId")
+    object DatabaseTable : TableWithCapabilities("curity-database-clients") {
+        const val PROFILE_ID = "profileId"
+        const val CLIENT_KEY = "clientKey"
 
+        val profileId = StringAttribute(PROFILE_ID)
         // DynamoDB-specific, composite string made up of clientId and tag, or clientId only
-        val clientKey = StringAttribute("clientKey")
+        val clientKey = StringAttribute(CLIENT_KEY)
         val clientName = StringAttribute("clientName")
         val created = NumberLongAttribute("created")
         val updated = NumberLongAttribute("updated")
         val status = StringAttribute("status")
-
         // DynamoDB-specific field for indexes
         val tag = StringAttribute("tag")
         val tags = ListStringAttribute("tags")
