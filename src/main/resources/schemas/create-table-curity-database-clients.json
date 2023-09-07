@@ -30,7 +30,13 @@
     {
       "IndexName": "clientName-created-index",
       "Projection": {
-        "ProjectionType": "ALL"
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "profileId",
+          "clientId",
+          "status",
+          "tags"
+        ]
       },
       "ProvisionedThroughput": {
         "WriteCapacityUnits": 5,
@@ -50,7 +56,13 @@
     {
       "IndexName": "clientName-updated-index",
       "Projection": {
-        "ProjectionType": "ALL"
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "profileId",
+          "clientId",
+          "status",
+          "tags"
+        ]
       },
       "ProvisionedThroughput": {
         "WriteCapacityUnits": 5,
@@ -70,7 +82,14 @@
     {
       "IndexName": "tag-created-index",
       "Projection": {
-        "ProjectionType": "ALL"
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "profileId",
+          "clientKey",
+          "status",
+          "tags",
+          "clientName"
+        ]
       },
       "ProvisionedThroughput": {
         "WriteCapacityUnits": 5,
@@ -90,7 +109,14 @@
     {
       "IndexName": "tag-updated-index",
       "Projection": {
-        "ProjectionType": "ALL"
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "profileId",
+          "clientKey",
+          "status",
+          "tags",
+          "clientName"
+        ]
       },
       "ProvisionedThroughput": {
         "WriteCapacityUnits": 5,
@@ -110,7 +136,13 @@
     {
       "IndexName": "tag-clientName-index",
       "Projection": {
-        "ProjectionType": "ALL"
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "profileId",
+          "clientKey",
+          "status",
+          "tags"
+        ]
       },
       "ProvisionedThroughput": {
         "WriteCapacityUnits": 5,
