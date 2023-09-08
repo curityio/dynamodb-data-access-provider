@@ -15,14 +15,26 @@ import io.curity.identityserver.plugin.dynamodb.query.Index
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import se.curity.identityserver.sdk.attribute.Attribute
+import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.client.database.DatabaseClientAttributes
 import se.curity.identityserver.sdk.attribute.client.database.DatabaseClientAttributes.DatabaseClientAttributeKeys
+import se.curity.identityserver.sdk.attribute.client.database.DatabaseClientStatus
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
+import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
 import se.curity.identityserver.sdk.datasource.DatabaseClientDataAccessProvider
 import se.curity.identityserver.sdk.datasource.pagination.PaginatedDataAccessResult
 import se.curity.identityserver.sdk.datasource.pagination.PaginationRequest
 import se.curity.identityserver.sdk.datasource.query.DatabaseClientAttributesFiltering
 import se.curity.identityserver.sdk.datasource.query.DatabaseClientAttributesSorting
+import se.curity.identityserver.sdk.errors.ConflictException
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
+import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
+import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
+import software.amazon.awssdk.services.dynamodb.model.ReturnValue
+import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
+import java.time.Instant
 
 class DynamoDBDatabaseClientDataAccessProvider(
     private val _configuration: DynamoDBDataAccessProviderConfiguration,
@@ -57,6 +69,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val updated = NumberLongAttribute("updated")
         val status = StringAttribute("status")
         val tags = ListStringAttribute("tags")
+        val redirectUris = ListStringAttribute("redirectUris")
 
         val compositePrimaryKey = CompositePrimaryKey(profileId, clientIdKey)
 
@@ -113,27 +126,99 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         override fun keyAttribute(): StringAttribute = clientIdKey
 
-        fun key(value: String) = mapOf(keyAttribute().toNameValuePair(value))
+        fun keys(pkValue: String, skValue: String) =
+            mapOf(keyAttribute().toNameValuePair(pkValue), clientIdKey.toNameValuePair(skValue))
     }
 
-    override fun getClientById(clientId: String?, profileId: String?): DatabaseClientAttributes {
+    override fun getClientById(clientId: String, profileId: String): DatabaseClientAttributes? {
         TODO("Not yet implemented")
     }
 
-    override fun create(attributes: DatabaseClientAttributes?, profileId: String?): DatabaseClientAttributes {
-        TODO("Not yet implemented")
+    override fun create(attributes: DatabaseClientAttributes, profileId: String): DatabaseClientAttributes {
+        logger.debug("Creating database client with id: ${attributes.clientId} in profile $profileId")
+
+        val request = PutItemRequest.builder()
+            .tableName(tableName())
+            .conditionExpression("attribute_not_exists(${DatabaseClientsTable.profileId.name})")
+            .item(attributes.toItem())
+            // TODO or ALL_NEW?
+            .returnValues(ReturnValue.ALL_OLD)
+            .build()
+
+        try {
+            val response = _dynamoDBClient.putItem(request)
+
+            if (!response.hasAttributes() || response.attributes().isEmpty()) {
+                // TODO exception?
+            }
+
+            return response.attributes().toAttributes()
+        } catch (exception: ConditionalCheckFailedException) {
+            val newException =
+                ConflictException("Client ${attributes.clientId} is already registered")
+            logger.trace(
+                "Client with id: ${attributes.clientId} is already registered in profile $profileId",
+                newException
+            )
+            throw newException
+        }
     }
 
-    override fun update(attributes: DatabaseClientAttributes?, profileId: String?): DatabaseClientAttributes {
-        TODO("Not yet implemented")
+    override fun update(attributes: DatabaseClientAttributes, profileId: String): DatabaseClientAttributes {
+        logger.debug("Updating database client with id: ${attributes.clientId} in profile $profileId")
+
+        val builder = UpdateExpressionsBuilder()
+        attributes.apply {
+            // TODO secrets will have to be updated only if not null
+
+            builder.update(DatabaseClientsTable.updated, Instant.now().epochSecond)
+            builder.update(DatabaseClientsTable.status, status.name)
+            builder.update(DatabaseClientsTable.redirectUris, redirectUris)
+            // TODO OK?
+            builder.onlyIfExists(DatabaseClientsTable.clientIdKey)
+        }
+
+        val requestBuilder = UpdateItemRequest.builder()
+            .tableName(tableName())
+            .key(DatabaseClientsTable.keys(profileId, attributes.clientId))
+            // TODO or ALL_NEW?
+            .returnValues(ReturnValue.ALL_OLD)
+            .apply { builder.applyTo(this) }
+
+        try {
+            val response = _dynamoDBClient.updateItem(requestBuilder.build())
+
+            if (!response.hasAttributes() || response.attributes().isEmpty()) {
+                // TODO exception? null?
+            }
+
+            return response.attributes().toAttributes()
+        } catch (_: ConditionalCheckFailedException) {
+            // this exception means the entry does not exist, which should be signaled with an exception
+            throw RuntimeException("Client with id: ${attributes.clientId} could not be updated in profile $profileId")
+        }
     }
 
-    override fun delete(clientId: String?, profileId: String?): Boolean {
-        TODO("Not yet implemented")
+    override fun delete(clientId: String, profileId: String): Boolean {
+        logger.debug("Deleting database client with id: $clientId from profile $profileId")
+
+        val request = DeleteItemRequest.builder()
+            .tableName(tableName())
+            .key(DatabaseClientsTable.keys(profileId, clientId))
+            .build()
+
+        val response = _dynamoDBClient.deleteItem(request)
+
+        if (!response.hasAttributes() || response.attributes().isEmpty()) {
+            // TODO exception?
+        }
+
+        // TODO how to know if it was actually deleted?
+        return true
     }
 
     override fun getAllClientsBy(
-        profileId: String?,
+        profileId: String,
         filters: DatabaseClientAttributesFiltering?,
         paginationRequest: PaginationRequest?,
         sortRequest: DatabaseClientAttributesSorting?,
@@ -143,7 +228,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
     }
 
     override fun getClientCountBy(
-        profileId: String?,
+        profileId: String,
         filters: DatabaseClientAttributesFiltering?,
         activeClientsOnly: Boolean
     ): Long {
@@ -154,5 +239,88 @@ class DynamoDBDatabaseClientDataAccessProvider(
         private val logger: Logger =
             LoggerFactory.getLogger(DynamoDBDatabaseClientDataAccessProvider::class.java)
 
+    }
+
+    private fun DatabaseClientAttributes.toItem(): DynamoDBItem {
+        val now = Instant.now()
+        val created = meta?.created ?: now
+
+        val item = mutableMapOf<String, AttributeValue>()
+
+        // Non-nullable
+        // TODO to be possibly reworked for IS-7931
+        DatabaseClientsTable.clientName.addTo(item, name)
+
+        // Nullable
+        DatabaseClientsTable.clientIdKey.addToNullable(item, clientId)
+        DatabaseClientsTable.created.addToNullable(item, created.epochSecond)
+        DatabaseClientsTable.updated.addToNullable(item, now.epochSecond)
+        DatabaseClientsTable.status.addToNullable(item, status.name)
+        // TODO add all other attributes or use 'attributes'?
+        DatabaseClientsTable.redirectUris.addToNullable(item, redirectUris)
+        // TODO: attributes? See JdbcDCDAP
+        /*DatabaseClientsTable.attributes.addToNullable(
+            item, _jsonHandler.fromAttributes(
+                Attributes.of(attributes)
+            )
+        )*/
+
+        return item
+    }
+
+    private fun tableName(): String = DatabaseClientsTable.name(_configuration)
+
+    private fun MutableList<Attribute>.add(name: String, value: String?) = value?.let {
+        this.add(Attribute.of(name, it))
+    }
+
+    private fun MutableList<Attribute>.add(name: String, value: Collection<String>?) = value?.let {
+        this.add(Attribute.of(name, it))
+    }
+
+    private fun DynamoDBItem.toAttributes(): DatabaseClientAttributes {
+
+        val result = mutableListOf<Attribute>()
+        val item = this
+
+        result.apply {
+            // Non-nullable
+            // TODO to be possibly reworked for IS-7931
+            add(DatabaseClientAttributeKeys.NAME, DatabaseClientsTable.clientName.from(item))
+
+            // Nullable
+            add(DatabaseClientAttributeKeys.CLIENT_ID, DatabaseClientsTable.clientIdKey.optionalFrom(item))
+            add(
+                Attribute.of(
+                    ResourceAttributes.META,
+                    Meta.of(DatabaseClientAttributes.RESOURCE_TYPE)
+                        .withCreated(
+                            Instant.ofEpochSecond(
+                                DatabaseClientsTable.created.from(
+                                    item
+                                )
+                            )
+                        )
+                        .withLastModified(
+                            Instant.ofEpochSecond(
+                                DatabaseClientsTable.updated.from(
+                                    item
+                                )
+                            )
+                        )
+                )
+            )
+            add(
+                Attribute.of(
+                    DatabaseClientAttributeKeys.STATUS, DatabaseClientStatus.valueOf(
+                        DatabaseClientsTable.status.from(item)
+                    )
+                )
+            )
+            // TODO add all other attributes or use 'attributes'?
+            add(DatabaseClientAttributeKeys.REDIRECT_URIS, DatabaseClientsTable.redirectUris.optionalFrom(item))
+        }
+
+        return DatabaseClientAttributes.of(Attributes.of(result))
     }
 }
