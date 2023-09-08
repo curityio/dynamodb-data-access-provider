@@ -30,7 +30,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 ) : DatabaseClientDataAccessProvider {
     private val _jsonHandler = _configuration.getJsonHandler()
 
-    object DatabaseTable : TableWithCapabilities("curity-database-clients") {
+    object DatabaseClientsTable : TableWithCapabilities("curity-database-clients") {
         const val PROFILE_ID = "profileId"
         const val CLIENT_KEY = "clientKey"
 
