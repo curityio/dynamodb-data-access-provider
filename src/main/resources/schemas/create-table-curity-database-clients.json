@@ -6,15 +6,19 @@
       "AttributeType": "S"
     },
     {
-      "AttributeName": "clientKey",
+      "AttributeName" : "clientIdKey",
       "AttributeType": "S"
     },
     {
-      "AttributeName": "clientName",
+      "AttributeName" : "clientNameKey",
       "AttributeType": "S"
     },
     {
-      "AttributeName": "tag",
+      "AttributeName" : "clientName",
+      "AttributeType" : "S"
+    },
+    {
+      "AttributeName" : "tagKey",
       "AttributeType": "S"
     },
     {
@@ -26,16 +30,87 @@
       "AttributeType": "N"
     }
   ],
+  "LocalSecondaryIndexes" : [
+    {
+      "IndexName" : "lsi-created-index",
+      "Projection" : {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "clientIdKey",
+          "clientName",
+          "status",
+          "tags",
+          "updated"
+        ]
+      },
+      "KeySchema" : [
+        {
+          "KeyType" : "HASH",
+          "AttributeName" : "profileId"
+        },
+        {
+          "KeyType" : "RANGE",
+          "AttributeName" : "created"
+        }
+      ]
+    },
+    {
+      "IndexName" : "lsi-updated-index",
+      "Projection" : {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "clientIdKey",
+          "clientName",
+          "status",
+          "tags",
+          "created"
+        ]
+      },
+      "KeySchema" : [
+        {
+          "KeyType" : "HASH",
+          "AttributeName" : "profileId"
+        },
+        {
+          "KeyType" : "RANGE",
+          "AttributeName" : "updated"
+        }
+      ]
+    },
+    {
+      "IndexName" : "lsi-clientName-index",
+      "Projection" : {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "clientIdKey",
+          "status",
+          "tags",
+          "created",
+          "updated"
+        ]
+      },
+      "KeySchema" : [
+        {
+          "KeyType" : "HASH",
+          "AttributeName" : "profileId"
+        },
+        {
+          "KeyType" : "RANGE",
+          "AttributeName" : "clientName"
+        }
+      ]
+    }
+  ],
   "GlobalSecondaryIndexes": [
     {
       "IndexName": "clientName-created-index",
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "profileId",
-          "clientId",
+          "clientIdKey",
           "status",
-          "tags"
+          "tags",
+          "updated"
         ]
       },
       "ProvisionedThroughput": {
@@ -45,7 +120,7 @@
       "KeySchema": [
         {
           "KeyType": "HASH",
-          "AttributeName": "clientName"
+          "AttributeName" : "clientNameKey"
         },
         {
           "KeyType": "RANGE",
@@ -58,10 +133,10 @@
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "profileId",
-          "clientId",
+          "clientIdKey",
           "status",
-          "tags"
+          "tags",
+          "created"
         ]
       },
       "ProvisionedThroughput": {
@@ -71,7 +146,7 @@
       "KeySchema": [
         {
           "KeyType": "HASH",
-          "AttributeName": "clientName"
+          "AttributeName" : "clientNameKey"
         },
         {
           "KeyType": "RANGE",
@@ -80,15 +155,42 @@
       ]
     },
     {
+      "IndexName" : "clientName-clientName-index",
+      "Projection" : {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "clientIdKey",
+          "status",
+          "tags",
+          "created",
+          "updated"
+        ]
+      },
+      "ProvisionedThroughput" : {
+        "WriteCapacityUnits" : 5,
+        "ReadCapacityUnits" : 10
+      },
+      "KeySchema" : [
+        {
+          "KeyType" : "HASH",
+          "AttributeName" : "clientNameKey"
+        },
+        {
+          "KeyType" : "RANGE",
+          "AttributeName" : "clientName"
+        }
+      ]
+    },
+    {
       "IndexName": "tag-created-index",
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "profileId",
-          "clientKey",
+          "clientIdKey",
           "status",
           "tags",
-          "clientName"
+          "clientName",
+          "updated"
         ]
       },
       "ProvisionedThroughput": {
@@ -98,7 +200,7 @@
       "KeySchema": [
         {
           "KeyType": "HASH",
-          "AttributeName": "tag"
+          "AttributeName" : "tagKey"
         },
         {
           "KeyType": "RANGE",
@@ -111,11 +213,11 @@
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "profileId",
-          "clientKey",
+          "clientIdKey",
           "status",
           "tags",
-          "clientName"
+          "clientName",
+          "created"
         ]
       },
       "ProvisionedThroughput": {
@@ -125,7 +227,7 @@
       "KeySchema": [
         {
           "KeyType": "HASH",
-          "AttributeName": "tag"
+          "AttributeName" : "tagKey"
         },
         {
           "KeyType": "RANGE",
@@ -138,10 +240,11 @@
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "profileId",
-          "clientKey",
+          "clientIdKey",
           "status",
-          "tags"
+          "tags",
+          "created",
+          "updated"
         ]
       },
       "ProvisionedThroughput": {
@@ -151,7 +254,7 @@
       "KeySchema": [
         {
           "KeyType": "HASH",
-          "AttributeName": "tag"
+          "AttributeName" : "tagKey"
         },
         {
           "KeyType": "RANGE",
@@ -167,7 +270,7 @@
     },
     {
       "KeyType": "RANGE",
-      "AttributeName": "clientKey"
+      "AttributeName" : "clientIdKey"
     }
   ],
   "ProvisionedThroughput": {
