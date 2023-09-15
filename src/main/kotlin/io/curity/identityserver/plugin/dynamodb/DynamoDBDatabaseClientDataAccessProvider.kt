@@ -58,7 +58,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val status = StringAttribute("status")
         val tags = ListStringAttribute("tags")
 
-        val primaryKeys = PrimaryKeys(profileId, clientIdKey)
+        val compositePrimaryKey = CompositePrimaryKey(profileId, clientIdKey)
 
         // GSIs
         private val clientNameCreatedIndex =
@@ -84,7 +84,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         override fun queryCapabilities(): TableQueryCapabilities = object : TableQueryCapabilities(
             indexes = listOf(
-                Index.from(primaryKeys),
+                Index.from(compositePrimaryKey),
                 Index.from(clientNameCreatedIndex),
                 Index.from(clientNameUpdatedIndex),
                 Index.from(clientNameClientNameIndex),

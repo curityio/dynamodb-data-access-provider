@@ -340,7 +340,7 @@ class PrimaryKey<T>(
     val attribute: DynamoDBAttribute<T>
 )
 
-class PrimaryKeys<T1, T2>(
+class CompositePrimaryKey<T1, T2>(
     val partitionAttribute: DynamoDBAttribute<T1>,
     val sortAttribute: DynamoDBAttribute<T2>
 )

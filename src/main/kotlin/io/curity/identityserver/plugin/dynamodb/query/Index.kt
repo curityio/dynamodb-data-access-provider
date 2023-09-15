@@ -20,7 +20,7 @@ import io.curity.identityserver.plugin.dynamodb.DynamoDBAttribute
 import io.curity.identityserver.plugin.dynamodb.PartitionAndSortIndex
 import io.curity.identityserver.plugin.dynamodb.PartitionOnlyIndex
 import io.curity.identityserver.plugin.dynamodb.PrimaryKey
-import io.curity.identityserver.plugin.dynamodb.PrimaryKeys
+import io.curity.identityserver.plugin.dynamodb.CompositePrimaryKey
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 
 /**
@@ -37,8 +37,8 @@ data class Index(
             Index(index.name, index.partitionAttribute, index.sortAttribute)
 
         fun <T> from(primaryKey: PrimaryKey<T>) = Index(null, primaryKey.attribute)
-        fun <T1, T2> from(primaryKeys: PrimaryKeys<T1, T2>) =
-            Index(null, primaryKeys.partitionAttribute, primaryKeys.sortAttribute)
+        fun <T1, T2> from(compositePrimaryKey: CompositePrimaryKey<T1, T2>) =
+            Index(null, compositePrimaryKey.partitionAttribute, compositePrimaryKey.sortAttribute)
     }
 
     val indexName = name ?: "implicit"
