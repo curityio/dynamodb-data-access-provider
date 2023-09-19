@@ -102,9 +102,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             )
         )
 
-        override fun keyAttribute(): StringAttribute = clientId
-
-        fun key(value: String) = mapOf(keyAttribute().toNameValuePair(value))
+        fun primaryKey(value: String) = mapOf(clientId.toNameValuePair(value))
     }
 
     private fun DynamoDBItem.toAttributes(): DynamicallyRegisteredClientAttributes {
@@ -182,7 +180,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
 
         val request = GetItemRequest.builder()
             .tableName(DcrTable.name(_configuration))
-            .key(DcrTable.key(clientId))
+            .key(DcrTable.primaryKey(clientId))
             .consistentRead(true)
             .build()
 
@@ -246,7 +244,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
 
         val requestBuilder = UpdateItemRequest.builder()
             .tableName(DcrTable.name(_configuration))
-            .key(DcrTable.key(dynamicallyRegisteredClientAttributes.clientId))
+            .key(DcrTable.primaryKey(dynamicallyRegisteredClientAttributes.clientId))
             .apply { builder.applyTo(this) }
 
         try {
@@ -264,7 +262,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
 
         val request = DeleteItemRequest.builder()
             .tableName(DcrTable.name(_configuration))
-            .key(DcrTable.key(clientId))
+            .key(DcrTable.primaryKey(clientId))
             .build()
 
         _dynamoDBClient.deleteItem(request)

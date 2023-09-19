@@ -57,8 +57,6 @@ abstract class TableWithCapabilities(
     suffixName: String
 ) : Table(suffixName) {
     abstract fun queryCapabilities(): TableQueryCapabilities
-
-    abstract fun keyAttribute(): StringAttribute
 }
 
 // A DynamoDB attribute

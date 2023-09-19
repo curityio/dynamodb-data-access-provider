@@ -124,10 +124,9 @@ class DynamoDBDatabaseClientDataAccessProvider(
             override fun getLsiCount() = 3
         }
 
-        override fun keyAttribute(): StringAttribute = clientIdKey
-
-        fun keys(pkValue: String, skValue: String) =
-            mapOf(keyAttribute().toNameValuePair(pkValue), clientIdKey.toNameValuePair(skValue))
+        // Table key schema
+        fun primaryKey(pkValue: String, skValue: String) =
+            mapOf(profileId.toNameValuePair(pkValue), clientIdKey.toNameValuePair(skValue))
     }
 
     override fun getClientById(clientId: String, profileId: String): DatabaseClientAttributes? {
@@ -180,7 +179,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         val requestBuilder = UpdateItemRequest.builder()
             .tableName(tableName())
-            .key(DatabaseClientsTable.keys(profileId, attributes.clientId))
+            .key(DatabaseClientsTable.primaryKey(profileId, attributes.clientId))
             // TODO or ALL_NEW?
             .returnValues(ReturnValue.ALL_OLD)
             .apply { builder.applyTo(this) }
@@ -204,7 +203,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         val request = DeleteItemRequest.builder()
             .tableName(tableName())
-            .key(DatabaseClientsTable.keys(profileId, clientId))
+            .key(DatabaseClientsTable.primaryKey(profileId, clientId))
             .build()
 
         val response = _dynamoDBClient.deleteItem(request)
