@@ -31,6 +31,7 @@ import se.curity.identityserver.sdk.errors.ConflictException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
+import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.ReturnValue
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
@@ -130,33 +131,45 @@ class DynamoDBDatabaseClientDataAccessProvider(
     }
 
     override fun getClientById(clientId: String, profileId: String): DatabaseClientAttributes? {
-        TODO("Not yet implemented")
+        logger.debug("Getting database client with id: '$clientId' in profile: '$profileId'")
+
+        val request = GetItemRequest.builder()
+            .tableName(DatabaseClientsTable.name(_configuration))
+            .key(DatabaseClientsTable.primaryKey(profileId, clientId))
+            .consistentRead(true)
+            .build()
+
+        val response = _dynamoDBClient.getItem(request)
+
+        if (!response.hasItem() || response.item().isEmpty()) {
+            return null
+        }
+
+        return response.item().toAttributes()
     }
 
     override fun create(attributes: DatabaseClientAttributes, profileId: String): DatabaseClientAttributes {
-        logger.debug("Creating database client with id: ${attributes.clientId} in profile $profileId")
+        logger.debug("Creating database client with id: '${attributes.clientId}' in profile: '$profileId'")
 
         val request = PutItemRequest.builder()
             .tableName(tableName())
-            .conditionExpression("attribute_not_exists(${DatabaseClientsTable.profileId.name})")
-            .item(attributes.toItem())
-            // TODO or ALL_NEW?
-            .returnValues(ReturnValue.ALL_OLD)
+            .conditionExpression("attribute_not_exists(${DatabaseClientsTable.clientIdKey.name})")
+            .item(attributes.toItem(profileId))
             .build()
 
         try {
             val response = _dynamoDBClient.putItem(request)
 
-            if (!response.hasAttributes() || response.attributes().isEmpty()) {
-                // TODO exception?
-            }
+            // PutItem doesn't support returning newly set attributes
+            /** @see PutItemRequest.returnValues */
+            // TODO: should we call getClientById to return actually set attributes? i.e. consistency vs. performance
 
-            return response.attributes().toAttributes()
+            return attributes
         } catch (exception: ConditionalCheckFailedException) {
             val newException =
-                ConflictException("Client ${attributes.clientId} is already registered")
+                ConflictException("Client '${attributes.clientId}' is already registered")
             logger.trace(
-                "Client with id: ${attributes.clientId} is already registered in profile $profileId",
+                "Client with id: '${attributes.clientId}' is already registered in profile '$profileId'",
                 newException
             )
             throw newException
@@ -164,7 +177,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
     }
 
     override fun update(attributes: DatabaseClientAttributes, profileId: String): DatabaseClientAttributes {
-        logger.debug("Updating database client with id: ${attributes.clientId} in profile $profileId")
+        logger.debug("Updating database client with id: '${attributes.clientId}' in profile '$profileId'")
 
         val builder = UpdateExpressionsBuilder()
         attributes.apply {
@@ -194,12 +207,12 @@ class DynamoDBDatabaseClientDataAccessProvider(
             return response.attributes().toAttributes()
         } catch (_: ConditionalCheckFailedException) {
             // this exception means the entry does not exist, which should be signaled with an exception
-            throw RuntimeException("Client with id: ${attributes.clientId} could not be updated in profile $profileId")
+            throw RuntimeException("Client with id: '${attributes.clientId}' could not be updated in profile '$profileId'")
         }
     }
 
     override fun delete(clientId: String, profileId: String): Boolean {
-        logger.debug("Deleting database client with id: $clientId from profile $profileId")
+        logger.debug("Deleting database client with id: '$clientId' from profile '$profileId'")
 
         val request = DeleteItemRequest.builder()
             .tableName(tableName())
@@ -240,7 +253,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
     }
 
-    private fun DatabaseClientAttributes.toItem(): DynamoDBItem {
+    private fun DatabaseClientAttributes.toItem(profileId: String): DynamoDBItem {
         val now = Instant.now()
         val created = meta?.created ?: now
 
@@ -251,6 +264,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         DatabaseClientsTable.clientName.addTo(item, name)
 
         // Nullable
+        DatabaseClientsTable.profileId.addToNullable(item, profileId)
         DatabaseClientsTable.clientIdKey.addToNullable(item, clientId)
         DatabaseClientsTable.created.addToNullable(item, created.epochSecond)
         DatabaseClientsTable.updated.addToNullable(item, now.epochSecond)
