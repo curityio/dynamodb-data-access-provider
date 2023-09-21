@@ -59,6 +59,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
         // DynamoDB-specific, composite string made up of profileId and an individual item from tags
         // PK for tag-based GSIs
         val tagKey = StringAttribute("tagKey")
+
+        // SKs for GSIs & LSIs
         val clientName = StringAttribute("clientName")
         val created = NumberLongAttribute("created")
         val updated = NumberLongAttribute("updated")
@@ -113,13 +115,14 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 Meta.CREATED to created,
                 Meta.LAST_MODIFIED to updated,
                 DatabaseClientAttributeKeys.STATUS to status,
+                DatabaseClientAttributeKeys.REDIRECT_URIS to redirectUris,
             )
         ) {
             override fun getGsiCount() = 6
             override fun getLsiCount() = 3
         }
 
-        // Table key schema
+        // Return primary key for provided values
         fun primaryKey(pkValue: String, skValue: String) =
             mapOf(profileId.toNameValuePair(pkValue), clientIdKey.toNameValuePair(skValue))
     }
