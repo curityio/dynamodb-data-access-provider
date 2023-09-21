@@ -254,7 +254,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val item = mutableMapOf<String, AttributeValue>()
 
         // Non-nullable
-        // TODO to be possibly reworked for IS-7931
+        // TODO IS-7807 to be possibly reworked for IS-7931
         DatabaseClientsTable.clientName.addTo(item, name)
 
         // Nullable
@@ -263,9 +263,9 @@ class DynamoDBDatabaseClientDataAccessProvider(
         DatabaseClientsTable.created.addToNullable(item, created.epochSecond)
         DatabaseClientsTable.updated.addToNullable(item, now.epochSecond)
         DatabaseClientsTable.status.addToNullable(item, status.name)
-        // TODO add all other attributes or use 'attributes'?
+        // TODO IS-7807 add all other attributes or use 'attributes'?
         DatabaseClientsTable.redirectUris.addToNullable(item, redirectUris)
-        // TODO: attributes? See JdbcDCDAP
+        // TODO IS-7807 attributes? See JdbcDCDAP
         /*DatabaseClientsTable.attributes.addToNullable(
             item, _jsonHandler.fromAttributes(
                 Attributes.of(attributes)
@@ -292,7 +292,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         result.apply {
             // Non-nullable
-            // TODO to be possibly reworked for IS-7931
+            // TODO IS-7807 to be possibly reworked for IS-7931
             add(DatabaseClientAttributeKeys.NAME, DatabaseClientsTable.clientName.from(item))
 
             // Nullable
@@ -324,7 +324,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
                     )
                 )
             )
-            // TODO add all other attributes or use 'attributes'?
+            // TODO IS-7807 add all other attributes or use 'attributes'?
             add(DatabaseClientAttributeKeys.REDIRECT_URIS, DatabaseClientsTable.redirectUris.optionalFrom(item))
         }
 
