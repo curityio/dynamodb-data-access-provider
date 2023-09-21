@@ -28,6 +28,7 @@ import se.curity.identityserver.sdk.datasource.pagination.PaginationRequest
 import se.curity.identityserver.sdk.datasource.query.DatabaseClientAttributesFiltering
 import se.curity.identityserver.sdk.datasource.query.DatabaseClientAttributesSorting
 import se.curity.identityserver.sdk.errors.ConflictException
+import software.amazon.awssdk.core.exception.SdkException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
@@ -64,10 +65,13 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val clientName = StringAttribute("clientName")
         val created = NumberLongAttribute("created")
         val updated = NumberLongAttribute("updated")
+
+        // Non-key attributes
         val status = StringAttribute("status")
         val tags = ListStringAttribute("tags")
         val redirectUris = ListStringAttribute("redirectUris")
 
+        // Base table primary key
         val compositePrimaryKey = CompositePrimaryKey(profileId, clientIdKey)
 
         // GSIs
@@ -159,7 +163,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
             // PutItem doesn't support returning newly set attributes
             /** @see PutItemRequest.returnValues */
-            // TODO: should we call getClientById to return actually set attributes? i.e. consistency vs. performance
+            // TODO IS-7807  should we call getClientById to return actually set attributes? i.e. consistency vs. performance
 
             return attributes
         } catch (exception: ConditionalCheckFailedException) {
@@ -178,27 +182,34 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         val builder = UpdateExpressionsBuilder()
         attributes.apply {
-            // TODO secrets will have to be updated only if not null
-
             builder.update(DatabaseClientsTable.updated, Instant.now().epochSecond)
+            // TODO IS-7807 generate an error if clientName is null or empty,
+            //  as it is not allowed as an SK for 1 LSI and 2 GSIs!
+            // TODO IS-7807 to be possibly reworked for IS-7931
+            builder.update(DatabaseClientsTable.clientName, name)
+            // TODO IS-7807 if name is changed ⇒ update clientNameKey
+
             builder.update(DatabaseClientsTable.status, status.name)
+            builder.update(DatabaseClientsTable.tags, tags)
+            // TODO IS-7807 if tags is changed ⇒ update tagKey's
+
             builder.update(DatabaseClientsTable.redirectUris, redirectUris)
-            // TODO OK?
-            builder.onlyIfExists(DatabaseClientsTable.clientIdKey)
+            // TODO IS-7807 add all other attributes
+
+            // TODO IS-7807 secrets will have to be updated only if not null
         }
 
         val requestBuilder = UpdateItemRequest.builder()
             .tableName(tableName())
             .key(DatabaseClientsTable.primaryKey(profileId, attributes.clientId))
-            // TODO or ALL_NEW?
-            .returnValues(ReturnValue.ALL_OLD)
+            .returnValues(ReturnValue.ALL_NEW)
             .apply { builder.applyTo(this) }
 
         try {
             val response = _dynamoDBClient.updateItem(requestBuilder.build())
 
             if (!response.hasAttributes() || response.attributes().isEmpty()) {
-                // TODO exception? null?
+                // TODO IS-7807 exception? null?
             }
 
             return response.attributes().toAttributes()
@@ -216,14 +227,15 @@ class DynamoDBDatabaseClientDataAccessProvider(
             .key(DatabaseClientsTable.primaryKey(profileId, clientId))
             .build()
 
-        val response = _dynamoDBClient.deleteItem(request)
-
-        if (!response.hasAttributes() || response.attributes().isEmpty()) {
-            // TODO exception?
+        try {
+            _dynamoDBClient.deleteItem(request)
+            return true
+        } catch (exception: SdkException) {
+            logger.trace(
+                "Client '$clientId' from profile '$profileId' couldn't be deleted.", exception
+            )
+            return false
         }
-
-        // TODO how to know if it was actually deleted?
-        return true
     }
 
     override fun getAllClientsBy(
@@ -257,6 +269,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val item = mutableMapOf<String, AttributeValue>()
 
         // Non-nullable
+        // TODO IS-7807 generate an error if clientName is null or empty,
+        //  as it is not allowed as an SK for 1 LSI and 2 GSIs!
         // TODO IS-7807 to be possibly reworked for IS-7931
         DatabaseClientsTable.clientName.addTo(item, name)
 
@@ -265,6 +279,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         DatabaseClientsTable.clientIdKey.addToNullable(item, clientId)
         DatabaseClientsTable.created.addToNullable(item, created.epochSecond)
         DatabaseClientsTable.updated.addToNullable(item, now.epochSecond)
+
         DatabaseClientsTable.status.addToNullable(item, status.name)
         // TODO IS-7807 add all other attributes or use 'attributes'?
         DatabaseClientsTable.redirectUris.addToNullable(item, redirectUris)
