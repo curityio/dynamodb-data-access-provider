@@ -44,6 +44,7 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemResponse
 import software.amazon.awssdk.services.dynamodb.model.DescribeTableRequest
+import software.amazon.awssdk.services.dynamodb.model.DescribeTableResponse
 import software.amazon.awssdk.services.dynamodb.model.DynamoDbException
 import software.amazon.awssdk.services.dynamodb.model.DynamoDbResponse
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
@@ -236,6 +237,8 @@ class DynamoDBClient @JvmOverloads constructor(
     } else {
         throw UnsupportedQueryException.QueryRequiresTableScan()
     }
+
+    fun describeTable(request: DescribeTableRequest): DescribeTableResponse = client.call { describeTable(request) }
 
     /**
      * @param featureId The feature's ID to check support for.

@@ -21,7 +21,7 @@ import io.curity.identityserver.plugin.dynamodb.DynamoDBDialect
 import se.curity.identityserver.sdk.datasource.db.TableCapabilities
 import se.curity.identityserver.sdk.datasource.db.TableCapabilities.TableCapability
 
-class TableQueryCapabilities(
+open class TableQueryCapabilities(
     val indexes: List<Index>,
     val attributeMap: Map<String, DynamoDBAttribute<*>>,
     unsupportedCapabilities: Set<TableCapability> = emptySet()
@@ -31,4 +31,9 @@ class TableQueryCapabilities(
     private val unsupportedCapabilities = dialect.unsupportedCapabilities + unsupportedCapabilities
 
     override fun getUnsupported(): Set<TableCapability> = unsupportedCapabilities
+
+    // -1 as 'indexes' includes also the table's main index
+    open fun getGsiCount() = indexes.size - 1
+
+    open fun getLsiCount() = 0
 }

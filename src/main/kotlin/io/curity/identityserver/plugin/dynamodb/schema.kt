@@ -340,6 +340,11 @@ class PrimaryKey<T>(
     val attribute: DynamoDBAttribute<T>
 )
 
+class CompositePrimaryKey<T1, T2>(
+    val partitionAttribute: DynamoDBAttribute<T1>,
+    val sortAttribute: DynamoDBAttribute<T2>
+)
+
 // A DynamoDB index composed by a single column (partition key)
 class PartitionOnlyIndex<T>(
     val name: String,

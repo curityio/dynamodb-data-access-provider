@@ -1,0 +1,282 @@
+{
+  "TableName": "curity-database-clients",
+  "AttributeDefinitions": [
+    {
+      "AttributeName": "profileId",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName" : "clientIdKey",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName" : "clientNameKey",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName" : "clientName",
+      "AttributeType" : "S"
+    },
+    {
+      "AttributeName" : "tagKey",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "created",
+      "AttributeType": "N"
+    },
+    {
+      "AttributeName": "updated",
+      "AttributeType": "N"
+    }
+  ],
+  "LocalSecondaryIndexes" : [
+    {
+      "IndexName" : "lsi-created-index",
+      "Projection" : {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "clientIdKey",
+          "clientName",
+          "status",
+          "tags",
+          "updated"
+        ]
+      },
+      "KeySchema" : [
+        {
+          "KeyType" : "HASH",
+          "AttributeName" : "profileId"
+        },
+        {
+          "KeyType" : "RANGE",
+          "AttributeName" : "created"
+        }
+      ]
+    },
+    {
+      "IndexName" : "lsi-updated-index",
+      "Projection" : {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "clientIdKey",
+          "clientName",
+          "status",
+          "tags",
+          "created"
+        ]
+      },
+      "KeySchema" : [
+        {
+          "KeyType" : "HASH",
+          "AttributeName" : "profileId"
+        },
+        {
+          "KeyType" : "RANGE",
+          "AttributeName" : "updated"
+        }
+      ]
+    },
+    {
+      "IndexName" : "lsi-clientName-index",
+      "Projection" : {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "clientIdKey",
+          "status",
+          "tags",
+          "created",
+          "updated"
+        ]
+      },
+      "KeySchema" : [
+        {
+          "KeyType" : "HASH",
+          "AttributeName" : "profileId"
+        },
+        {
+          "KeyType" : "RANGE",
+          "AttributeName" : "clientName"
+        }
+      ]
+    }
+  ],
+  "GlobalSecondaryIndexes": [
+    {
+      "IndexName": "clientName-created-index",
+      "Projection": {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "clientIdKey",
+          "status",
+          "tags",
+          "updated"
+        ]
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName" : "clientNameKey"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "created"
+        }
+      ]
+    },
+    {
+      "IndexName": "clientName-updated-index",
+      "Projection": {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "clientIdKey",
+          "status",
+          "tags",
+          "created"
+        ]
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName" : "clientNameKey"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "updated"
+        }
+      ]
+    },
+    {
+      "IndexName" : "clientName-clientName-index",
+      "Projection" : {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "clientIdKey",
+          "status",
+          "tags",
+          "created",
+          "updated"
+        ]
+      },
+      "ProvisionedThroughput" : {
+        "WriteCapacityUnits" : 5,
+        "ReadCapacityUnits" : 10
+      },
+      "KeySchema" : [
+        {
+          "KeyType" : "HASH",
+          "AttributeName" : "clientNameKey"
+        },
+        {
+          "KeyType" : "RANGE",
+          "AttributeName" : "clientName"
+        }
+      ]
+    },
+    {
+      "IndexName": "tag-created-index",
+      "Projection": {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "clientIdKey",
+          "status",
+          "tags",
+          "clientName",
+          "updated"
+        ]
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName" : "tagKey"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "created"
+        }
+      ]
+    },
+    {
+      "IndexName": "tag-updated-index",
+      "Projection": {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "clientIdKey",
+          "status",
+          "tags",
+          "clientName",
+          "created"
+        ]
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName" : "tagKey"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "updated"
+        }
+      ]
+    },
+    {
+      "IndexName": "tag-clientName-index",
+      "Projection": {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "clientIdKey",
+          "status",
+          "tags",
+          "created",
+          "updated"
+        ]
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName" : "tagKey"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "clientName"
+        }
+      ]
+    }
+  ],
+  "KeySchema": [
+    {
+      "KeyType": "HASH",
+      "AttributeName": "profileId"
+    },
+    {
+      "KeyType": "RANGE",
+      "AttributeName" : "clientIdKey"
+    }
+  ],
+  "ProvisionedThroughput": {
+    "WriteCapacityUnits": 5,
+    "ReadCapacityUnits": 10
+  }
+}
+
+
