@@ -44,27 +44,21 @@ class DynamoDBDatabaseClientDataAccessProvider(
     private val _jsonHandler = _configuration.getJsonHandler()
 
     object DatabaseClientsTable : TableWithCapabilities("curity-database-clients") {
-        // Table Partition Key (PK)
         const val PROFILE_ID = "profileId"
 
-        // Table Sort Key (SK)
-        const val CLIENT_ID_KEY = "clientIdKey"
-
-        // PK for clientName-based GSIs
-        const val CLIENT_NAME_KEY = "clientNameKey"
-
-        // PK for tag-based GSIs
-        const val TAG_KEY = "tagKey"
-
+        // Table Partition Key (PK)
         val profileId = StringAttribute(PROFILE_ID)
         // DynamoDB-specific, composite string made up of clientId and tag, or clientId only
-        val clientIdKey = StringAttribute(CLIENT_ID_KEY)
+        // Table Sort Key (SK)
+        val clientIdKey = StringAttribute("clientIdKey")
 
         // DynamoDB-specific, composite string made up of profileId and clientName
-        val clientNameKey = StringAttribute(CLIENT_NAME_KEY)
+        // PK for clientName-based GSIs
+        val clientNameKey = StringAttribute("clientNameKey")
 
         // DynamoDB-specific, composite string made up of profileId and an individual item from tags
-        val tagKey = StringAttribute(CLIENT_NAME_KEY)
+        // PK for tag-based GSIs
+        val tagKey = StringAttribute("tagKey")
         val clientName = StringAttribute("clientName")
         val created = NumberLongAttribute("created")
         val updated = NumberLongAttribute("updated")
@@ -110,7 +104,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 Index.from(lsiClientNameIndex),
             ),
             attributeMap = mapOf(
-                "profile_id" to profileId,
+                PROFILE_ID to profileId,
                 DatabaseClientAttributeKeys.CLIENT_ID to clientIdKey,
                 "clientNameKey" to clientNameKey,
                 DatabaseClientAttributeKeys.NAME to clientName,
