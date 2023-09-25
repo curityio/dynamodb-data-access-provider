@@ -2,23 +2,23 @@
   "TableName": "curity-database-clients",
   "AttributeDefinitions": [
     {
-      "AttributeName": "profileId",
+      "AttributeName" : "profile_id",
       "AttributeType": "S"
     },
     {
-      "AttributeName" : "clientIdKey",
+      "AttributeName" : "client_id_key",
       "AttributeType": "S"
     },
     {
-      "AttributeName" : "clientNameKey",
+      "AttributeName" : "client_name_key",
       "AttributeType": "S"
     },
     {
-      "AttributeName" : "clientName",
+      "AttributeName" : "client_name",
       "AttributeType" : "S"
     },
     {
-      "AttributeName" : "tagKey",
+      "AttributeName" : "tag_key",
       "AttributeType": "S"
     },
     {
@@ -26,7 +26,7 @@
       "AttributeType": "N"
     },
     {
-      "AttributeName": "updated",
+      "AttributeName" : "lastModified",
       "AttributeType": "N"
     }
   ],
@@ -36,8 +36,8 @@
       "Projection" : {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "clientIdKey",
-          "clientName",
+          "client_id_key",
+          "client_name",
           "status",
           "tags",
           "updated"
@@ -46,7 +46,7 @@
       "KeySchema" : [
         {
           "KeyType" : "HASH",
-          "AttributeName" : "profileId"
+          "AttributeName" : "profile_id"
         },
         {
           "KeyType" : "RANGE",
@@ -55,12 +55,12 @@
       ]
     },
     {
-      "IndexName" : "lsi-updated-index",
+      "IndexName" : "lsi-lastModified-index",
       "Projection" : {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "clientIdKey",
-          "clientName",
+          "client_id_key",
+          "client_name",
           "status",
           "tags",
           "created"
@@ -69,20 +69,20 @@
       "KeySchema" : [
         {
           "KeyType" : "HASH",
-          "AttributeName" : "profileId"
+          "AttributeName" : "profile_id"
         },
         {
           "KeyType" : "RANGE",
-          "AttributeName" : "updated"
+          "AttributeName" : "lastModified"
         }
       ]
     },
     {
-      "IndexName" : "lsi-clientName-index",
+      "IndexName" : "lsi-client_name-index",
       "Projection" : {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "clientIdKey",
+          "client_id_key",
           "status",
           "tags",
           "created",
@@ -92,22 +92,22 @@
       "KeySchema" : [
         {
           "KeyType" : "HASH",
-          "AttributeName" : "profileId"
+          "AttributeName" : "profile_id"
         },
         {
           "KeyType" : "RANGE",
-          "AttributeName" : "clientName"
+          "AttributeName" : "client_name"
         }
       ]
     }
   ],
   "GlobalSecondaryIndexes": [
     {
-      "IndexName": "clientName-created-index",
+      "IndexName" : "client_name-created-index",
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "clientIdKey",
+          "client_id_key",
           "status",
           "tags",
           "updated"
@@ -120,7 +120,7 @@
       "KeySchema": [
         {
           "KeyType": "HASH",
-          "AttributeName" : "clientNameKey"
+          "AttributeName" : "client_name_key"
         },
         {
           "KeyType": "RANGE",
@@ -129,11 +129,11 @@
       ]
     },
     {
-      "IndexName": "clientName-updated-index",
+      "IndexName" : "client_name-lastModified-index",
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "clientIdKey",
+          "client_id_key",
           "status",
           "tags",
           "created"
@@ -146,20 +146,20 @@
       "KeySchema": [
         {
           "KeyType": "HASH",
-          "AttributeName" : "clientNameKey"
+          "AttributeName" : "client_name_key"
         },
         {
           "KeyType": "RANGE",
-          "AttributeName": "updated"
+          "AttributeName" : "lastModified"
         }
       ]
     },
     {
-      "IndexName" : "clientName-clientName-index",
+      "IndexName" : "client_name-client_name-index",
       "Projection" : {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "clientIdKey",
+          "client_id_key",
           "status",
           "tags",
           "created",
@@ -173,11 +173,11 @@
       "KeySchema" : [
         {
           "KeyType" : "HASH",
-          "AttributeName" : "clientNameKey"
+          "AttributeName" : "client_name_key"
         },
         {
           "KeyType" : "RANGE",
-          "AttributeName" : "clientName"
+          "AttributeName" : "client_name"
         }
       ]
     },
@@ -186,10 +186,10 @@
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "clientIdKey",
+          "client_id_key",
           "status",
           "tags",
-          "clientName",
+          "client_name",
           "updated"
         ]
       },
@@ -200,7 +200,7 @@
       "KeySchema": [
         {
           "KeyType": "HASH",
-          "AttributeName" : "tagKey"
+          "AttributeName" : "tag_key"
         },
         {
           "KeyType": "RANGE",
@@ -209,14 +209,14 @@
       ]
     },
     {
-      "IndexName": "tag-updated-index",
+      "IndexName" : "tag-lastModified-index",
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "clientIdKey",
+          "client_id_key",
           "status",
           "tags",
-          "clientName",
+          "client_name",
           "created"
         ]
       },
@@ -227,20 +227,20 @@
       "KeySchema": [
         {
           "KeyType": "HASH",
-          "AttributeName" : "tagKey"
+          "AttributeName" : "tag_key"
         },
         {
           "KeyType": "RANGE",
-          "AttributeName": "updated"
+          "AttributeName" : "lastModified"
         }
       ]
     },
     {
-      "IndexName": "tag-clientName-index",
+      "IndexName" : "tag-client_name-index",
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "clientIdKey",
+          "client_id_key",
           "status",
           "tags",
           "created",
@@ -254,11 +254,11 @@
       "KeySchema": [
         {
           "KeyType": "HASH",
-          "AttributeName" : "tagKey"
+          "AttributeName" : "tag_key"
         },
         {
           "KeyType": "RANGE",
-          "AttributeName": "clientName"
+          "AttributeName" : "client_name"
         }
       ]
     }
@@ -266,11 +266,11 @@
   "KeySchema": [
     {
       "KeyType": "HASH",
-      "AttributeName": "profileId"
+      "AttributeName" : "profile_id"
     },
     {
       "KeyType": "RANGE",
-      "AttributeName" : "clientIdKey"
+      "AttributeName" : "client_id_key"
     }
   ],
   "ProvisionedThroughput": {

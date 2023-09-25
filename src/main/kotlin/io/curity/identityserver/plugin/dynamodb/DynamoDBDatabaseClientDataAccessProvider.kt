@@ -45,31 +45,35 @@ class DynamoDBDatabaseClientDataAccessProvider(
     private val _jsonHandler = _configuration.getJsonHandler()
 
     object DatabaseClientsTable : TableWithCapabilities("curity-database-clients") {
-        const val PROFILE_ID = "profileId"
+        private const val CLIENT_NAME_KEY = "client_name_key"
+        private const val TAG_KEY = "tag_key"
 
         // Table Partition Key (PK)
         val profileId = StringAttribute(PROFILE_ID)
         // DynamoDB-specific, composite string made up of clientId and tag, or clientId only
         // Table Sort Key (SK)
-        val clientIdKey = StringAttribute("clientIdKey")
+        val clientIdKey = StringAttribute("client_id_key")
 
         // DynamoDB-specific, composite string made up of profileId and clientName
         // PK for clientName-based GSIs
-        val clientNameKey = StringAttribute("clientNameKey")
+        val clientNameKey = StringAttribute(CLIENT_NAME_KEY)
 
         // DynamoDB-specific, composite string made up of profileId and an individual item from tags
         // PK for tag-based GSIs
-        val tagKey = StringAttribute("tagKey")
+        val tagKey = StringAttribute(TAG_KEY)
 
         // SKs for GSIs & LSIs
-        val clientName = StringAttribute("clientName")
-        val created = NumberLongAttribute("created")
-        val updated = NumberLongAttribute("updated")
+        val clientName = StringAttribute(CLIENT_NAME_COLUMN)
+        val created = NumberLongAttribute(Meta.CREATED)
+        val updated = NumberLongAttribute(Meta.LAST_MODIFIED)
 
         // Non-key attributes
-        val status = StringAttribute("status")
-        val tags = ListStringAttribute("tags")
-        val redirectUris = ListStringAttribute("redirectUris")
+        val tags = ListStringAttribute(DatabaseClientAttributeKeys.TAGS)
+        val status = StringAttribute(DatabaseClientAttributeKeys.STATUS)
+
+        // TODO IS-7807 both as JSON?
+        val attributes = StringAttribute(ATTRIBUTES)
+        val configurationReferences = StringAttribute(CONFIGURATION_REFERENCES)
 
         // Base table primary key
         val compositePrimaryKey = CompositePrimaryKey(profileId, clientIdKey)
@@ -112,14 +116,15 @@ class DynamoDBDatabaseClientDataAccessProvider(
             attributeMap = mapOf(
                 PROFILE_ID to profileId,
                 DatabaseClientAttributeKeys.CLIENT_ID to clientIdKey,
-                "clientNameKey" to clientNameKey,
+                CLIENT_NAME_KEY to clientNameKey,
                 DatabaseClientAttributeKeys.NAME to clientName,
-                "tagKey" to tagKey,
+                TAG_KEY to tagKey,
                 DatabaseClientAttributeKeys.TAGS to tags,
                 Meta.CREATED to created,
                 Meta.LAST_MODIFIED to updated,
                 DatabaseClientAttributeKeys.STATUS to status,
-                DatabaseClientAttributeKeys.REDIRECT_URIS to redirectUris,
+                ATTRIBUTES to attributes,
+                CONFIGURATION_REFERENCES to configurationReferences,
             )
         ) {
             override fun getGsiCount() = 6
