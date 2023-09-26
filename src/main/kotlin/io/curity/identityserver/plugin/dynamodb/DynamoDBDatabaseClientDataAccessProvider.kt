@@ -156,9 +156,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             return null
         }
 
-        val rawAttributes = response.item().toAttributes()
-        // Parse ATTRIBUTES and CONFIGURATION_REFERENCES
-        return DatabaseClientAttributesHelper.toResource(rawAttributes, ResourceQuery.Exclusions.none(), _json)
+        return response.item().toAttributes()
     }
 
     override fun create(attributes: DatabaseClientAttributes, profileId: String): DatabaseClientAttributes {
@@ -193,22 +191,10 @@ class DynamoDBDatabaseClientDataAccessProvider(
     override fun update(attributes: DatabaseClientAttributes, profileId: String): DatabaseClientAttributes {
         logger.debug("Updating database client with id: '${attributes.clientId}' in profile '$profileId'")
 
-        val builder = UpdateExpressionsBuilder()
-        attributes.apply {
-            builder.update(DatabaseClientsTable.updated, Instant.now().epochSecond)
-            // TODO IS-7807 generate an error if clientName is null or empty,
-            //  as it is not allowed as an SK for 1 LSI and 2 GSIs!
-            builder.update(DatabaseClientsTable.clientName, name)
-            // TODO IS-7807 if name is changed ⇒ update clientNameKey
+        // TODO IS-7807 only main record for now => update also as many secondary records as tags
 
-            builder.update(DatabaseClientsTable.status, status.name)
-            builder.update(DatabaseClientsTable.tags, tags)
-            // TODO IS-7807 if tags is changed ⇒ update tagKey's
-
-            // TODO IS-7807 add all other attributes
-
-            // TODO IS-7807 secrets will have to be updated only if not null
-        }
+        // Pass empty tag for main record
+        val builder = attributes.toUpdateExpressionBuilder(profileId, "")
 
         val requestBuilder = UpdateItemRequest.builder()
             .tableName(tableName())
@@ -220,7 +206,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             val response = _dynamoDBClient.updateItem(requestBuilder.build())
 
             if (!response.hasAttributes() || response.attributes().isEmpty()) {
-                // TODO IS-7807 exception? null?
+                throw RuntimeException("No updated attributes returned, client with id: '${attributes.clientId}' could not be updated in profile '$profileId'")
             }
 
             return response.attributes().toAttributes()
@@ -316,6 +302,43 @@ class DynamoDBDatabaseClientDataAccessProvider(
         return item
     }
 
+    private fun DatabaseClientAttributes.toUpdateExpressionBuilder(
+        profileId: String,
+        tag: String
+    ): UpdateExpressionsBuilder {
+        val builder = UpdateExpressionsBuilder()
+        val mainRecord = tag.isEmpty()
+
+        // Non-nullable attributes
+        // TODO IS-7807 generate an error if 'clientName' is null or empty,
+        //  as it is not allowed as an SK for 1 LSI and 2 GSIs!
+        builder.update(DatabaseClientsTable.clientName, name)
+        // Only main record has a 'clientNameKey'
+        if (mainRecord) {
+            builder.update(DatabaseClientsTable.clientNameKey, "$profileId#${name}")
+        }
+        // Main record has no 'tagKey'
+        if (!mainRecord) {
+            builder.update(DatabaseClientsTable.tagKey, "$profileId#$tag")
+        }
+        // Persist the whole DatabaseClientAttributes, but non persistable attributes, in the "attributes" attribute
+        builder.update(
+            DatabaseClientsTable.attributes,
+            _json.fromAttributes(removeAttributes(DatabaseClientAttributesHelper.DATABASE_CLIENT_SEEDING_ATTRIBUTES))
+        )
+        // References also stored as JSON
+        builder.update(DatabaseClientsTable.configurationReferences, configurationReferencesToJson(this, _json))
+
+        // Nullable attributes
+        builder.update(DatabaseClientsTable.updated, Instant.now().epochSecond)
+        builder.update(DatabaseClientsTable.status, status.name)
+        builder.update(DatabaseClientsTable.tags, tags)
+
+        builder.onlyIfExists(DatabaseClientsTable.clientIdKey)
+
+        return builder
+    }
+
     private fun tableName(): String = DatabaseClientsTable.name(_configuration)
 
     private fun MutableList<Attribute>.add(name: String, value: String?) = value?.let {
@@ -377,6 +400,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
             add(DatabaseClientAttributeKeys.TAGS, DatabaseClientsTable.tags.optionalFrom(item))
         }
 
-        return DatabaseClientAttributes.of(Attributes.of(result))
+        val rawAttributes = DatabaseClientAttributes.of(Attributes.of(result))
+        // Parse ATTRIBUTES and CONFIGURATION_REFERENCES
+        return DatabaseClientAttributesHelper.toResource(rawAttributes, ResourceQuery.Exclusions.none(), _json)
     }
 }
