@@ -176,10 +176,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
         try {
             _dynamoDBClient.putItem(request)
 
-            // PutItem doesn't support returning newly set attributes
-            /** @see PutItemRequest.returnValues */
-            // TODO IS-7807  should we call getClientById to return actually set attributes? i.e. consistency vs. performance
-
+            // PutItem doesn't support returning newly set attributes, @see PutItemRequest.returnValues
+            // So return provided attributes
             return attributes
         } catch (exception: ConditionalCheckFailedException) {
             val newException =
