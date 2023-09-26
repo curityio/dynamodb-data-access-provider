@@ -24,6 +24,6 @@ class DynamoDBDialect {
         setOf(TableCapability.FILTERING_ENDS_WITH, TableCapability.FILTERING_ABSENT)
 
     companion object {
-        const val name = "DynamoDB"
+        const val NAME = "DynamoDB"
     }
 }

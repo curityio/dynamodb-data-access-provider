@@ -12,6 +12,10 @@
 package io.curity.identityserver.plugin.dynamodb.helpers;
 
 import se.curity.identityserver.sdk.Nullable;
+import se.curity.identityserver.sdk.attribute.Attribute;
+import se.curity.identityserver.sdk.attribute.AttributeCollector;
+import se.curity.identityserver.sdk.attribute.Attributes;
+import se.curity.identityserver.sdk.attribute.MapAttributeValue;
 import se.curity.identityserver.sdk.attribute.UserAuthenticationConfigAttributes;
 import se.curity.identityserver.sdk.attribute.client.database.ClientAttestationAttributes;
 import se.curity.identityserver.sdk.attribute.client.database.ClientAuthenticationVerifier;
@@ -23,10 +27,14 @@ import se.curity.identityserver.sdk.attribute.client.database.JwtSigningAttribut
 import se.curity.identityserver.sdk.attribute.client.database.UserConsentAttributes;
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes;
 import se.curity.identityserver.sdk.authentication.mutualtls.MutualTlsAttributes;
+import se.curity.identityserver.sdk.data.query.ResourceQuery;
 import se.curity.identityserver.sdk.service.Json;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -69,7 +77,6 @@ public final class DatabaseClientAttributesHelper
     public static final String BACKCHANNEL_LOGOUT_HTTP_CLIENT_ID = "backchannel_logout_http_client_id";
     public static final String TAGS = "tags";
     public static final String ATTRIBUTES = "attributes";
-    public static final String CLIENT_METADATA = "client_metadata";
     public static final String PROFILE_ID = "profile_id";
     public static final String CONFIGURATION_REFERENCES = "configuration_references";
 
@@ -78,14 +85,14 @@ public final class DatabaseClientAttributesHelper
      * blob.
      */
     public static final Set<String> DATABASE_CLIENT_SEEDING_ATTRIBUTES = Set.of(
-            CLIENT_ID, PROFILE_ID, CLIENT_METADATA, NAME, ATTRIBUTES, STATUS, TAGS, META, ResourceAttributes.SCHEMAS
+            CLIENT_ID, PROFILE_ID, NAME, ATTRIBUTES, STATUS, TAGS, META, ResourceAttributes.SCHEMAS
     );
     /**
      * When fetching from the database, collection of attributes that are used to fully populate a DatabaseClientAttributes.
      * They must be discarded from the Attributes source given to the DatabaseClient constructor.
      */
     public static final Set<String> DATABASE_CLIENT_INTERNAL_ATTRIBUTES = Set.of(
-            PROFILE_ID, ATTRIBUTES, CLIENT_METADATA, CONFIGURATION_REFERENCES, CREATED_DATE_COLUMN, UPDATED_COLUMN
+            PROFILE_ID, ATTRIBUTES, CONFIGURATION_REFERENCES, CREATED_DATE_COLUMN, UPDATED_COLUMN
     );
 
     private DatabaseClientAttributesHelper()
@@ -175,5 +182,64 @@ public final class DatabaseClientAttributesHelper
                         ? null : i.getJweEncryptionConfig().getEncryptionKeyId()));
 
         return json.toJson(configurationReferences);
+    }
+
+    // Reused & adapted from JdbcDatabaseClientDataAccessProvider.toResource
+    public static DatabaseClientAttributes toResource(Attributes attributes,
+                                                      ResourceQuery.AttributesEnumeration attributesEnumeration,
+                                                      Json json)
+    {
+        Collection<String> multiValuedAttributes = Collections.emptySet();
+
+        // All persistable attributes, are stored into the ATTRIBUTES attribute, non persistable attributes
+        // are stored in dedicated columns and are not duplicated in ATTRIBUTES. The non persistable attributes are
+        // the source attributes to inflate a DatabaseClient:
+        // 1. Discard all attributes duplicated in ATTRIBUTES attribute.
+        Attributes parsedAttributes = toResource(
+                attributes,
+                multiValuedAttributes,
+                json,
+                ATTRIBUTES);
+        // 2. Promote all attributes nested in ATTRIBUTES property at top level.
+        Attribute nestedAttributes = parsedAttributes.get(ATTRIBUTES);
+        // The ATTRIBUTES attribute is known to be a MapAttributeValue and was parsed by the toResource(...) call above.
+        //noinspection unchecked
+        Attributes allAttributes = nestedAttributes == null
+                ? parsedAttributes : parsedAttributes.with((Iterable<Attribute>) nestedAttributes.getAttributeValue());
+        // 3. Add the "meta" attribute if it is enumerated.
+        allAttributes = AttributesHelper.withMetaIfEnumerated(
+                allAttributes,
+                attributesEnumeration,
+                DatabaseClientAttributes.RESOURCE_TYPE);
+        // 4. Remove all persistence related attributes which are not needed anymore.
+        allAttributes = allAttributes.removeAttributes(DATABASE_CLIENT_INTERNAL_ATTRIBUTES);
+
+        return DatabaseClientAttributes.of(allAttributes);
+    }
+
+    // Reused & adapted from JdbcAttributesQueryHelper.toResource()
+    public static Attributes toResource(Attributes attributes,
+                                        Collection<String> multiValuedAttributes,
+                                        Json json,
+                                        String... extraAttributesHolderName)
+    {
+        Attributes extendedAttributes = attributes;
+
+        for (String attributeName : extraAttributesHolderName)
+        {
+            @Nullable
+            Attribute extraAttributesHolder = attributes.get(attributeName);
+            if (extraAttributesHolder != null)
+            {
+                Attributes extraAttributes = json.toAttributes(extraAttributesHolder.getValueOfType(String.class));
+                extendedAttributes = extendedAttributes.with(Attribute.of(attributeName, MapAttributeValue.of(extraAttributes)));
+            }
+        }
+
+        return extendedAttributes.append(multiValuedAttributes.stream()
+                .map(extendedAttributes::get)
+                .filter(Objects::nonNull)
+                .map(AttributesHelper::spaceSeparatedValuesToListAttributeValue)
+                .collect(AttributeCollector.toAttributes()));
     }
 }

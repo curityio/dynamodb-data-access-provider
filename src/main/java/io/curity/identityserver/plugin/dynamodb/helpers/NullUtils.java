@@ -18,7 +18,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 // Partially duplicated from NullUtils
-final class NullUtils
+public final class NullUtils
 {
 
     private NullUtils()

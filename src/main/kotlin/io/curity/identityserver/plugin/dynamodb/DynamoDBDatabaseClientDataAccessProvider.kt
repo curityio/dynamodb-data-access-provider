@@ -11,6 +11,8 @@
 package io.curity.identityserver.plugin.dynamodb
 
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
+import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper
+import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.configurationReferencesToJson
 import io.curity.identityserver.plugin.dynamodb.query.Index
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
 import org.slf4j.Logger
@@ -22,6 +24,7 @@ import se.curity.identityserver.sdk.attribute.client.database.DatabaseClientAttr
 import se.curity.identityserver.sdk.attribute.client.database.DatabaseClientStatus
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
+import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.datasource.DatabaseClientDataAccessProvider
 import se.curity.identityserver.sdk.datasource.pagination.PaginatedDataAccessResult
 import se.curity.identityserver.sdk.datasource.pagination.PaginationRequest
@@ -38,18 +41,20 @@ import software.amazon.awssdk.services.dynamodb.model.ReturnValue
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 import java.time.Instant
 
+
+// TODO IS-7807 add javadoc documenting different records and DDB-specific attributes
 class DynamoDBDatabaseClientDataAccessProvider(
     private val _configuration: DynamoDBDataAccessProviderConfiguration,
     private val _dynamoDBClient: DynamoDBClient
 ) : DatabaseClientDataAccessProvider {
-    private val _jsonHandler = _configuration.getJsonHandler()
+    private val _json = _configuration.getJsonHandler()
 
     object DatabaseClientsTable : TableWithCapabilities("curity-database-clients") {
         private const val CLIENT_NAME_KEY = "client_name_key"
         private const val TAG_KEY = "tag_key"
 
         // Table Partition Key (PK)
-        val profileId = StringAttribute(PROFILE_ID)
+        val profileId = StringAttribute(DatabaseClientAttributesHelper.PROFILE_ID)
         // DynamoDB-specific, composite string made up of clientId and tag, or clientId only
         // Table Sort Key (SK)
         val clientIdKey = StringAttribute("client_id_key")
@@ -63,7 +68,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val tagKey = StringAttribute(TAG_KEY)
 
         // SKs for GSIs & LSIs
-        val clientName = StringAttribute(CLIENT_NAME_COLUMN)
+        val clientName = StringAttribute(DatabaseClientAttributesHelper.CLIENT_NAME_COLUMN)
         val created = NumberLongAttribute(Meta.CREATED)
         val updated = NumberLongAttribute(Meta.LAST_MODIFIED)
 
@@ -72,8 +77,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val status = StringAttribute(DatabaseClientAttributeKeys.STATUS)
 
         // TODO IS-7807 both as JSON?
-        val attributes = StringAttribute(ATTRIBUTES)
-        val configurationReferences = StringAttribute(CONFIGURATION_REFERENCES)
+        val attributes = StringAttribute(DatabaseClientAttributesHelper.ATTRIBUTES)
+        val configurationReferences = StringAttribute(DatabaseClientAttributesHelper.CONFIGURATION_REFERENCES)
 
         // Base table primary key
         val compositePrimaryKey = CompositePrimaryKey(profileId, clientIdKey)
@@ -114,7 +119,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 Index.from(lsiClientNameIndex),
             ),
             attributeMap = mapOf(
-                PROFILE_ID to profileId,
+                DatabaseClientAttributesHelper.PROFILE_ID to profileId,
                 DatabaseClientAttributeKeys.CLIENT_ID to clientIdKey,
                 CLIENT_NAME_KEY to clientNameKey,
                 DatabaseClientAttributeKeys.NAME to clientName,
@@ -123,8 +128,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 Meta.CREATED to created,
                 Meta.LAST_MODIFIED to updated,
                 DatabaseClientAttributeKeys.STATUS to status,
-                ATTRIBUTES to attributes,
-                CONFIGURATION_REFERENCES to configurationReferences,
+                DatabaseClientAttributesHelper.ATTRIBUTES to attributes,
+                DatabaseClientAttributesHelper.CONFIGURATION_REFERENCES to configurationReferences,
             )
         ) {
             override fun getGsiCount() = 6
@@ -151,20 +156,25 @@ class DynamoDBDatabaseClientDataAccessProvider(
             return null
         }
 
-        return response.item().toAttributes()
+        val rawAttributes = response.item().toAttributes()
+        // Parse ATTRIBUTES and CONFIGURATION_REFERENCES
+        return DatabaseClientAttributesHelper.toResource(rawAttributes, ResourceQuery.Exclusions.none(), _json)
     }
 
     override fun create(attributes: DatabaseClientAttributes, profileId: String): DatabaseClientAttributes {
         logger.debug("Creating database client with id: '${attributes.clientId}' in profile: '$profileId'")
 
+        // TODO IS-7807 only main record for now => create also as many secondary records as tags
+
         val request = PutItemRequest.builder()
             .tableName(tableName())
             .conditionExpression("attribute_not_exists(${DatabaseClientsTable.clientIdKey.name})")
-            .item(attributes.toItem(profileId))
+            // Pass empty tag for main record
+            .item(attributes.toItem(profileId, ""))
             .build()
 
         try {
-            val response = _dynamoDBClient.putItem(request)
+            _dynamoDBClient.putItem(request)
 
             // PutItem doesn't support returning newly set attributes
             /** @see PutItemRequest.returnValues */
@@ -190,7 +200,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
             builder.update(DatabaseClientsTable.updated, Instant.now().epochSecond)
             // TODO IS-7807 generate an error if clientName is null or empty,
             //  as it is not allowed as an SK for 1 LSI and 2 GSIs!
-            // TODO IS-7807 to be possibly reworked for IS-7931
             builder.update(DatabaseClientsTable.clientName, name)
             // TODO IS-7807 if name is changed ⇒ update clientNameKey
 
@@ -198,7 +207,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
             builder.update(DatabaseClientsTable.tags, tags)
             // TODO IS-7807 if tags is changed ⇒ update tagKey's
 
-            builder.update(DatabaseClientsTable.redirectUris, redirectUris)
             // TODO IS-7807 add all other attributes
 
             // TODO IS-7807 secrets will have to be updated only if not null
@@ -232,14 +240,14 @@ class DynamoDBDatabaseClientDataAccessProvider(
             .key(DatabaseClientsTable.primaryKey(profileId, clientId))
             .build()
 
-        try {
+        return try {
             _dynamoDBClient.deleteItem(request)
-            return true
+            true
         } catch (exception: SdkException) {
             logger.trace(
                 "Client '$clientId' from profile '$profileId' couldn't be deleted.", exception
             )
-            return false
+            false
         }
     }
 
@@ -267,33 +275,45 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
     }
 
-    private fun DatabaseClientAttributes.toItem(profileId: String): DynamoDBItem {
+    private fun DatabaseClientAttributes.toItem(profileId: String, tag: String): DynamoDBItem {
         val now = Instant.now()
         val created = meta?.created ?: now
 
         val item = mutableMapOf<String, AttributeValue>()
+        val mainRecord = tag.isEmpty()
 
-        // Non-nullable
-        // TODO IS-7807 generate an error if clientName is null or empty,
+        // Non-nullable attributes
+        // TODO IS-7807 generate an error if 'clientName' is null or empty,
         //  as it is not allowed as an SK for 1 LSI and 2 GSIs!
-        // TODO IS-7807 to be possibly reworked for IS-7931
         DatabaseClientsTable.clientName.addTo(item, name)
+        // Only main record has a 'clientNameKey'
+        if (mainRecord) {
+            DatabaseClientsTable.clientNameKey.addTo(item, "$profileId#${name}")
+        }
+        // Main record has no 'tagKey'
+        if (!mainRecord) {
+            DatabaseClientsTable.tagKey.addTo(item, "$profileId#$tag")
+        }
+        // Persist the whole DatabaseClientAttributes, but non persistable attributes, in the "attributes" attribute
+        DatabaseClientsTable.attributes.addTo(
+            item,
+            _json.fromAttributes(
+                removeAttributes(DatabaseClientAttributesHelper.DATABASE_CLIENT_SEEDING_ATTRIBUTES)
+            )
+        )
+        // References also stored as JSON
+        DatabaseClientsTable.configurationReferences.addTo(
+            item,
+            configurationReferencesToJson(this, _json)
+        )
 
-        // Nullable
+        // Nullable attributes
         DatabaseClientsTable.profileId.addToNullable(item, profileId)
         DatabaseClientsTable.clientIdKey.addToNullable(item, clientId)
         DatabaseClientsTable.created.addToNullable(item, created.epochSecond)
         DatabaseClientsTable.updated.addToNullable(item, now.epochSecond)
-
         DatabaseClientsTable.status.addToNullable(item, status.name)
-        // TODO IS-7807 add all other attributes or use 'attributes'?
-        DatabaseClientsTable.redirectUris.addToNullable(item, redirectUris)
-        // TODO IS-7807 attributes? See JdbcDCDAP
-        /*DatabaseClientsTable.attributes.addToNullable(
-            item, _jsonHandler.fromAttributes(
-                Attributes.of(attributes)
-            )
-        )*/
+        DatabaseClientsTable.tags.addToNullable(item, tags)
 
         return item
     }
@@ -314,32 +334,41 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val item = this
 
         result.apply {
-            // Non-nullable
-            // TODO IS-7807 to be possibly reworked for IS-7931
-            add(DatabaseClientAttributeKeys.NAME, DatabaseClientsTable.clientName.from(item))
+            // DDB-specific attributes ignored: PROFILE_ID, CLIENT_NAME_KEY, TAG_KEY,
+            // as not part of DatabaseClientAttributes
 
-            // Nullable
-            add(DatabaseClientAttributeKeys.CLIENT_ID, DatabaseClientsTable.clientIdKey.optionalFrom(item))
+            // Non-nullable attributes
+            add(DatabaseClientAttributeKeys.NAME, DatabaseClientsTable.clientName.from(item))
+            add(DatabaseClientAttributesHelper.ATTRIBUTES, DatabaseClientsTable.attributes.from(item))
             add(
-                Attribute.of(
-                    ResourceAttributes.META,
-                    Meta.of(DatabaseClientAttributes.RESOURCE_TYPE)
-                        .withCreated(
-                            Instant.ofEpochSecond(
-                                DatabaseClientsTable.created.from(
-                                    item
-                                )
-                            )
-                        )
-                        .withLastModified(
-                            Instant.ofEpochSecond(
-                                DatabaseClientsTable.updated.from(
-                                    item
-                                )
-                            )
-                        )
-                )
+                DatabaseClientAttributesHelper.CONFIGURATION_REFERENCES,
+                DatabaseClientsTable.configurationReferences.from(item)
             )
+
+            // Nullable attributes
+            add(DatabaseClientAttributeKeys.CLIENT_ID, DatabaseClientsTable.clientIdKey.optionalFrom(item))
+            add(Attribute.of(
+                ResourceAttributes.META,
+                Meta.of(DatabaseClientAttributes.RESOURCE_TYPE)
+                    .withCreated(
+                        DatabaseClientsTable.created.optionalFrom(
+                            item
+                        )?.let {
+                            Instant.ofEpochSecond(
+                                it
+                            )
+                        }
+                    )
+                    .withLastModified(
+                        DatabaseClientsTable.updated.optionalFrom(
+                            item
+                        )?.let {
+                            Instant.ofEpochSecond(
+                                it
+                            )
+                        }
+                    )
+            ))
             add(
                 Attribute.of(
                     DatabaseClientAttributeKeys.STATUS, DatabaseClientStatus.valueOf(
@@ -347,8 +376,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
                     )
                 )
             )
-            // TODO IS-7807 add all other attributes or use 'attributes'?
-            add(DatabaseClientAttributeKeys.REDIRECT_URIS, DatabaseClientsTable.redirectUris.optionalFrom(item))
+            add(DatabaseClientAttributeKeys.TAGS, DatabaseClientsTable.tags.optionalFrom(item))
         }
 
         return DatabaseClientAttributes.of(Attributes.of(result))
