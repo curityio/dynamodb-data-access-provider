@@ -89,25 +89,25 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         // GSIs
         private val clientNameCreatedIndex =
-            PartitionAndSortIndex("clientName-created-index", clientNameKey, created)
+            PartitionAndSortIndex("client_name-created-index", clientNameKey, created)
         private val clientNameUpdatedIndex =
-            PartitionAndSortIndex("clientName-updated-index", clientNameKey, updated)
+            PartitionAndSortIndex("client_name-lastModified-index", clientNameKey, updated)
         private val clientNameClientNameIndex =
-            PartitionAndSortIndex("clientName-clientName-index", clientNameKey, clientName)
+            PartitionAndSortIndex("client_name-client_name-index", clientNameKey, clientName)
         private val tagCreatedIndex =
             PartitionAndSortIndex("tag-created-index", tagKey, created)
         private val tagUpdatedIndex =
-            PartitionAndSortIndex("tag-updated-index", tagKey, updated)
+            PartitionAndSortIndex("tag-lastModified-index", tagKey, updated)
         private val tagClientNameIndex =
-            PartitionAndSortIndex("tag-clientName-index", tagKey, clientName)
+            PartitionAndSortIndex("tag-client_name-index", tagKey, clientName)
 
         // LSIs
         private val lsiCreatedIndex =
             PartitionAndSortIndex("lsi-created-index", profileId, created)
         private val lsiUpdatedIndex =
-            PartitionAndSortIndex("lsi-updated-index", profileId, updated)
+            PartitionAndSortIndex("lsi-lastModified-index", profileId, updated)
         private val lsiClientNameIndex =
-            PartitionAndSortIndex("lsi-clientName-index", profileId, clientName)
+            PartitionAndSortIndex("lsi-client_name-index", profileId, clientName)
 
         override fun queryCapabilities(): TableQueryCapabilities = object : TableQueryCapabilities(
             indexes = listOf(
