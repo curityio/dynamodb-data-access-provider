@@ -177,7 +177,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val writeConditionExpression = "attribute_not_exists(${DatabaseClientsTable.clientIdKey.name})"
 
         val transactionItems = mutableListOf<TransactWriteItem>()
-        // Add main item
+        // Create operation for the main item
         addTransactionItem(
             commonItem,
             // Main item's specific attributes
@@ -200,7 +200,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             writeConditionExpression
         )
 
-        // Add one secondary item per tag, with tagKey as used PK for tag-based GSIs
+        // One create operation per secondary item, i.e. per tag
         attributes.tags?.forEach { tag ->
             addTransactionItem(
                 commonItem,
@@ -236,6 +236,9 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
             return attributes
         } catch (e: Exception) {
+            val message = "Unable to create client with id: '${attributes.clientId}' in profile '$profileId'"
+            logger.trace(message, e)
+
             if (e.isTransactionCancelledDueToConditionFailure()) {
                 val exceptionCause = e.cause
                 if (exceptionCause is TransactionCanceledException) {
@@ -244,9 +247,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
                         transactionItems
                     )
                 } else {
-                    throw ConflictException(
-                        "Unable to create client with id: '${attributes.clientId}' in profile '$profileId' as uniqueness check failed"
-                    )
+                    throw ConflictException("$message as uniqueness check failed")
                 }
             }
             throw e
