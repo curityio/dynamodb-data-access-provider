@@ -206,13 +206,15 @@ class DynamoDBDatabaseClientDataAccessProvider(
             val response = _dynamoDBClient.updateItem(requestBuilder.build())
 
             if (!response.hasAttributes() || response.attributes().isEmpty()) {
-                throw RuntimeException("No updated attributes returned, client with id: '${attributes.clientId}' could not be updated in profile '$profileId'")
+                throw RuntimeException("No updated attributes returned, unable to update client with id: '${attributes.clientId}' in profile '$profileId'")
             }
 
             return response.attributes().toAttributes()
-        } catch (_: ConditionalCheckFailedException) {
-            // this exception means the entry does not exist, which should be signaled with an exception
-            throw RuntimeException("Client with id: '${attributes.clientId}' could not be updated in profile '$profileId'")
+        } catch (e: ConditionalCheckFailedException) {
+            // this exception means the entry does not exist
+            logger.trace("Unable to update client with id: '${attributes.clientId}' in profile '$profileId'")
+
+            throw e
         }
     }
 
@@ -334,7 +336,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
         builder.update(DatabaseClientsTable.status, status.name)
         builder.update(DatabaseClientsTable.tags, tags)
 
-        builder.onlyIfExists(DatabaseClientsTable.clientIdKey)
+        // TODO IS-7807 restore once update turned into a transaction
+        // builder.onlyIfExists(DatabaseClientsTable.clientIdKey)
 
         return builder
     }
