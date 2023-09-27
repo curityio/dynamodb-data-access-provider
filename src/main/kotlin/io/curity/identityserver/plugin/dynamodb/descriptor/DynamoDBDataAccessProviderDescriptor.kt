@@ -20,7 +20,7 @@ import io.curity.identityserver.plugin.dynamodb.DynamoDBBucketDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.DynamoDBDeviceDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBDynamicallyRegisteredClientDataAccessProvider
-import io.curity.identityserver.plugin.dynamodb.DynamoDBGlobalSecondaryIndexFeatureCheck
+import io.curity.identityserver.plugin.dynamodb.DynamoDBSecondaryIndexFeatureCheck
 import io.curity.identityserver.plugin.dynamodb.DynamoDBSessionDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBUserAccountDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBUserAccountDataAccessProvider.AccountsTable
@@ -76,7 +76,7 @@ class DynamoDBDataAccessProviderDescriptor :
             // Since Curity 8.0.0: two global secondary indexes were created on the curity-accounts table.
             // Presence of the userNameInitial-userName-index implies that start_with search on userName or email
             // is possible in the underlying DynamoDB database.
-            DynamoDBGlobalSecondaryIndexFeatureCheck(accountsTableName, AccountsTable.userNameInitialUserNameIndex)
+            DynamoDBSecondaryIndexFeatureCheck(accountsTableName, AccountsTable.userNameInitialUserNameIndex)
         )
         return Optional.of(DynamoDBClient(configuration, featuresToCheck))
     }

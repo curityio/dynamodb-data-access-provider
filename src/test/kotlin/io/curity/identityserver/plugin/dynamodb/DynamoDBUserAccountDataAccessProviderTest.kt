@@ -39,7 +39,7 @@ class DynamoDBUserAccountDataAccessProviderTest {
         on { getJsonHandler() } doReturn jsonHandler
     }
     private val dynamoDBClient = mock<DynamoDBClient>()
-    private val featureId = DynamoDBGlobalSecondaryIndexFeatureCheck.buildFeatureId(
+    private val featureId = DynamoDBSecondaryIndexFeatureCheck.buildFeatureId(
         AccountsTable.name(configuration),
         AccountsTable.userNameInitialUserNameIndex
     )
