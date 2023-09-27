@@ -87,6 +87,11 @@ class DynamoDBDatabaseClientDataAccessProvider(
         // Base table primary key
         val compositePrimaryKey = CompositePrimaryKey(profileId, clientIdKey)
 
+        // Composite string helpers
+        fun tagKeyFor(profileId: String, tag: String) = "$profileId#$tag"
+        fun clientIdKeyFor(clientId: String, tag: String) = "$clientId#$tag"
+        fun clientNameKeyFor(profileId: String, clientName: String) = "$profileId#${clientName}"
+
         // GSIs
         private val clientNameCreatedIndex =
             PartitionAndSortIndex("client_name-created-index", clientNameKey, created)
@@ -188,7 +193,9 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 // Add composite clientNameKey as PK for clientName-based GSIs
                 Pair(
                     DatabaseClientsTable.clientNameKey.name,
-                    DatabaseClientsTable.clientNameKey.toAttrValue("$profileId#${attributes.name}")
+                    DatabaseClientsTable.clientNameKey.toAttrValue(
+                        DatabaseClientsTable.clientNameKeyFor(profileId, attributes.name)
+                    )
                 ),
             ),
             transactionItems,
@@ -204,12 +211,16 @@ class DynamoDBDatabaseClientDataAccessProvider(
                     // Add composite clientIdKey as SK for base table
                     Pair(
                         DatabaseClientsTable.clientIdKey.name,
-                        DatabaseClientsTable.clientIdKey.toAttrValue("${attributes.clientId}#$tag")
+                        DatabaseClientsTable.clientIdKey.toAttrValue(
+                            DatabaseClientsTable.clientIdKeyFor(attributes.clientId, tag)
+                        )
                     ),
                     // Add composite tagKey as PK for tag-based GSIs
                     Pair(
                         DatabaseClientsTable.tagKey.name,
-                        DatabaseClientsTable.tagKey.toAttrValue("$profileId#$tag")
+                        DatabaseClientsTable.tagKey.toAttrValue(
+                            DatabaseClientsTable.tagKeyFor(profileId, tag)
+                        )
                     ),
                 ),
                 transactionItems,
