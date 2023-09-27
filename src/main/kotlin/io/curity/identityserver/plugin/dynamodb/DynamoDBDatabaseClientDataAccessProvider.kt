@@ -36,8 +36,10 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
-import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.ReturnValue
+import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
+import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
+import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 import java.time.Instant
 
@@ -67,6 +69,9 @@ class DynamoDBDatabaseClientDataAccessProvider(
         // PK for tag-based GSIs
         val tagKey = StringAttribute(TAG_KEY)
 
+        // DynamoDB-specific, attribute version
+        val version = NumberLongAttribute("version")
+
         // SKs for GSIs & LSIs
         val clientName = StringAttribute(DatabaseClientAttributesHelper.CLIENT_NAME_COLUMN)
         val created = NumberLongAttribute(Meta.CREATED)
@@ -76,7 +81,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val tags = ListStringAttribute(DatabaseClientAttributeKeys.TAGS)
         val status = StringAttribute(DatabaseClientAttributeKeys.STATUS)
 
-        // TODO IS-7807 both as JSON?
         val attributes = StringAttribute(DatabaseClientAttributesHelper.ATTRIBUTES)
         val configurationReferences = StringAttribute(DatabaseClientAttributesHelper.CONFIGURATION_REFERENCES)
 
@@ -162,29 +166,81 @@ class DynamoDBDatabaseClientDataAccessProvider(
     override fun create(attributes: DatabaseClientAttributes, profileId: String): DatabaseClientAttributes {
         logger.debug("Creating database client with id: '${attributes.clientId}' in profile: '$profileId'")
 
-        // TODO IS-7807 only main record for now => create also as many secondary records as tags
+        // the commonItem contains the attributes that will be on both the primary and secondary items
+        val commonItem = attributes.toItem(profileId, Instant.now())
+        commonItem.addAttr(DatabaseClientsTable.version, 0)
 
-        val request = PutItemRequest.builder()
-            .tableName(tableName())
-            .conditionExpression("attribute_not_exists(${DatabaseClientsTable.clientIdKey.name})")
-            // Pass empty tag for main record
-            .item(attributes.toItem(profileId, ""))
+        // Item must not already exist
+        val writeConditionExpression = "attribute_not_exists(${DatabaseClientsTable.clientIdKey.name})"
+
+        val transactionItems = mutableListOf<TransactWriteItem>()
+        // Add main item
+        addTransactionItem(
+            commonItem,
+            // Main item's specific attributes
+            mapOf(
+                // Add clientIdKey as SK for base table
+                // For the main item, it is not composite and holds clientId only
+                Pair(
+                    DatabaseClientsTable.clientIdKey.name,
+                    DatabaseClientsTable.clientIdKey.toAttrValue(attributes.clientId)
+                ),
+                // Add composite clientNameKey as PK for clientName-based GSIs
+                Pair(
+                    DatabaseClientsTable.clientNameKey.name,
+                    DatabaseClientsTable.clientNameKey.toAttrValue("$profileId#${attributes.name}")
+                ),
+            ),
+            transactionItems,
+            writeConditionExpression
+        )
+
+        // Add one secondary item per tag, with tagKey as used PK for tag-based GSIs
+        attributes.tags?.forEach { tag ->
+            addTransactionItem(
+                commonItem,
+                // Secondary item's specific attributes
+                mapOf(
+                    // Add composite clientIdKey as SK for base table
+                    Pair(
+                        DatabaseClientsTable.clientIdKey.name,
+                        DatabaseClientsTable.clientIdKey.toAttrValue("${attributes.clientId}#$tag")
+                    ),
+                    // Add composite tagKey as PK for tag-based GSIs
+                    Pair(
+                        DatabaseClientsTable.tagKey.name,
+                        DatabaseClientsTable.tagKey.toAttrValue("$profileId#$tag")
+                    ),
+                ),
+                transactionItems,
+                writeConditionExpression
+
+            )
+        }
+
+        val request = TransactWriteItemsRequest.builder()
+            .transactItems(transactionItems)
             .build()
 
         try {
-            _dynamoDBClient.putItem(request)
+            _dynamoDBClient.transactionWriteItems(request)
 
-            // PutItem doesn't support returning newly set attributes, @see PutItemRequest.returnValues
-            // So return provided attributes
             return attributes
-        } catch (exception: ConditionalCheckFailedException) {
-            val newException =
-                ConflictException("Client '${attributes.clientId}' is already registered")
-            logger.trace(
-                "Client with id: '${attributes.clientId}' is already registered in profile '$profileId'",
-                newException
-            )
-            throw newException
+        } catch (e: Exception) {
+            if (e.isTransactionCancelledDueToConditionFailure()) {
+                val exceptionCause = e.cause
+                if (exceptionCause is TransactionCanceledException) {
+                    e.validateKnownUniqueConstraintsForAccountMutations(
+                        exceptionCause.cancellationReasons(),
+                        transactionItems
+                    )
+                } else {
+                    throw ConflictException(
+                        "Unable to create client with id: '${attributes.clientId}' in profile '$profileId' as uniqueness check failed"
+                    )
+                }
+            }
+            throw e
         }
     }
 
@@ -230,9 +286,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             _dynamoDBClient.deleteItem(request)
             true
         } catch (exception: SdkException) {
-            logger.trace(
-                "Client '$clientId' from profile '$profileId' couldn't be deleted.", exception
-            )
+            logger.trace("Unable to delete client '$clientId' from profile '$profileId'.", exception)
             false
         }
     }
@@ -261,25 +315,13 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
     }
 
-    private fun DatabaseClientAttributes.toItem(profileId: String, tag: String): DynamoDBItem {
-        val now = Instant.now()
+    private fun DatabaseClientAttributes.toItem(profileId: String, now: Instant): MutableMap<String, AttributeValue> {
         val created = meta?.created ?: now
 
         val item = mutableMapOf<String, AttributeValue>()
-        val mainRecord = tag.isEmpty()
 
         // Non-nullable attributes
-        // TODO IS-7807 generate an error if 'clientName' is null or empty,
-        //  as it is not allowed as an SK for 1 LSI and 2 GSIs!
         DatabaseClientsTable.clientName.addTo(item, name)
-        // Only main record has a 'clientNameKey'
-        if (mainRecord) {
-            DatabaseClientsTable.clientNameKey.addTo(item, "$profileId#${name}")
-        }
-        // Main record has no 'tagKey'
-        if (!mainRecord) {
-            DatabaseClientsTable.tagKey.addTo(item, "$profileId#$tag")
-        }
         // Persist the whole DatabaseClientAttributes, but non persistable attributes, in the "attributes" attribute
         DatabaseClientsTable.attributes.addTo(
             item,
@@ -295,7 +337,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         // Nullable attributes
         DatabaseClientsTable.profileId.addToNullable(item, profileId)
-        DatabaseClientsTable.clientIdKey.addToNullable(item, clientId)
         DatabaseClientsTable.created.addToNullable(item, created.epochSecond)
         DatabaseClientsTable.updated.addToNullable(item, now.epochSecond)
         DatabaseClientsTable.status.addToNullable(item, status.name)
@@ -312,8 +353,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val mainRecord = tag.isEmpty()
 
         // Non-nullable attributes
-        // TODO IS-7807 generate an error if 'clientName' is null or empty,
-        //  as it is not allowed as an SK for 1 LSI and 2 GSIs!
         builder.update(DatabaseClientsTable.clientName, name)
         // Only main record has a 'clientNameKey'
         if (mainRecord) {
@@ -406,5 +445,23 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val rawAttributes = DatabaseClientAttributes.of(Attributes.of(result))
         // Parse ATTRIBUTES and CONFIGURATION_REFERENCES
         return DatabaseClientAttributesHelper.toResource(rawAttributes, ResourceQuery.Exclusions.none(), _json)
+    }
+
+    private fun addTransactionItem(
+        commonItem: MutableMap<String, AttributeValue>,
+        itemAttributes: Map<String, AttributeValue>,
+        transactionItems: MutableList<TransactWriteItem>,
+        writeConditionExpression: String
+    ) {
+        val item = commonItem + itemAttributes
+        transactionItems.add(
+            TransactWriteItem.builder()
+                .put {
+                    it.tableName(tableName())
+                    it.conditionExpression(writeConditionExpression)
+                    it.item(item)
+                }
+                .build()
+        )
     }
 }
