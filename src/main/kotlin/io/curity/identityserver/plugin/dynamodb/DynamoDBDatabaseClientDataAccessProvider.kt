@@ -31,10 +31,8 @@ import se.curity.identityserver.sdk.datasource.pagination.PaginationRequest
 import se.curity.identityserver.sdk.datasource.query.DatabaseClientAttributesFiltering
 import se.curity.identityserver.sdk.datasource.query.DatabaseClientAttributesSorting
 import se.curity.identityserver.sdk.errors.ConflictException
-import software.amazon.awssdk.core.exception.SdkException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
-import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.ReturnValue
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
@@ -288,17 +286,90 @@ class DynamoDBDatabaseClientDataAccessProvider(
     override fun delete(clientId: String, profileId: String): Boolean {
         logger.debug("Deleting database client with id: '$clientId' from profile '$profileId'")
 
-        val request = DeleteItemRequest.builder()
-            .tableName(tableName())
-            .key(DatabaseClientsTable.primaryKey(profileId, clientId))
+        retry("delete", N_OF_ATTEMPTS) {
+            tryDelete(clientId, profileId)
+        }
+
+        return true
+    }
+
+    private fun tryDelete(clientId: String, profileId: String): TransactionAttemptResult<Unit> {
+        logger.debug("Deleting database client with id: '$clientId' from profile '$profileId'")
+
+        // Deleting a database client requires the deletion of the main item and all the secondary items.
+        // A `getItem` is needed to obtain the `tags` required to compute the secondary item keys
+        val getItemResponse = _dynamoDBClient.getItem(
+            GetItemRequest.builder()
+                .tableName(tableName())
+                .key(DatabaseClientsTable.primaryKey(profileId, clientId))
+                .build()
+        )
+
+        if (!getItemResponse.hasItem() || getItemResponse.item().isEmpty()) {
+            return TransactionAttemptResult.Success(Unit)
+        }
+
+        val item = getItemResponse.item()
+        val version = DatabaseClientsTable.version.optionalFrom(item)
+            ?: throw SchemaErrorException(DatabaseClientsTable, DatabaseClientsTable.version)
+
+        // Create a transaction with all the items (main and secondary) deletions,
+        // conditioned to the version not having changed - optimistic concurrency
+        val transactionItems = mutableListOf<TransactWriteItem>()
+
+        // Delete operation for the main item
+        transactionItems.add(
+            TransactWriteItem.builder()
+                .delete {
+                    it.tableName(tableName())
+                    it.key(DatabaseClientsTable.primaryKey(profileId, clientId))
+                    it.conditionExpression(
+                        versionAndClientIdKeyConditionExpression(version, clientId)
+                    )
+                }
+                .build()
+        )
+
+        // One delete operation per secondary item, i.e. per tag
+        DatabaseClientsTable.tags.optionalFrom(item)?.forEach { tag ->
+            transactionItems.add(
+                TransactWriteItem.builder()
+                    .delete {
+                        it.tableName(tableName())
+                        it.key(
+                            DatabaseClientsTable.primaryKey(
+                                profileId,
+                                DatabaseClientsTable.clientIdKeyFor(clientId, tag)
+                            )
+                        )
+                        it.conditionExpression(
+                            versionAndClientIdKeyConditionExpression(
+                                version,
+                                DatabaseClientsTable.clientIdKeyFor(clientId, tag)
+                            )
+                        )
+                    }
+                    .build()
+            )
+        }
+
+        val request = TransactWriteItemsRequest.builder()
+            .transactItems(transactionItems)
             .build()
 
-        return try {
-            _dynamoDBClient.deleteItem(request)
-            true
-        } catch (exception: SdkException) {
-            logger.trace("Unable to delete client '$clientId' from profile '$profileId'.", exception)
-            false
+        try {
+            _dynamoDBClient.transactionWriteItems(request)
+
+            return TransactionAttemptResult.Success(Unit)
+        } catch (e: Exception) {
+            val message = "Unable to delete client with id: '$clientId' from profile '$profileId'"
+            logger.trace(message, e)
+            if (e.isTransactionCancelledDueToConditionFailure()) {
+                return TransactionAttemptResult.Failure(
+                    ConflictException("$message as version check failed")
+                )
+            }
+            throw e
         }
     }
 
@@ -324,6 +395,13 @@ class DynamoDBDatabaseClientDataAccessProvider(
         private val logger: Logger =
             LoggerFactory.getLogger(DynamoDBDatabaseClientDataAccessProvider::class.java)
 
+        private val _conditionExpressionBuilder = ExpressionBuilder(
+            "#${DatabaseClientsTable.version} = :oldVersion AND #${DatabaseClientsTable.clientIdKey.name} = :${DatabaseClientsTable.clientIdKey.name}",
+            DatabaseClientsTable.version,
+            DatabaseClientsTable.clientIdKey
+        )
+
+        private const val N_OF_ATTEMPTS = 3
     }
 
     private fun DatabaseClientAttributes.toItem(profileId: String, now: Instant): MutableMap<String, AttributeValue> {
@@ -473,6 +551,15 @@ class DynamoDBDatabaseClientDataAccessProvider(
                     it.item(item)
                 }
                 .build()
+        )
+    }
+
+    private fun versionAndClientIdKeyConditionExpression(version: Long, clientIdKey: String) = object : Expression(
+        _conditionExpressionBuilder
+    ) {
+        override val values = mapOf(
+            ":oldVersion" to DatabaseClientsTable.version.toAttrValue(version),
+            DatabaseClientsTable.clientIdKey.toExpressionNameValuePair(clientIdKey)
         )
     }
 }
