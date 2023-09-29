@@ -31,8 +31,12 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
     private val _configuration: DynamoDBDataAccessProviderConfiguration,
     private val _table: Table,
     private val _commonItem: Map<String, AttributeValue>,
-    private val _keyAttribute: DynamoDBAttribute<String>,
-    private val _conditionExpression: Expression
+    private val _pkAttribute: DynamoDBAttribute<String>,
+    private val _conditionExpression: Expression,
+    // For a composite primary key, provide also the partition key value...
+    private val _pkValue: String? = null,
+    // ... and the sort key attribute
+    private val _skAttribute: DynamoDBAttribute<String>? = null,
 ) {
 
     private val _transactionItems = mutableListOf<TransactWriteItem>()
@@ -57,20 +61,20 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
         }
     }
 
-    private fun removeItem(pkValue: String) {
+    private fun removeItem(keyValue: String) {
         _transactionItems.add(
             TransactWriteItem.builder()
                 .delete {
                     it.tableName(_table.name(_configuration))
-                    it.key(mapOf(_keyAttribute.toNameValuePair(pkValue)))
+                    it.key(primaryKey(keyValue))
                     it.conditionExpression(_conditionExpression)
                 }
                 .build()
         )
     }
 
-    private fun insertItem(pkValue: String, additionalAttributes: Map<String, AttributeValue>) {
-        val secondaryItem = _commonItem + setOf(_keyAttribute.toNameValuePair(pkValue)) + additionalAttributes
+    private fun insertItem(keyValue: String, additionalAttributes: Map<String, AttributeValue>) {
+        val secondaryItem = _commonItem + keySet(keyValue) + additionalAttributes
         _transactionItems.add(
             TransactWriteItem.builder()
                 .put {
@@ -78,14 +82,14 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
                     it.item(
                         secondaryItem
                     )
-                    it.conditionExpression("attribute_not_exists(${_keyAttribute.name})")
+                    it.conditionExpression("attribute_not_exists(${_pkAttribute.name})")
                 }
                 .build()
         )
     }
 
-    private fun updateItem(pkValue: String, additionalAttributes: Map<String, AttributeValue>) {
-        val secondaryItem = _commonItem + setOf(_keyAttribute.toNameValuePair(pkValue)) + additionalAttributes
+    private fun updateItem(keyValue: String, additionalAttributes: Map<String, AttributeValue>) {
+        val secondaryItem = _commonItem + keySet(keyValue) + additionalAttributes
         _transactionItems.add(
             TransactWriteItem.builder()
                 .put {
@@ -104,4 +108,18 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
             .transactItems(_transactionItems)
             .build()
     }
+
+    private fun primaryKey(keyValue: String): Map<String, AttributeValue> =
+        if (_skAttribute == null || _pkValue == null) {
+            mapOf(_pkAttribute.toNameValuePair(keyValue))
+        } else {
+            mapOf(_pkAttribute.toNameValuePair(_pkValue), _skAttribute.toNameValuePair(keyValue))
+        }
+
+    private fun keySet(keyValue: String): Set<Pair<String, AttributeValue>> =
+        if (_skAttribute == null || _pkValue == null) {
+            setOf(_pkAttribute.toNameValuePair(keyValue))
+        } else {
+            setOf(_pkAttribute.toNameValuePair(_pkValue), _skAttribute.toNameValuePair(keyValue))
+        }
 }
