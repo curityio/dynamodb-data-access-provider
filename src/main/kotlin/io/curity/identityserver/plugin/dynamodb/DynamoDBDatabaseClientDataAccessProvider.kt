@@ -32,13 +32,10 @@ import se.curity.identityserver.sdk.datasource.query.DatabaseClientAttributesFil
 import se.curity.identityserver.sdk.datasource.query.DatabaseClientAttributesSorting
 import se.curity.identityserver.sdk.errors.ConflictException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
-import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
-import software.amazon.awssdk.services.dynamodb.model.ReturnValue
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
 import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException
-import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 import java.time.Instant
 
 
@@ -57,15 +54,21 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val profileId = StringAttribute(DatabaseClientAttributesHelper.PROFILE_ID)
         // DynamoDB-specific, composite string made up of clientId and tag, or clientId only
         // Table Sort Key (SK)
-        val clientIdKey = StringAttribute("client_id_key")
+        val clientIdKey = object : UniqueStringAttribute("client_id_key", "") {
+            override fun uniquenessValueFrom(value: String) = value
+        }
 
         // DynamoDB-specific, composite string made up of profileId and clientName
         // PK for clientName-based GSIs
-        val clientNameKey = StringAttribute(CLIENT_NAME_KEY)
+        val clientNameKey = object : UniqueStringAttribute(CLIENT_NAME_KEY, "") {
+            override fun uniquenessValueFrom(value: String) = value
+        }
 
         // DynamoDB-specific, composite string made up of profileId and an individual item from tags
         // PK for tag-based GSIs
-        val tagKey = StringAttribute(TAG_KEY)
+        val tagKey = object : UniqueStringAttribute(TAG_KEY, "") {
+            override fun uniquenessValueFrom(value: String) = value
+        }
 
         // DynamoDB-specific, attribute version
         val version = NumberLongAttribute("version")
@@ -151,6 +154,10 @@ class DynamoDBDatabaseClientDataAccessProvider(
     override fun getClientById(clientId: String, profileId: String): DatabaseClientAttributes? {
         logger.debug("Getting database client with id: '$clientId' in profile: '$profileId'")
 
+        return getItemById(clientId, profileId)?.toAttributes()
+    }
+
+    private fun getItemById(clientId: String, profileId: String): DynamoDBItem? {
         val request = GetItemRequest.builder()
             .tableName(DatabaseClientsTable.name(_configuration))
             .key(DatabaseClientsTable.primaryKey(profileId, clientId))
@@ -163,14 +170,15 @@ class DynamoDBDatabaseClientDataAccessProvider(
             return null
         }
 
-        return response.item().toAttributes()
+        return response.item()
     }
 
     override fun create(attributes: DatabaseClientAttributes, profileId: String): DatabaseClientAttributes {
         logger.debug("Creating database client with id: '${attributes.clientId}' in profile: '$profileId'")
 
         // the commonItem contains the attributes that will be on both the primary and secondary items
-        val commonItem = attributes.toItem(profileId, Instant.now())
+        val now = Instant.now().epochSecond
+        val commonItem = attributes.toItem(profileId, now, now)
         commonItem.addAttr(DatabaseClientsTable.version, 0)
 
         // Item must not already exist
@@ -223,7 +231,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 ),
                 transactionItems,
                 writeConditionExpression
-
             )
         }
 
@@ -254,32 +261,152 @@ class DynamoDBDatabaseClientDataAccessProvider(
         }
     }
 
-    override fun update(attributes: DatabaseClientAttributes, profileId: String): DatabaseClientAttributes {
+    override fun update(attributes: DatabaseClientAttributes, profileId: String): DatabaseClientAttributes? {
         logger.debug("Updating database client with id: '${attributes.clientId}' in profile '$profileId'")
 
-        // TODO IS-7807 only main record for now => update also as many secondary records as tags
+        retry("update", N_OF_ATTEMPTS) {
+            val currentMainItem =
+                getItemById(attributes.clientId, profileId) ?: return@retry TransactionAttemptResult.Success(null)
+            tryUpdate(attributes, profileId, currentMainItem)
+        }
+        return getClientById(attributes.clientId, profileId)
+    }
 
-        // Pass empty tag for main record
-        val builder = attributes.toUpdateExpressionBuilder(profileId, "")
+    private fun tryUpdate(
+        attributes: DatabaseClientAttributes,
+        profileId: String,
+        currentMainItem: DynamoDBItem
+    ): TransactionAttemptResult<Unit> {
+        val currentVersion = currentMainItem.version()
+        val newVersion = currentVersion + 1
 
-        val requestBuilder = UpdateItemRequest.builder()
-            .tableName(tableName())
-            .key(DatabaseClientsTable.primaryKey(profileId, attributes.clientId))
-            .returnValues(ReturnValue.ALL_NEW)
-            .apply { builder.applyTo(this) }
+        // Preserve created attribute
+        val created = DatabaseClientsTable.created.from(currentMainItem)
+        val commonItem = attributes.toItem(profileId, created, updated = Instant.now().epochSecond)
+        commonItem.addAttr(DatabaseClientsTable.version, newVersion)
+
+        // Current item's clientIdKey based on clientId only, must be same as new clientId!
+        val currentClientIdKey = DatabaseClientsTable.clientIdKey.from(currentMainItem)
+
+        val updateBuilder = UpdateBuilderWithMultipleUniquenessConstraints(
+            _configuration,
+            DatabaseClientsTable,
+            commonItem,
+            _pkAttribute = StringAttribute(DatabaseClientsTable.profileId.name),
+            versionAndClientIdKeyConditionExpression(currentVersion, currentClientIdKey),
+            _pkValue = profileId,
+            _skAttribute = StringAttribute(DatabaseClientsTable.clientIdKey.name),
+        )
+
+        // Update main item
+        updateBuilder.handleUniqueAttribute(
+            DatabaseClientsTable.clientIdKey,
+            before = currentClientIdKey,
+            // New clientIdKey based on clientId only
+            after = attributes.clientId,
+            additionalAttributes = mapOf(
+                // Add clientIdKey as SK for base table. For the main item, it is not composite and holds clientId only
+                Pair(
+                    DatabaseClientsTable.clientIdKey.name,
+                    DatabaseClientsTable.clientIdKey.toAttrValue(attributes.clientId)
+                ),
+                // Add composite clientNameKey as PK for clientName-based GSIs
+                Pair(
+                    DatabaseClientsTable.clientNameKey.name,
+                    DatabaseClientsTable.clientNameKey.toAttrValue(
+                        DatabaseClientsTable.clientNameKeyFor(profileId, attributes.name)
+                    )
+                )
+            )
+        )
+
+        val currentTags = DatabaseClientsTable.tags.optionalFrom(currentMainItem) as List<String>
+        val newTags = attributes.tags
+        val commonTagCount = Integer.min(currentTags.size, newTags?.size!!)
+
+        // 1. Update secondary items for the first commonTagCount tags
+        var index = 0
+        newTags.subList(0, commonTagCount).forEach { newTag ->
+            // Secondary item's clientIdKey based on clientId and tag with same index as the new one
+            val secondaryClientIdKey = DatabaseClientsTable.clientIdKeyFor(
+                DatabaseClientsTable.clientIdKey.from(currentMainItem),
+                currentTags.elementAt(index++)
+            )
+
+            // Update secondary item for newTag
+            updateBuilder.handleUniqueAttribute(
+                DatabaseClientsTable.clientIdKey,
+                before = secondaryClientIdKey,
+                // New clientIdKey based on clientId and new tag
+                after = DatabaseClientsTable.clientIdKeyFor(attributes.clientId, newTag),
+                additionalAttributes = mapOf(
+                    // Add composite tagKey as PK for tag-based GSIs
+                    Pair(
+                        DatabaseClientsTable.tagKey.name,
+                        DatabaseClientsTable.tagKey.toAttrValue(
+                            DatabaseClientsTable.tagKeyFor(profileId, newTag)
+                        )
+                    )
+                ),
+                versionAndClientIdKeyConditionExpression(currentVersion, secondaryClientIdKey),
+            )
+        }
+
+        // 2. Delete secondary items if additional tags in current item
+        currentTags.subList(commonTagCount, currentTags.size).forEach { currentTag ->
+            // Secondary item's clientIdKey based on clientId and current tag
+            val secondaryClientIdKey = DatabaseClientsTable.clientIdKeyFor(
+                DatabaseClientsTable.clientIdKey.from(currentMainItem),
+                currentTag
+            )
+
+            // Delete secondary item for currentTag
+            updateBuilder.handleUniqueAttribute(
+                DatabaseClientsTable.clientIdKey,
+                before = secondaryClientIdKey,
+                after = null,
+                additionalAttributes = mapOf(),
+                versionAndClientIdKeyConditionExpression(currentVersion, secondaryClientIdKey),
+            )
+        }
+
+        // 3. Create secondary items if additional new tags
+        newTags.subList(commonTagCount, newTags.size).forEach { newTag ->
+            // Secondary item's clientIdKey based on clientId and new tag
+            val secondaryClientIdKey = DatabaseClientsTable.clientIdKeyFor(
+                DatabaseClientsTable.clientIdKey.from(currentMainItem),
+                newTag
+            )
+
+            // Create secondary item for newTag
+            updateBuilder.handleUniqueAttribute(
+                DatabaseClientsTable.clientIdKey,
+                before = null,
+                after = secondaryClientIdKey,
+                additionalAttributes = mapOf(
+                    // Add composite tagKey as PK for tag-based GSIs
+                    Pair(
+                        DatabaseClientsTable.tagKey.name,
+                        DatabaseClientsTable.tagKey.toAttrValue(
+                            DatabaseClientsTable.tagKeyFor(profileId, newTag)
+                        )
+                    )
+                )
+            )
+        }
 
         try {
-            val response = _dynamoDBClient.updateItem(requestBuilder.build())
+            _dynamoDBClient.transactionWriteItems(updateBuilder.build())
 
-            if (!response.hasAttributes() || response.attributes().isEmpty()) {
-                throw RuntimeException("No updated attributes returned, unable to update client with id: '${attributes.clientId}' in profile '$profileId'")
+            return TransactionAttemptResult.Success(Unit)
+        } catch (e: Exception) {
+            val message = "Unable to delete client with id: '${attributes.clientId}' from profile '$profileId'"
+            logger.trace(message, e)
+            if (e.isTransactionCancelledDueToConditionFailure()) {
+                return TransactionAttemptResult.Failure(
+                    ConflictException("$message as version check failed")
+                )
             }
-
-            return response.attributes().toAttributes()
-        } catch (e: ConditionalCheckFailedException) {
-            // this exception means the entry does not exist
-            logger.trace("Unable to update client with id: '${attributes.clientId}' in profile '$profileId'")
-
             throw e
         }
     }
@@ -396,18 +523,25 @@ class DynamoDBDatabaseClientDataAccessProvider(
         private val logger: Logger =
             LoggerFactory.getLogger(DynamoDBDatabaseClientDataAccessProvider::class.java)
 
+        // Retry count upon delete and update transactions
+        private const val N_OF_ATTEMPTS = 3
+
         private val _conditionExpressionBuilder = ExpressionBuilder(
             "#${DatabaseClientsTable.version} = :oldVersion AND #${DatabaseClientsTable.clientIdKey.name} = :${DatabaseClientsTable.clientIdKey.name}",
             DatabaseClientsTable.version,
             DatabaseClientsTable.clientIdKey
         )
 
-        private const val N_OF_ATTEMPTS = 3
+        private fun DynamoDBItem.version(): Long =
+            DatabaseClientsTable.version.optionalFrom(this)
+                ?: throw SchemaErrorException(DatabaseClientsTable, DatabaseClientsTable.version)
     }
 
-    private fun DatabaseClientAttributes.toItem(profileId: String, now: Instant): MutableMap<String, AttributeValue> {
-        val created = meta?.created ?: now
-
+    private fun DatabaseClientAttributes.toItem(
+        profileId: String,
+        created: Long?,
+        updated: Long
+    ): MutableMap<String, AttributeValue> {
         val item = mutableMapOf<String, AttributeValue>()
 
         // Non-nullable attributes
@@ -427,8 +561,10 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         // Nullable attributes
         DatabaseClientsTable.profileId.addToNullable(item, profileId)
-        DatabaseClientsTable.created.addToNullable(item, created.epochSecond)
-        DatabaseClientsTable.updated.addToNullable(item, now.epochSecond)
+        created?.let {
+            DatabaseClientsTable.created.addToNullable(item, created)
+        }
+        DatabaseClientsTable.updated.addToNullable(item, updated)
         DatabaseClientsTable.status.addToNullable(item, status.name)
         DatabaseClientsTable.tags.addToNullable(item, tags)
 

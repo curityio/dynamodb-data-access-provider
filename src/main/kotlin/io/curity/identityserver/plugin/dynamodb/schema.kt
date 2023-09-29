@@ -208,7 +208,7 @@ class StringCompositeAttribute2(name: String, private val template: (String, Str
     override fun comparator(): Comparator<Map<String, AttributeValue>>? = null
 }
 
-class UniqueStringAttribute(name: String, val prefix: String) : BaseAttribute<String>(name, AttributeType.S),
+open class UniqueStringAttribute(name: String, val prefix: String) : BaseAttribute<String>(name, AttributeType.S),
     UniqueAttribute<String> {
     private fun getUniquePkValue(value: String) = "$prefix$value"
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
