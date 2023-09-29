@@ -32,7 +32,7 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
     private val _table: Table,
     private val _commonItem: Map<String, AttributeValue>,
     private val _pkAttribute: DynamoDBAttribute<String>,
-    private val _conditionExpression: Expression,
+    private var _conditionExpression: Expression,
     // For a composite primary key, provide also the partition key value...
     private val _pkValue: String? = null,
     // ... and the sort key attribute
@@ -42,8 +42,13 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
     private val _transactionItems = mutableListOf<TransactWriteItem>()
 
     // Handles the update of an unique attribute
-    fun <T> handleUniqueAttribute(attribute: UniqueAttribute<T>, before: T?, after: T?,
-                                  additionalAttributes: Map<String, AttributeValue> = mapOf()) {
+    fun <T> handleUniqueAttribute(
+        attribute: UniqueAttribute<T>, before: T?, after: T?,
+        additionalAttributes: Map<String, AttributeValue> = mapOf(),
+        conditionExpressionOverride: Expression? = null,
+    ) {
+        conditionExpressionOverride?.let { _conditionExpression = it }
+
         if (before == after) {
             if (after != null) {
                 // Even if the key value doesn't change, we still need to update the item's data.
