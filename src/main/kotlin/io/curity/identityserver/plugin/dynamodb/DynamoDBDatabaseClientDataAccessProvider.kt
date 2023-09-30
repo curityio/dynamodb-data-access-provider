@@ -264,12 +264,16 @@ class DynamoDBDatabaseClientDataAccessProvider(
     override fun update(attributes: DatabaseClientAttributes, profileId: String): DatabaseClientAttributes? {
         logger.debug("Updating database client with id: '${attributes.clientId}' in profile '$profileId'")
 
-        retry("update", N_OF_ATTEMPTS) {
+        val result = retry("update", N_OF_ATTEMPTS) {
             val currentMainItem =
                 getItemById(attributes.clientId, profileId) ?: return@retry TransactionAttemptResult.Success(null)
             tryUpdate(attributes, profileId, currentMainItem)
         }
-        return getClientById(attributes.clientId, profileId)
+        return if (result != null) {
+            getClientById(attributes.clientId, profileId)
+        } else {
+            null
+        }
     }
 
     private fun tryUpdate(
