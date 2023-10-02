@@ -575,42 +575,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
         return item
     }
 
-    private fun DatabaseClientAttributes.toUpdateExpressionBuilder(
-        profileId: String,
-        tag: String
-    ): UpdateExpressionsBuilder {
-        val builder = UpdateExpressionsBuilder()
-        val mainRecord = tag.isEmpty()
-
-        // Non-nullable attributes
-        builder.update(DatabaseClientsTable.clientName, name)
-        // Only main record has a 'clientNameKey'
-        if (mainRecord) {
-            builder.update(DatabaseClientsTable.clientNameKey, "$profileId#${name}")
-        }
-        // Main record has no 'tagKey'
-        if (!mainRecord) {
-            builder.update(DatabaseClientsTable.tagKey, "$profileId#$tag")
-        }
-        // Persist the whole DatabaseClientAttributes, but non persistable attributes, in the "attributes" attribute
-        builder.update(
-            DatabaseClientsTable.attributes,
-            _json.fromAttributes(removeAttributes(DatabaseClientAttributesHelper.DATABASE_CLIENT_SEEDING_ATTRIBUTES))
-        )
-        // References also stored as JSON
-        builder.update(DatabaseClientsTable.configurationReferences, configurationReferencesToJson(this, _json))
-
-        // Nullable attributes
-        builder.update(DatabaseClientsTable.updated, Instant.now().epochSecond)
-        builder.update(DatabaseClientsTable.status, status.name)
-        builder.update(DatabaseClientsTable.tags, tags)
-
-        // TODO IS-7807 restore once update turned into a transaction
-        // builder.onlyIfExists(DatabaseClientsTable.clientIdKey)
-
-        return builder
-    }
-
     private fun tableName(): String = DatabaseClientsTable.name(_configuration)
 
     private fun MutableList<Attribute>.add(name: String, value: String?) = value?.let {

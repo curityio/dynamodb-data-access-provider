@@ -12,6 +12,7 @@
 package io.curity.identityserver.plugin.dynamodb.helpers;
 
 import se.curity.identityserver.sdk.Nullable;
+import se.curity.identityserver.sdk.NullableFunction;
 import se.curity.identityserver.sdk.attribute.Attribute;
 import se.curity.identityserver.sdk.attribute.AttributeCollector;
 import se.curity.identityserver.sdk.attribute.Attributes;
@@ -56,6 +57,7 @@ import static se.curity.identityserver.sdk.attribute.client.database.UserConsent
 
 public final class DatabaseClientAttributesHelper
 {
+
     // Constants reused from DatabaseClientsTableColumnMapping
     public static final String CLIENT_NAME_COLUMN = "client_name";
     public static final String CREATED_DATE_COLUMN = "created";
@@ -79,7 +81,6 @@ public final class DatabaseClientAttributesHelper
     public static final String ATTRIBUTES = "attributes";
     public static final String PROFILE_ID = "profile_id";
     public static final String CONFIGURATION_REFERENCES = "configuration_references";
-
     /**
      * When persisting to the database, collection of attributes which should not be persisted into the ATTRIBUTES json
      * blob.
@@ -137,12 +138,16 @@ public final class DatabaseClientAttributesHelper
                 capabilities.getAssertionCapability() == null || capabilities.getAssertionCapability().getJwtAssertion() == null
                         ? null : capabilities.getAssertionCapability().getJwtAssertion();
         JwtSigningAttributes jwtSigningAttributes = jwtAssertionAttributes != null ? jwtAssertionAttributes.getJwtSigning() : null;
-        NullUtils.ifNotNull(jwtSigningAttributes, s -> s.matchAll(
-                symmetricKey -> {
-                }, // The symmetric key is not a reference but the encrypted actual encryption key.
-                asymmetricKey -> configurationReferences.put(JWT_ASSERTION_ASYMMETRIC_KEY_ID, asymmetricKey),
-                jwksUri -> configurationReferences.put(JWT_ASSERTION_JWKS_URI_CLIENT_ID,
-                        NullUtils.map(jwksUri, JwksUri::httpClientId))));
+        Optional.ofNullable(jwtSigningAttributes).ifPresent(
+                s -> s.matchAll(
+                        symmetricKey -> {
+                        }, // The symmetric key is not a reference but the encrypted actual encryption key.
+                        asymmetricKey -> configurationReferences.put(JWT_ASSERTION_ASYMMETRIC_KEY_ID, asymmetricKey),
+                        jwksUri -> configurationReferences.put(JWT_ASSERTION_JWKS_URI_CLIENT_ID,
+                                NullUtils.map(jwksUri, JwksUri::httpClientId)
+                        )
+                )
+        );
         configurationReferences.put(HAAPI_POLICY_ID, NullUtils.map(capabilities.getHaapiCapability(), c -> c.getAttestation() == null
                 ? null : c.getAttestation().getOptionalValue(ClientAttestationAttributes.POLICY_ID)));
 
@@ -241,5 +246,14 @@ public final class DatabaseClientAttributesHelper
                 .filter(Objects::nonNull)
                 .map(AttributesHelper::spaceSeparatedValuesToListAttributeValue)
                 .collect(AttributeCollector.toAttributes()));
+    }
+
+    private static final class NullUtils
+    {
+        @Nullable
+        public static <T, R> R map(@Nullable T value, NullableFunction<T, R> transform)
+        {
+            return Optional.ofNullable(value).map(transform).orElse(null);
+        }
     }
 }
