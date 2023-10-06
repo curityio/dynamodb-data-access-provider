@@ -47,8 +47,10 @@ class DynamoDBDatabaseClientDataAccessProvider(
     private val _json = _configuration.getJsonHandler()
 
     object DatabaseClientsTable : TableWithCapabilities("curity-database-clients") {
-        private const val CLIENT_NAME_KEY = "client_name_key"
-        private const val TAG_KEY = "tag_key"
+        const val CLIENT_NAME_KEY = "client_name_key"
+        const val TAG_KEY = "tag_key"
+        const val VERSION = "version"
+        val INTERNAL_ATTRIBUTES = arrayOf(DatabaseClientAttributesHelper.PROFILE_ID, CLIENT_NAME_KEY, TAG_KEY, VERSION)
 
         // Table Partition Key (PK)
         val profileId = StringAttribute(DatabaseClientAttributesHelper.PROFILE_ID)
@@ -71,7 +73,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         }
 
         // DynamoDB-specific, attribute version
-        val version = NumberLongAttribute("version")
+        val version = NumberLongAttribute(VERSION)
 
         // SKs for GSIs & LSIs
         val clientName = StringAttribute(DatabaseClientAttributesHelper.CLIENT_NAME_COLUMN)
