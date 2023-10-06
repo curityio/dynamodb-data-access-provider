@@ -530,8 +530,11 @@ class DynamoDBDatabaseClientDataAccessProvider(
         // Retry count upon delete and update transactions
         private const val N_OF_ATTEMPTS = 3
 
+        private val oldVersion = StringAttribute("oldVersion")
+
         private val _conditionExpressionBuilder = ExpressionBuilder(
-            "#${DatabaseClientsTable.version} = :oldVersion AND #${DatabaseClientsTable.clientIdKey.name} = :${DatabaseClientsTable.clientIdKey.name}",
+            "${DatabaseClientsTable.version.hashName} = ${oldVersion.colonName} AND " +
+                    "${DatabaseClientsTable.clientIdKey.hashName} = ${DatabaseClientsTable.clientIdKey.colonName}",
             DatabaseClientsTable.version,
             DatabaseClientsTable.clientIdKey
         )
@@ -663,7 +666,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         _conditionExpressionBuilder
     ) {
         override val values = mapOf(
-            ":oldVersion" to DatabaseClientsTable.version.toAttrValue(version),
+            oldVersion.colonName to DatabaseClientsTable.version.toAttrValue(version),
             DatabaseClientsTable.clientIdKey.toExpressionNameValuePair(clientIdKey)
         )
     }
