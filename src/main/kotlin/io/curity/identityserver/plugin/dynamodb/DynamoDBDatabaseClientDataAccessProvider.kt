@@ -212,6 +212,9 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         // One create operation per secondary item, i.e. per tag
         attributes.tags?.forEach { tag ->
+            // Save room by not duplicating configuration references in secondary items
+            commonItem.remove(DatabaseClientsTable.configurationReferences.name)
+
             addTransactionItem(
                 commonItem,
                 // Secondary item's specific attributes
@@ -332,6 +335,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         // 1. Update secondary items for the first commonTagCount tags
         var index = 0
+        // Save room by not duplicating configuration references in secondary items
+        commonItem.remove(DatabaseClientsTable.configurationReferences.name)
         newTags.subList(0, commonTagCount).forEach { newTag ->
             // Secondary item's clientIdKey based on clientId and tag with same index as the new one
             val secondaryClientIdKey = DatabaseClientsTable.clientIdKeyFor(
@@ -354,7 +359,10 @@ class DynamoDBDatabaseClientDataAccessProvider(
                         )
                     )
                 ),
+                // Override condition now based on secondaryClientIdKey
                 versionAndClientIdKeyConditionExpression(currentVersion, secondaryClientIdKey),
+                // Override commonItem now without configuration references
+                commonItem,
             )
         }
 
@@ -406,7 +414,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
             return TransactionAttemptResult.Success(Unit)
         } catch (e: Exception) {
-            val message = "Unable to delete client with id: '${attributes.clientId}' from profile '$profileId'"
+            val message = "Unable to update client with id: '${attributes.clientId}' from profile '$profileId'"
             logger.trace(message, e)
             if (e.isTransactionCancelledDueToConditionFailure()) {
                 return TransactionAttemptResult.Failure(
@@ -596,7 +604,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val item = this
 
         result.apply {
-            // DDB-specific attributes ignored: PROFILE_ID, CLIENT_NAME_KEY, TAG_KEY,
+            // DDB-specific attributes ignored: PROFILE_ID, CLIENT_NAME_KEY, TAG_KEY, VERSION,
             // as not part of DatabaseClientAttributes
 
             // Non-nullable attributes
