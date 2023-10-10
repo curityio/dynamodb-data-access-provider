@@ -35,7 +35,6 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
-import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException
 import java.time.Instant
 
 
@@ -252,15 +251,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             logger.trace(message, e)
 
             if (e.isTransactionCancelledDueToConditionFailure()) {
-                val exceptionCause = e.cause
-                if (exceptionCause is TransactionCanceledException) {
-                    e.validateKnownUniqueConstraintsForAccountMutations(
-                        exceptionCause.cancellationReasons(),
-                        transactionItems
-                    )
-                } else {
-                    throw ConflictException("$message as uniqueness check failed")
-                }
+                throw ConflictException("$message as uniqueness check failed")
             }
             throw e
         }
