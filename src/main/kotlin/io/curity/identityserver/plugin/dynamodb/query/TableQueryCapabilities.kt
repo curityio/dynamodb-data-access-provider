@@ -37,5 +37,5 @@ open class TableQueryCapabilities(
 
     open fun getLsiCount() = 0
 
-    open fun getMappedNameFor(attributeName: String) = attributeMap[attributeName]?.name
+    open fun getMappedNameFor(attributeName: String) = attributeMap[attributeName]?.name ?: attributeName
 }

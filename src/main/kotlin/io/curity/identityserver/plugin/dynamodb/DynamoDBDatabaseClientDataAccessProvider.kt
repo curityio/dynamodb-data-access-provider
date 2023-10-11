@@ -12,18 +12,52 @@ package io.curity.identityserver.plugin.dynamodb
 
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper
-import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.configurationReferencesToJson
+import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.BACKCHANNEL_LOGOUT_HTTP_CLIENT_ID
+import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.HAAPI_POLICY_ID
+import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.ID_TOKEN_JWE_ENCRYPTION_KEY_ID
+import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.JWT_ASSERTION_ASYMMETRIC_KEY_ID
+import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.JWT_ASSERTION_JWKS_URI_CLIENT_ID
+import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.PRIMARY_ASYMMETRIC_KEY_ID
+import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.PRIMARY_CLIENT_AUTHENTICATION
+import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.PRIMARY_CREDENTIAL_MANAGER_ID
+import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.PRIMARY_MUTUAL_TLS_CLIENT_CERTIFICATE_ID
+import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.REQUEST_OBJECT_BY_REFERENCE_HTTP_CLIENT_ID
+import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.ROPC_CREDENTIAL_MANAGER_ID
+import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.SECONDARY_ASYMMETRIC_KEY_ID
+import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.SECONDARY_CLIENT_AUTHENTICATION
+import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.SECONDARY_CREDENTIAL_MANAGER_ID
+import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.SECONDARY_MUTUAL_TLS_CLIENT_CERTIFICATE_ID
 import io.curity.identityserver.plugin.dynamodb.query.Index
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.attribute.Attribute
 import se.curity.identityserver.sdk.attribute.Attributes
+import se.curity.identityserver.sdk.attribute.UserAuthenticationConfigAttributes
+import se.curity.identityserver.sdk.attribute.UserAuthenticationConfigAttributes.AUTHENTICATOR_FILTERS
+import se.curity.identityserver.sdk.attribute.UserAuthenticationConfigAttributes.REQUIRED_CLAIMS
+import se.curity.identityserver.sdk.attribute.UserAuthenticationConfigAttributes.TEMPLATE_AREA
+import se.curity.identityserver.sdk.attribute.client.database.ClientAttestationAttributes
+import se.curity.identityserver.sdk.attribute.client.database.ClientAuthenticationVerifier
+import se.curity.identityserver.sdk.attribute.client.database.ClientCapabilitiesAttributes
+import se.curity.identityserver.sdk.attribute.client.database.ClientCapabilitiesAttributes.BackchannelCapability.AUTHENTICATORS
 import se.curity.identityserver.sdk.attribute.client.database.DatabaseClientAttributes
 import se.curity.identityserver.sdk.attribute.client.database.DatabaseClientAttributes.DatabaseClientAttributeKeys
+import se.curity.identityserver.sdk.attribute.client.database.DatabaseClientAttributes.DatabaseClientAttributeKeys.AUDIENCES
+import se.curity.identityserver.sdk.attribute.client.database.DatabaseClientAttributes.DatabaseClientAttributeKeys.CLAIM_MAPPER_ID
+import se.curity.identityserver.sdk.attribute.client.database.DatabaseClientAttributes.DatabaseClientAttributeKeys.REDIRECT_URI_VALIDATION_POLICY_ID
+import se.curity.identityserver.sdk.attribute.client.database.DatabaseClientAttributes.DatabaseClientAttributeKeys.SCOPES
+import se.curity.identityserver.sdk.attribute.client.database.DatabaseClientAttributes.DatabaseClientAttributeKeys.SUBJECT_TYPE
+import se.curity.identityserver.sdk.attribute.client.database.DatabaseClientAttributes.DatabaseClientAttributeKeys.USERINFO_SIGNED_ISSUER_ID
 import se.curity.identityserver.sdk.attribute.client.database.DatabaseClientStatus
+import se.curity.identityserver.sdk.attribute.client.database.JwksUri
+import se.curity.identityserver.sdk.attribute.client.database.JwtAssertionAttributes
+import se.curity.identityserver.sdk.attribute.client.database.JwtSigningAttributes
+import se.curity.identityserver.sdk.attribute.client.database.UserConsentAttributes
+import se.curity.identityserver.sdk.attribute.client.database.UserConsentAttributes.CONSENTORS
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
+import se.curity.identityserver.sdk.authentication.mutualtls.MutualTlsAttributes
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.datasource.DatabaseClientDataAccessProvider
 import se.curity.identityserver.sdk.datasource.pagination.PaginatedDataAccessResult
@@ -36,6 +70,7 @@ import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
 import java.time.Instant
+import java.util.Optional
 
 
 // TODO IS-7807 add javadoc documenting different records and DDB-specific attributes
@@ -48,7 +83,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
     object DatabaseClientsTable : TableWithCapabilities("curity-database-clients") {
         const val CLIENT_NAME_KEY = "client_name_key"
         const val TAG_KEY = "tag_key"
-        const val VERSION = "version"
+        private const val VERSION = "version"
         val INTERNAL_ATTRIBUTES = arrayOf(DatabaseClientAttributesHelper.PROFILE_ID, CLIENT_NAME_KEY, TAG_KEY, VERSION)
 
         // Table Partition Key (PK)
@@ -84,7 +119,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val status = StringAttribute(DatabaseClientAttributeKeys.STATUS)
 
         val attributes = StringAttribute(DatabaseClientAttributesHelper.ATTRIBUTES)
-        val configurationReferences = StringAttribute(DatabaseClientAttributesHelper.CONFIGURATION_REFERENCES)
 
         // Base table primary key
         val compositePrimaryKey = CompositePrimaryKey(profileId, clientIdKey)
@@ -140,7 +174,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 Meta.LAST_MODIFIED to updated,
                 DatabaseClientAttributeKeys.STATUS to status,
                 DatabaseClientAttributesHelper.ATTRIBUTES to attributes,
-                DatabaseClientAttributesHelper.CONFIGURATION_REFERENCES to configurationReferences,
             )
         ) {
             override fun getGsiCount() = 6
@@ -188,7 +221,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val transactionItems = mutableListOf<TransactWriteItem>()
         // Create operation for the main item
         addTransactionItem(
-            commonItem,
+            attributes.addConfigurationReferencesTo(commonItem),
             // Main item's specific attributes
             mapOf(
                 // Add clientIdKey as SK for base table
@@ -211,9 +244,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         // One create operation per secondary item, i.e. per tag
         attributes.tags?.forEach { tag ->
-            // Save room by not duplicating configuration references in secondary items
-            commonItem.remove(DatabaseClientsTable.configurationReferences.name)
-
             addTransactionItem(
                 commonItem,
                 // Secondary item's specific attributes
@@ -291,6 +321,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val updateBuilder = UpdateBuilderWithMultipleUniquenessConstraints(
             _configuration,
             DatabaseClientsTable,
+            // Common item, i.e. without configuration references
             commonItem,
             _pkAttribute = StringAttribute(DatabaseClientsTable.profileId.name),
             versionAndClientIdKeyConditionExpression(currentVersion, currentClientIdKey),
@@ -317,7 +348,10 @@ class DynamoDBDatabaseClientDataAccessProvider(
                         DatabaseClientsTable.clientNameKeyFor(profileId, attributes.name)
                     )
                 )
-            )
+            ),
+            null,
+            // Override commonItem by adding configuration references for the main item only
+            attributes.addConfigurationReferencesTo(commonItem)
         )
 
         val currentTags = DatabaseClientsTable.tags.optionalFrom(currentMainItem) as List<String>
@@ -326,8 +360,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         // 1. Update secondary items for the first commonTagCount tags
         var index = 0
-        // Save room by not duplicating configuration references in secondary items
-        commonItem.remove(DatabaseClientsTable.configurationReferences.name)
         newTags.subList(0, commonTagCount).forEach { newTag ->
             // Secondary item's clientIdKey based on clientId and tag with same index as the new one
             val secondaryClientIdKey = DatabaseClientsTable.clientIdKeyFor(
@@ -352,8 +384,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 ),
                 // Override condition now based on secondaryClientIdKey
                 versionAndClientIdKeyConditionExpression(currentVersion, secondaryClientIdKey),
-                // Override commonItem now without configuration references
-                commonItem,
             )
         }
 
@@ -561,11 +591,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 removeAttributes(DatabaseClientAttributesHelper.DATABASE_CLIENT_SEEDING_ATTRIBUTES)
             )
         )
-        // References also stored as JSON
-        DatabaseClientsTable.configurationReferences.addTo(
-            item,
-            configurationReferencesToJson(this, _json)
-        )
 
         // Nullable attributes
         DatabaseClientsTable.profileId.addToNullable(item, profileId)
@@ -601,10 +626,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
             // Non-nullable attributes
             add(DatabaseClientAttributeKeys.NAME, DatabaseClientsTable.clientName.from(item))
             add(DatabaseClientAttributesHelper.ATTRIBUTES, DatabaseClientsTable.attributes.from(item))
-            add(
-                DatabaseClientAttributesHelper.CONFIGURATION_REFERENCES,
-                DatabaseClientsTable.configurationReferences.from(item)
-            )
 
             // Nullable attributes
             add(DatabaseClientAttributeKeys.CLIENT_ID, DatabaseClientsTable.clientIdKey.optionalFrom(item))
@@ -641,7 +662,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         }
 
         val rawAttributes = DatabaseClientAttributes.of(Attributes.of(result))
-        // Parse ATTRIBUTES and CONFIGURATION_REFERENCES
+        // Parse ATTRIBUTES attribute
         return DatabaseClientAttributesHelper.toResource(rawAttributes, ResourceQuery.Exclusions.none(), _json)
     }
 
@@ -669,6 +690,137 @@ class DynamoDBDatabaseClientDataAccessProvider(
         override val values = mapOf(
             oldVersion.colonName to DatabaseClientsTable.version.toAttrValue(version),
             DatabaseClientsTable.clientIdKey.toExpressionNameValuePair(clientIdKey)
+        )
+    }
+
+    private fun DatabaseClientAttributes.addConfigurationReferencesTo(commonItem: MutableMap<String, AttributeValue>): MutableMap<String, AttributeValue> {
+        val item = commonItem.toMutableMap()
+        ListStringAttribute(SCOPES).addToNullable(item, scopes)
+        ListStringAttribute(AUDIENCES).addToNullable(item, audiences)
+        StringAttribute(SUBJECT_TYPE).addToNullable(item, subjectType)
+        StringAttribute(CLAIM_MAPPER_ID).addToNullable(item, claimMapperId)
+        StringAttribute(USERINFO_SIGNED_ISSUER_ID).addToNullable(item, userInfoSignedIssuerId)
+        StringAttribute(REDIRECT_URI_VALIDATION_POLICY_ID).addToNullable(item, redirectUriValidationPolicyId)
+
+        val userAuthenticationConfigAttributes: UserAuthenticationConfigAttributes? = userAuthentication
+        ListStringAttribute(REQUIRED_CLAIMS).addToNullable(
+            item,
+            userAuthenticationConfigAttributes?.requiredClaims
+        )
+        StringAttribute(TEMPLATE_AREA).addToNullable(
+            item,
+            userAuthenticationConfigAttributes?.templateArea?.orElse(null)
+        )
+        ListStringAttribute(AUTHENTICATOR_FILTERS).addToNullable(
+            item,
+            userAuthenticationConfigAttributes?.authenticatorFilters
+        )
+        StringAttribute(BACKCHANNEL_LOGOUT_HTTP_CLIENT_ID).addToNullable(
+            item,
+            userAuthenticationConfigAttributes?.httpClient?.orElse(null)
+        )
+        ListStringAttribute(CONSENTORS).addToNullable(
+            item, Optional.ofNullable(userAuthenticationConfigAttributes)
+                .flatMap(UserAuthenticationConfigAttributes::getConsent)
+                .map(UserConsentAttributes::getConsentors)
+                .orElse(null)
+        )
+
+        // Database client has been previously validated and capabilities cannot be null here
+        val capabilities: ClientCapabilitiesAttributes = capabilities!!
+        StringAttribute(ROPC_CREDENTIAL_MANAGER_ID).addToNullable(
+            item,
+            capabilities.ropcCapability?.credentialManagerId
+        )
+        ListStringAttribute(AUTHENTICATORS).addToNullable(
+            item,
+            capabilities.backchannelCapability?.allowedAuthenticators
+        )
+
+        val jwtAssertionAttributes: JwtAssertionAttributes? = capabilities.assertionCapability?.jwtAssertion
+        val jwtSigningAttributes: JwtSigningAttributes? = jwtAssertionAttributes?.jwtSigning
+        jwtSigningAttributes?.let {
+            it.matchAll(
+                {
+                    // The symmetric key is not a reference but the encrypted actual encryption key.
+                },
+                { asymmetricKey: String? ->
+                    StringAttribute(JWT_ASSERTION_ASYMMETRIC_KEY_ID).addToNullable(item, asymmetricKey)
+                }
+            ) { jwksUri: JwksUri? ->
+                StringAttribute(JWT_ASSERTION_JWKS_URI_CLIENT_ID).addToNullable(item, jwksUri?.httpClientId)
+            }
+        }
+        StringAttribute(HAAPI_POLICY_ID).addToNullable(
+            item,
+            capabilities.haapiCapability?.attestation?.getOptionalValue(ClientAttestationAttributes.POLICY_ID) as String?
+        )
+
+        // Primary client authentication
+        addClientAuthentication(item, true)
+        // Secondary client authentication
+        addClientAuthentication(item, false)
+
+        StringAttribute(REQUEST_OBJECT_BY_REFERENCE_HTTP_CLIENT_ID).addToNullable(
+            item, requestObjectConfig?.byRefRequestObjectConfig?.httpClientId
+        )
+        StringAttribute(ID_TOKEN_JWE_ENCRYPTION_KEY_ID).addToNullable(
+            item, idTokenConfig?.jweEncryptionConfig?.encryptionKeyId
+        )
+
+        return item
+    }
+
+    private fun DatabaseClientAttributes.addClientAuthentication(
+        item: MutableMap<String, AttributeValue>,
+        isPrimary: Boolean,
+    ) {
+        val method = if (isPrimary) {
+            clientAuthentication?.primaryVerifier?.clientAuthenticationMethod
+        } else {
+            clientAuthentication?.secondaryVerifier?.clientAuthenticationMethod
+        }
+
+        StringAttribute(
+            if (isPrimary) {
+                PRIMARY_CLIENT_AUTHENTICATION
+            } else {
+                SECONDARY_CLIENT_AUTHENTICATION
+            }
+        ).addToNullable(item, method?.clientAuthenticationType?.name)
+
+        StringAttribute(
+            if (isPrimary) {
+                PRIMARY_MUTUAL_TLS_CLIENT_CERTIFICATE_ID
+            } else {
+                SECONDARY_MUTUAL_TLS_CLIENT_CERTIFICATE_ID
+            }
+        ).addToNullable(
+            item,
+            ((method as? ClientAuthenticationVerifier.MutualTlsVerifier)?.mutualTls
+                ?.mutualTls as? MutualTlsAttributes.PinnedCertificate)?.clientCertificate
+        )
+
+        StringAttribute(
+            if (isPrimary) {
+                PRIMARY_ASYMMETRIC_KEY_ID
+            } else {
+                SECONDARY_ASYMMETRIC_KEY_ID
+            }
+        ).addToNullable(
+            item,
+            (method as? ClientAuthenticationVerifier.AsymmetricKey)?.keyId
+        )
+
+        StringAttribute(
+            if (isPrimary) {
+                PRIMARY_CREDENTIAL_MANAGER_ID
+            } else {
+                SECONDARY_CREDENTIAL_MANAGER_ID
+            }
+        ).addToNullable(
+            item,
+            (method as? ClientAuthenticationVerifier.CredentialManager)?.credentialManagerId
         )
     }
 }

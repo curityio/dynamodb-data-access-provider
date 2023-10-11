@@ -80,7 +80,6 @@ public final class DatabaseClientAttributesHelper
     public static final String TAGS = "tags";
     public static final String ATTRIBUTES = "attributes";
     public static final String PROFILE_ID = "profile_id";
-    public static final String CONFIGURATION_REFERENCES = "configuration_references";
     /**
      * When persisting to the database, collection of attributes which should not be persisted into the ATTRIBUTES json
      * blob.
@@ -93,7 +92,7 @@ public final class DatabaseClientAttributesHelper
      * They must be discarded from the Attributes source given to the DatabaseClient constructor.
      */
     public static final Set<String> DATABASE_CLIENT_INTERNAL_ATTRIBUTES = Set.of(
-            PROFILE_ID, ATTRIBUTES, CONFIGURATION_REFERENCES, CREATED_DATE_COLUMN, UPDATED_COLUMN
+            PROFILE_ID, ATTRIBUTES, CREATED_DATE_COLUMN, UPDATED_COLUMN
     );
 
     private DatabaseClientAttributesHelper()
