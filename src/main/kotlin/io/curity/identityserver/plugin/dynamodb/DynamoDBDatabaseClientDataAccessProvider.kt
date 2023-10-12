@@ -354,17 +354,20 @@ class DynamoDBDatabaseClientDataAccessProvider(
             attributes.addConfigurationReferencesTo(commonItem)
         )
 
-        val currentTags = DatabaseClientsTable.tags.optionalFrom(currentMainItem) as List<String>
-        val newTags = attributes.tags
-        val commonTagCount = Integer.min(currentTags.size, newTags?.size!!)
+        val currentTags = DatabaseClientsTable.tags.optionalFrom(currentMainItem) as List<String>?
+        val newTags: List<String>? = attributes.tags
+        val commonTagCount = Integer.min(
+            currentTags?.size ?: 0,
+            newTags?.size ?: 0
+        )
 
         // 1. Update secondary items for the first commonTagCount tags
         var index = 0
-        newTags.subList(0, commonTagCount).forEach { newTag ->
+        newTags?.subList(0, commonTagCount)?.forEach { newTag ->
             // Secondary item's clientIdKey based on clientId and tag with same index as the new one
             val secondaryClientIdKey = DatabaseClientsTable.clientIdKeyFor(
                 DatabaseClientsTable.clientIdKey.from(currentMainItem),
-                currentTags.elementAt(index++)
+                currentTags!!.elementAt(index++)
             )
 
             // Update secondary item for newTag
@@ -388,7 +391,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         }
 
         // 2. Delete secondary items if additional tags in current item
-        currentTags.subList(commonTagCount, currentTags.size).forEach { currentTag ->
+        currentTags?.subList(commonTagCount, currentTags.size)?.forEach { currentTag ->
             // Secondary item's clientIdKey based on clientId and current tag
             val secondaryClientIdKey = DatabaseClientsTable.clientIdKeyFor(
                 DatabaseClientsTable.clientIdKey.from(currentMainItem),
@@ -406,7 +409,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         }
 
         // 3. Create secondary items if additional new tags
-        newTags.subList(commonTagCount, newTags.size).forEach { newTag ->
+        newTags?.subList(commonTagCount, newTags.size)?.forEach { newTag ->
             // Secondary item's clientIdKey based on clientId and new tag
             val secondaryClientIdKey = DatabaseClientsTable.clientIdKeyFor(
                 DatabaseClientsTable.clientIdKey.from(currentMainItem),
