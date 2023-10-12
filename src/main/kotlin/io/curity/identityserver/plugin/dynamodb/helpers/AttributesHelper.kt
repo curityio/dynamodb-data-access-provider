@@ -30,7 +30,6 @@ import java.time.format.DateTimeFormatter
 object AttributesHelper {
     private val _logger: Logger = LoggerFactory.getLogger(AttributesHelper::class.java)
 
-    @JvmStatic
     fun withMetaIfEnumerated(
         attributes: Attributes,
         attributesEnumeration: AttributesEnumeration,
@@ -77,7 +76,6 @@ object AttributesHelper {
         return null
     }
 
-    @JvmStatic
     fun spaceSeparatedValuesToListAttributeValue(attribute: Attribute): Attribute {
         val valueAsString: String? = attribute.getOptionalValueOfType(String::class.java)
         if (valueAsString != null) {
