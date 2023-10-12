@@ -34,7 +34,7 @@ object AttributesHelper {
     fun withMetaIfEnumerated(
         attributes: Attributes,
         attributesEnumeration: AttributesEnumeration,
-        resourceType: String?
+        resourceType: String
     ): Attributes {
         var returnAttributes: Attributes = attributes
         if (attributesEnumeration.keepAttribute(ResourceAttributes.META)) {
@@ -50,17 +50,13 @@ object AttributesHelper {
             }
             if (created != null || lastModified != null) {
                 returnAttributes = returnAttributes.append(
-                    Attribute.of(
-                        ResourceAttributes.META,
-                        Meta.of(resourceType, created, lastModified)
-                    )
+                    Attribute.of(ResourceAttributes.META, Meta.of(resourceType, created, lastModified))
                 )
             }
         }
         return returnAttributes.removeAttributes(setOf(Meta.CREATED, Meta.LAST_MODIFIED))
     }
 
-    @Nullable
     private fun parseInstant(name: String, dateTimeValue: Any): Instant? {
         // database date-time values are normally stored as a TIMESTAMP, but we convert that to a
         // String in io.curity.identityserver.plugin.data.access.jdbc.jdbi.mappers.ResultSetAttributesMapper.toAttributeValue
@@ -83,7 +79,7 @@ object AttributesHelper {
 
     @JvmStatic
     fun spaceSeparatedValuesToListAttributeValue(attribute: Attribute): Attribute {
-        @Nullable val valueAsString: String = attribute.getOptionalValueOfType(String::class.java)
+        val valueAsString: String? = attribute.getOptionalValueOfType(String::class.java)
         if (valueAsString != null) {
             val trimmedValueAsString = valueAsString.trim { it <= ' ' }
 

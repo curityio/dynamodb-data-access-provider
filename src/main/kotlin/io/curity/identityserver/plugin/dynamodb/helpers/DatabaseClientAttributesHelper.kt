@@ -12,7 +12,6 @@
 package io.curity.identityserver.plugin.dynamodb.helpers
 
 import io.curity.identityserver.plugin.dynamodb.helpers.AttributesHelper.withMetaIfEnumerated
-import se.curity.identityserver.sdk.Nullable
 import se.curity.identityserver.sdk.attribute.Attribute
 import se.curity.identityserver.sdk.attribute.AttributeCollector
 import se.curity.identityserver.sdk.attribute.Attributes
@@ -53,7 +52,7 @@ object DatabaseClientAttributesHelper {
      * When persisting to the database, collection of attributes which should not be persisted into the ATTRIBUTES json
      * blob.
      */
-    val DATABASE_CLIENT_SEEDING_ATTRIBUTES = mutableSetOf(
+    val DATABASE_CLIENT_SEEDING_ATTRIBUTES = setOf(
         DatabaseClientAttributeKeys.CLIENT_ID,
         PROFILE_ID,
         DatabaseClientAttributeKeys.NAME,
@@ -68,38 +67,34 @@ object DatabaseClientAttributesHelper {
      * When fetching from the database, collection of attributes that are used to fully populate a DatabaseClientAttributes.
      * They must be discarded from the Attributes source given to the DatabaseClient constructor.
      */
-    val DATABASE_CLIENT_INTERNAL_ATTRIBUTES = mutableSetOf(
+    val DATABASE_CLIENT_INTERNAL_ATTRIBUTES = setOf(
         PROFILE_ID, ATTRIBUTES, CREATED_DATE_COLUMN, UPDATED_COLUMN
     )
 
     fun toResource(
-        attributes: Attributes?,
-        attributesEnumeration: AttributesEnumeration?,
-        json: Json?
+        attributes: Attributes,
+        attributesEnumeration: AttributesEnumeration,
+        json: Json
     ): DatabaseClientAttributes {
-        val multiValuedAttributes: Collection<String?> = emptySet<String>()
+        val multiValuedAttributes: Collection<String> = emptySet<String>()
 
         // All persistable attributes, are stored into the ATTRIBUTES attribute, non persistable attributes
         // are stored in dedicated columns and are not duplicated in ATTRIBUTES. The non persistable attributes are
         // the source attributes to inflate a DatabaseClient:
         // 1. Discard all attributes duplicated in ATTRIBUTES attribute.
-        val parsedAttributes = toResource(
-            attributes!!,
-            multiValuedAttributes,
-            json!!,
-            ATTRIBUTES
-        )
+        val parsedAttributes = toResource(attributes, multiValuedAttributes, json, ATTRIBUTES)
         // 2. Promote all attributes nested in ATTRIBUTES property at top level.
         val nestedAttributes = parsedAttributes[ATTRIBUTES]
         // The ATTRIBUTES attribute is known to be a MapAttributeValue and was parsed by the toResource(...) call above.
-        var allAttributes =
-            if (nestedAttributes == null) parsedAttributes else parsedAttributes.with(nestedAttributes.attributeValue as Iterable<Attribute?>)
+        var allAttributes = if (nestedAttributes == null) {
+            parsedAttributes
+        } else {
+            assert(nestedAttributes.attributeValue is Iterable<*>)
+            parsedAttributes.with(nestedAttributes.attributeValue as Iterable<Attribute>)
+        }
         // 3. Add the "meta" attribute if it is enumerated.
-        allAttributes = withMetaIfEnumerated(
-            allAttributes,
-            attributesEnumeration!!,
-            DatabaseClientAttributes.RESOURCE_TYPE
-        )
+        allAttributes =
+            withMetaIfEnumerated(allAttributes, attributesEnumeration, DatabaseClientAttributes.RESOURCE_TYPE)
         // 4. Remove all persistence related attributes which are not needed anymore.
         allAttributes =
             allAttributes.removeAttributes(DATABASE_CLIENT_INTERNAL_ATTRIBUTES)
@@ -108,36 +103,23 @@ object DatabaseClientAttributesHelper {
 
     private fun toResource(
         attributes: Attributes,
-        multiValuedAttributes: Collection<String?>,
+        multiValuedAttributes: Collection<String>,
         json: Json,
-        vararg extraAttributesHolderName: String?
+        vararg extraAttributesHolderName: String
     ): Attributes {
         var extendedAttributes = attributes
         for (attributeName in extraAttributesHolderName) {
-            val extraAttributesHolder: @Nullable Attribute? =
-                attributes[attributeName]
+            val extraAttributesHolder: Attribute? = attributes[attributeName]
             if (extraAttributesHolder != null) {
-                val extraAttributes = json.toAttributes(
-                    extraAttributesHolder.getValueOfType(
-                        String::class.java
-                    )
-                )
+                val extraAttributes = json.toAttributes(extraAttributesHolder.getValueOfType(String::class.java))
                 extendedAttributes =
                     extendedAttributes.with(Attribute.of(attributeName, MapAttributeValue.of(extraAttributes)))
             }
         }
         return extendedAttributes.append(multiValuedAttributes.stream()
-            .map { name: String? ->
-                extendedAttributes[name]
-            }
-            .filter { obj: Attribute? ->
-                Objects.nonNull(
-                    obj
-                )
-            }
-            .map { obj: Attribute ->
-                AttributesHelper.spaceSeparatedValuesToListAttributeValue(obj)
-            }
+            .map { name: String -> extendedAttributes[name] }
+            .filter { obj: Attribute -> Objects.nonNull(obj) }
+            .map { obj: Attribute -> AttributesHelper.spaceSeparatedValuesToListAttributeValue(obj) }
             .collect(AttributeCollector.toAttributes())
         )
     }
