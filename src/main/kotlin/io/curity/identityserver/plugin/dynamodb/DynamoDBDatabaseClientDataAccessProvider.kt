@@ -577,7 +577,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
     private fun DatabaseClientAttributes.toItem(
         profileId: String,
-        created: Long?,
+        created: Long,
         updated: Long
     ): MutableMap<String, AttributeValue> {
         val item = mutableMapOf<String, AttributeValue>()
@@ -591,14 +591,12 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 removeAttributes(DatabaseClientAttributesHelper.DATABASE_CLIENT_SEEDING_ATTRIBUTES)
             )
         )
+        DatabaseClientsTable.profileId.addTo(item, profileId)
+        DatabaseClientsTable.created.addTo(item, created)
+        DatabaseClientsTable.updated.addTo(item, updated)
 
         // Nullable attributes
-        DatabaseClientsTable.profileId.addToNullable(item, profileId)
-        created?.let {
-            DatabaseClientsTable.created.addToNullable(item, created)
-        }
-        DatabaseClientsTable.updated.addToNullable(item, updated)
-        DatabaseClientsTable.status.addToNullable(item, status.name)
+        DatabaseClientsTable.status.addToNullable(item, status?.name)
         DatabaseClientsTable.tags.addToNullable(item, tags)
 
         return item
@@ -626,9 +624,9 @@ class DynamoDBDatabaseClientDataAccessProvider(
             // Non-nullable attributes
             add(DatabaseClientAttributeKeys.NAME, DatabaseClientsTable.clientName.from(item))
             add(DatabaseClientAttributesHelper.ATTRIBUTES, DatabaseClientsTable.attributes.from(item))
+            add(DatabaseClientAttributeKeys.CLIENT_ID, DatabaseClientsTable.clientIdKey.from(item))
 
             // Nullable attributes
-            add(DatabaseClientAttributeKeys.CLIENT_ID, DatabaseClientsTable.clientIdKey.optionalFrom(item))
             add(Attribute.of(
                 ResourceAttributes.META,
                 Meta.of(DatabaseClientAttributes.RESOURCE_TYPE)
@@ -661,7 +659,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             add(DatabaseClientAttributeKeys.TAGS, DatabaseClientsTable.tags.optionalFrom(item))
         }
 
-        val rawAttributes = DatabaseClientAttributes.of(Attributes.of(result))
+        val rawAttributes = Attributes.of(result)
         // Parse ATTRIBUTES attribute
         return DatabaseClientAttributesHelper.toResource(rawAttributes, ResourceQuery.Exclusions.none(), _json)
     }
