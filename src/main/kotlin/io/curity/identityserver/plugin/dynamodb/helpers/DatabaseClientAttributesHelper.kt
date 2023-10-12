@@ -44,6 +44,7 @@ object DatabaseClientAttributesHelper {
     const val JWT_ASSERTION_ASYMMETRIC_KEY_ID = "jwt_assertion_asymmetric_key_id"
     const val ROPC_CREDENTIAL_MANAGER_ID = "resource_owner_password_credentials_credential_manager_id"
     const val BACKCHANNEL_LOGOUT_HTTP_CLIENT_ID = "backchannel_logout_http_client_id"
+    const val CONFIGURATION_REFERENCES = "configuration_references"
     private const val TAGS = "tags"
     const val ATTRIBUTES = "attributes"
     const val PROFILE_ID = "profile_id"
