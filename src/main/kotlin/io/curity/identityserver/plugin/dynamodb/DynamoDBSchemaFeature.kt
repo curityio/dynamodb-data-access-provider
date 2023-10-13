@@ -27,32 +27,41 @@ interface DynamoDBSchemaFeatureCheck {
     fun checkFeature(dynamoDBClient: DynamoDbClient): Boolean
 }
 
-class DynamoDBGlobalSecondaryIndexFeatureCheck(
+class DynamoDBSecondaryIndexFeatureCheck(
     val tableName: String,
-    private val partitionAndSortIndex: PartitionAndSortIndex<*, *>
+    private val indexName: String
 ) : DynamoDBSchemaFeatureCheck {
+    constructor(tableName: String, partitionAndSortIndex: PartitionAndSortIndex<*, *>) : this(
+        tableName,
+        partitionAndSortIndex.name
+    )
+
     companion object {
-        val logger: Logger = LoggerFactory.getLogger(DynamoDBGlobalSecondaryIndexFeatureCheck::class.java)
+        val logger: Logger = LoggerFactory.getLogger(DynamoDBSecondaryIndexFeatureCheck::class.java)
 
         fun buildFeatureId(tableName: String, partitionAndSortIndex: PartitionAndSortIndex<*, *>) =
-            tableName + ":" + partitionAndSortIndex.name
+            buildFeatureId(tableName, partitionAndSortIndex.name)
+
+        fun buildFeatureId(tableName: String, indexName: String) =
+            "$tableName:$indexName"
     }
 
     override fun featureId(): String {
-        return buildFeatureId(tableName, partitionAndSortIndex)
+        return buildFeatureId(tableName, indexName)
     }
 
     override fun checkFeature(dynamoDBClient: DynamoDbClient): Boolean {
         return try {
             val request = DescribeTableRequest.builder().tableName(tableName).build()
             val response = dynamoDBClient.describeTable(request)
-            response.table().globalSecondaryIndexes().any { it.indexName() == partitionAndSortIndex.name }
+            response.table().globalSecondaryIndexes().any { it.indexName() == indexName } ||
+                    response.table().localSecondaryIndexes().any { it.indexName() == indexName }
         } catch (e: ResourceNotFoundException) {
             // The table to probe was not found in the database, disable the feature.
             logger.debug(
                 "The {} table targeted by the {} GSI was not found into DynamoDB database. " +
                         "The {} feature has been disabled",
-                tableName, partitionAndSortIndex.name, featureId(), e
+                tableName, indexName, featureId(), e
             )
             false
         } catch (e: Exception) {

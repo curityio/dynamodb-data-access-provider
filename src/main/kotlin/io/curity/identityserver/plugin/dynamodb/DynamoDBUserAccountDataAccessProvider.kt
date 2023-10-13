@@ -414,7 +414,7 @@ class DynamoDBUserAccountDataAccessProvider(
     }
 
     private fun checkGetAllBySupported(operation: String) {
-        val featureId = DynamoDBGlobalSecondaryIndexFeatureCheck.buildFeatureId(
+        val featureId = DynamoDBSecondaryIndexFeatureCheck.buildFeatureId(
             AccountsTable.name(_configuration),
             AccountsTable.userNameInitialUserNameIndex
         )
