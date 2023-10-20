@@ -105,13 +105,7 @@
     {
       "IndexName" : "client_name-created-index",
       "Projection": {
-        "ProjectionType" : "INCLUDE",
-        "NonKeyAttributes" : [
-          "client_id_key",
-          "status",
-          "tags",
-          "updated"
-        ]
+        "ProjectionType" : "ALL"
       },
       "ProvisionedThroughput": {
         "WriteCapacityUnits": 5,
@@ -131,13 +125,7 @@
     {
       "IndexName" : "client_name-lastModified-index",
       "Projection": {
-        "ProjectionType" : "INCLUDE",
-        "NonKeyAttributes" : [
-          "client_id_key",
-          "status",
-          "tags",
-          "created"
-        ]
+        "ProjectionType" : "ALL"
       },
       "ProvisionedThroughput": {
         "WriteCapacityUnits": 5,
@@ -157,14 +145,7 @@
     {
       "IndexName" : "client_name-client_name-index",
       "Projection" : {
-        "ProjectionType" : "INCLUDE",
-        "NonKeyAttributes" : [
-          "client_id_key",
-          "status",
-          "tags",
-          "created",
-          "updated"
-        ]
+        "ProjectionType" : "ALL"
       },
       "ProvisionedThroughput" : {
         "WriteCapacityUnits" : 5,
@@ -184,14 +165,7 @@
     {
       "IndexName": "tag-created-index",
       "Projection": {
-        "ProjectionType" : "INCLUDE",
-        "NonKeyAttributes" : [
-          "client_id_key",
-          "status",
-          "tags",
-          "client_name",
-          "updated"
-        ]
+        "ProjectionType" : "ALL"
       },
       "ProvisionedThroughput": {
         "WriteCapacityUnits": 5,
@@ -211,14 +185,7 @@
     {
       "IndexName" : "tag-lastModified-index",
       "Projection": {
-        "ProjectionType" : "INCLUDE",
-        "NonKeyAttributes" : [
-          "client_id_key",
-          "status",
-          "tags",
-          "client_name",
-          "created"
-        ]
+        "ProjectionType" : "ALL"
       },
       "ProvisionedThroughput": {
         "WriteCapacityUnits": 5,
@@ -238,14 +205,7 @@
     {
       "IndexName" : "tag-client_name-index",
       "Projection": {
-        "ProjectionType" : "INCLUDE",
-        "NonKeyAttributes" : [
-          "client_id_key",
-          "status",
-          "tags",
-          "created",
-          "updated"
-        ]
+        "ProjectionType" : "ALL"
       },
       "ProvisionedThroughput": {
         "WriteCapacityUnits": 5,

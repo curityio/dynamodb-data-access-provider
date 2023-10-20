@@ -28,6 +28,7 @@ import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributes
 import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.SECONDARY_CREDENTIAL_MANAGER_ID
 import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.SECONDARY_MUTUAL_TLS_CLIENT_CERTIFICATE_ID
 import io.curity.identityserver.plugin.dynamodb.query.Index
+import io.curity.identityserver.plugin.dynamodb.query.QueryHelper
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -62,6 +63,7 @@ import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.datasource.DatabaseClientDataAccessProvider
 import se.curity.identityserver.sdk.datasource.pagination.PaginatedDataAccessResult
 import se.curity.identityserver.sdk.datasource.pagination.PaginationRequest
+import se.curity.identityserver.sdk.datasource.query.AttributesFiltering
 import se.curity.identityserver.sdk.datasource.query.DatabaseClientAttributesFiltering
 import se.curity.identityserver.sdk.datasource.query.DatabaseClientAttributesSorting
 import se.curity.identityserver.sdk.errors.ConflictException
@@ -88,6 +90,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         // Table Partition Key (PK)
         val profileId = StringAttribute(DatabaseClientAttributesHelper.PROFILE_ID)
+
         // DynamoDB-specific, composite string made up of clientId and tag, or clientId only
         // Table Sort Key (SK)
         val clientIdKey = object : UniqueStringAttribute("client_id_key", "") {
@@ -102,7 +105,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         // DynamoDB-specific, composite string made up of profileId and an individual item from tags
         // PK for tag-based GSIs
-        val tagKey = object : UniqueStringAttribute(TAG_KEY, "") {
+        val profileWithTagKey = object : UniqueStringAttribute(TAG_KEY, "") {
             override fun uniquenessValueFrom(value: String) = value
         }
 
@@ -136,11 +139,11 @@ class DynamoDBDatabaseClientDataAccessProvider(
         private val clientNameClientNameIndex =
             PartitionAndSortIndex("client_name-client_name-index", clientNameKey, clientName)
         private val tagCreatedIndex =
-            PartitionAndSortIndex("tag-created-index", tagKey, created)
+            PartitionAndSortIndex("tag-created-index", profileWithTagKey, created)
         private val tagUpdatedIndex =
-            PartitionAndSortIndex("tag-lastModified-index", tagKey, updated)
+            PartitionAndSortIndex("tag-lastModified-index", profileWithTagKey, updated)
         private val tagClientNameIndex =
-            PartitionAndSortIndex("tag-client_name-index", tagKey, clientName)
+            PartitionAndSortIndex("tag-client_name-index", profileWithTagKey, clientName)
 
         // LSIs
         private val lsiCreatedIndex =
@@ -168,7 +171,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 DatabaseClientAttributeKeys.CLIENT_ID to clientIdKey,
                 CLIENT_NAME_KEY to clientNameKey,
                 DatabaseClientAttributeKeys.NAME to clientName,
-                TAG_KEY to tagKey,
+                TAG_KEY to profileWithTagKey,
                 DatabaseClientAttributeKeys.TAGS to tags,
                 Meta.CREATED to created,
                 Meta.LAST_MODIFIED to updated,
@@ -257,8 +260,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
                     ),
                     // Add composite tagKey as PK for tag-based GSIs
                     Pair(
-                        DatabaseClientsTable.tagKey.name,
-                        DatabaseClientsTable.tagKey.toAttrValue(
+                        DatabaseClientsTable.profileWithTagKey.name,
+                        DatabaseClientsTable.profileWithTagKey.toAttrValue(
                             DatabaseClientsTable.tagKeyFor(profileId, tag)
                         )
                     ),
@@ -379,8 +382,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 additionalAttributes = mapOf(
                     // Add composite tagKey as PK for tag-based GSIs
                     Pair(
-                        DatabaseClientsTable.tagKey.name,
-                        DatabaseClientsTable.tagKey.toAttrValue(
+                        DatabaseClientsTable.profileWithTagKey.name,
+                        DatabaseClientsTable.profileWithTagKey.toAttrValue(
                             DatabaseClientsTable.tagKeyFor(profileId, newTag)
                         )
                     )
@@ -423,12 +426,10 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 after = secondaryClientIdKey,
                 additionalAttributes = mapOf(
                     // Add composite tagKey as PK for tag-based GSIs
-                    Pair(
-                        DatabaseClientsTable.tagKey.name,
-                        DatabaseClientsTable.tagKey.toAttrValue(
-                            DatabaseClientsTable.tagKeyFor(profileId, newTag)
-                        )
-                    )
+                    DatabaseClientsTable.profileWithTagKey.name to
+                            DatabaseClientsTable.profileWithTagKey.toAttrValue(
+                                DatabaseClientsTable.tagKeyFor(profileId, newTag)
+                            )
                 )
             )
         }
@@ -546,7 +547,33 @@ class DynamoDBDatabaseClientDataAccessProvider(
         sortRequest: DatabaseClientAttributesSorting?,
         activeClientsOnly: Boolean
     ): PaginatedDataAccessResult<DatabaseClientAttributes> {
-        TODO("Not yet implemented")
+        val potentialKeys = createPotentialKeys(profileId, filters, activeClientsOnly, sortRequest)
+        val indexAndKeys = QueryHelper.findIndexAndKeysFrom(DatabaseClientsTable, potentialKeys)
+
+        QueryHelper.validateRequest(
+            indexAndKeys.useScan,
+            _configuration.getAllowTableScans(),
+            DatabaseClientsTable.queryCapabilities(),
+            filters.toAttributesFiltering(),
+            sortRequest
+        )
+
+        val (values, encodedCursor) = QueryHelper.list(
+            _dynamoDBClient,
+            _json,
+            tableName(),
+            indexAndKeys,
+            sortRequest?.sortOrder?.let { it == ResourceQuery.Sorting.SortOrder.ASCENDING } ?: true,
+            paginationRequest?.count,
+            paginationRequest?.cursor,
+            ::toLastEvaluatedKey
+        )
+
+        val items = values
+            .map { it.toAttributes() }
+            .toList()
+
+        return PaginatedDataAccessResult(items, encodedCursor)
     }
 
     override fun getClientCountBy(
@@ -555,6 +582,47 @@ class DynamoDBDatabaseClientDataAccessProvider(
         activeClientsOnly: Boolean
     ): Long {
         TODO("Not yet implemented")
+    }
+
+    private fun createPotentialKeys(
+        profileId: String,
+        filters: DatabaseClientAttributesFiltering?,
+        activeClientsOnly: Boolean,
+        sortRequest: DatabaseClientAttributesSorting? = null
+    ): QueryHelper.PotentialKeys {
+        val potentialPartitionKeys: MutableMap<DynamoDBAttribute<*>, Any> = mutableMapOf()
+
+        filters?.clientNameFilter?.let { clientName ->
+            potentialPartitionKeys[DatabaseClientsTable.clientNameKey] = clientName
+        }
+        filters?.tagsFilter?.let { tags: Set<String> ->
+            // TODO support multiple tags - for the first release, only a single tag may be provided
+            tags.firstOrNull()?.let { onlyTag ->
+                potentialPartitionKeys[DatabaseClientsTable.profileWithTagKey] =
+                    DatabaseClientsTable.profileWithTagKey.toAttrValue(
+                        DatabaseClientsTable.tagKeyFor(profileId, onlyTag)
+                    ).s()
+            }
+        }
+
+        val potentialSortKeys: MutableMap<DynamoDBAttribute<*>, Any> = mutableMapOf()
+
+        val sortBy = DatabaseClientsTable.queryCapabilities().attributeMap[sortRequest?.sortBy]
+        if (sortBy != null) {
+            potentialSortKeys[sortBy] = QueryHelper.NoValueForSortKeys()
+        }
+
+        val potentialFilterKeys: MutableMap<DynamoDBAttribute<*>, Any> = mutableMapOf()
+        if (activeClientsOnly) {
+            potentialFilterKeys[DatabaseClientsTable.status] = DatabaseClientStatus.ACTIVE.name
+        }
+
+        @Suppress("UNCHECKED_CAST")
+        return QueryHelper.PotentialKeys(
+            potentialPartitionKeys as Map<DynamoDBAttribute<Any>, Any>,
+            potentialSortKeys as Map<DynamoDBAttribute<Any>, Any>,
+            potentialFilterKeys as Map<DynamoDBAttribute<Any>, Any>
+        )
     }
 
     companion object {
@@ -577,6 +645,9 @@ class DynamoDBDatabaseClientDataAccessProvider(
             DatabaseClientsTable.version.optionalFrom(this)
                 ?: throw SchemaErrorException(DatabaseClientsTable, DatabaseClientsTable.version)
     }
+
+    private fun toLastEvaluatedKey(item: Map<String, AttributeValue>): Map<String, AttributeValue> =
+        mapOf(DatabaseClientsTable.clientIdKey.name to DatabaseClientsTable.clientIdKey.attributeValueFrom(item))
 
     private fun DatabaseClientAttributes.toItem(
         profileId: String,
@@ -626,7 +697,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
             // Non-nullable attributes
             add(DatabaseClientAttributeKeys.NAME, DatabaseClientsTable.clientName.from(item))
-            add(DatabaseClientAttributesHelper.ATTRIBUTES, DatabaseClientsTable.attributes.from(item))
+            add(DatabaseClientAttributesHelper.ATTRIBUTES, DatabaseClientsTable.attributes.optionalFrom(item) ?: "{}")
             add(DatabaseClientAttributeKeys.CLIENT_ID, DatabaseClientsTable.clientIdKey.from(item))
 
             // Nullable attributes
@@ -823,5 +894,9 @@ class DynamoDBDatabaseClientDataAccessProvider(
             item,
             (method as? ClientAuthenticationVerifier.CredentialManager)?.credentialManagerId
         )
+    }
+
+    private fun DatabaseClientAttributesFiltering?.toAttributesFiltering(): AttributesFiltering? {
+        return null
     }
 }

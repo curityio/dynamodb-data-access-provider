@@ -24,6 +24,7 @@ import io.curity.identityserver.plugin.dynamodb.TableWithCapabilities
 import io.curity.identityserver.plugin.dynamodb.count
 import io.curity.identityserver.plugin.dynamodb.queryWithPagination
 import io.curity.identityserver.plugin.dynamodb.scanWithPagination
+import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.datasource.db.TableCapabilities
 import se.curity.identityserver.sdk.datasource.errors.DataSourceCapabilityException
 import se.curity.identityserver.sdk.datasource.query.AttributesFiltering
@@ -155,7 +156,7 @@ object QueryHelper {
         allowedScan: Boolean,
         tableCapabilities: TableCapabilities? = null,
         attributesFiltering: AttributesFiltering? = null,
-        sortRequest: AttributesSorting? = null
+        sortRequest: ResourceQuery.Sorting? = null
     ) {
         if (FilterType.ENDS_WITH == attributesFiltering?.filterType
             && tableCapabilities?.isSupported(TableCapabilities.TableCapability.FILTERING_ENDS_WITH) == false
