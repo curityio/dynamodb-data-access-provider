@@ -85,6 +85,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         const val CLIENT_NAME_KEY = "client_name_key"
         const val TAG_KEY = "tag_key"
         private const val VERSION = "version"
+        private const val KEY_VALUE_SEPARATOR = "#"
         val INTERNAL_ATTRIBUTES = arrayOf(DatabaseClientAttributesHelper.PROFILE_ID, CLIENT_NAME_KEY, TAG_KEY, VERSION)
 
         // Table Partition Key (PK)
@@ -125,9 +126,11 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val compositePrimaryKey = CompositePrimaryKey(profileId, clientIdKey)
 
         // Composite string helpers
-        fun tagKeyFor(profileId: String, tag: String) = "$profileId#$tag"
-        fun clientIdKeyFor(clientId: String, tag: String) = "$clientId#$tag"
-        fun clientNameKeyFor(profileId: String, clientName: String) = "$profileId#${clientName}"
+        // TODO escape potentially existing # in the first part of each of these keys
+        fun tagKeyFor(profileId: String, tag: String) = "$profileId$KEY_VALUE_SEPARATOR$tag"
+        fun clientIdKeyFor(clientId: String, tag: String) = "$clientId$KEY_VALUE_SEPARATOR$tag"
+        fun clientIdFrom(clientIdKey: String) = clientIdKey.substringBefore(KEY_VALUE_SEPARATOR)
+        fun clientNameKeyFor(profileId: String, clientName: String) = "$profileId$KEY_VALUE_SEPARATOR${clientName}"
 
         // GSIs
         private val clientNameCreatedIndex =
@@ -644,7 +647,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
             // Non-nullable attributes
             add(DatabaseClientAttributeKeys.NAME, DatabaseClientsTable.clientName.from(item))
             add(DatabaseClientAttributesHelper.ATTRIBUTES, DatabaseClientsTable.attributes.from(item))
-            add(DatabaseClientAttributeKeys.CLIENT_ID, DatabaseClientsTable.clientIdKey.from(item))
+            val clientId = DatabaseClientsTable.clientIdFrom(DatabaseClientsTable.clientIdKey.from(item))
+            add(DatabaseClientAttributeKeys.CLIENT_ID, clientId)
 
             // Nullable attributes
             add(Attribute.of(
