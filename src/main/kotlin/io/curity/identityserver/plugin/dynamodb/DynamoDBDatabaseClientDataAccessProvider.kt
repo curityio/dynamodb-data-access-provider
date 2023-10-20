@@ -67,6 +67,7 @@ import se.curity.identityserver.sdk.datasource.query.DatabaseClientAttributesSor
 import se.curity.identityserver.sdk.errors.ConflictException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
+import software.amazon.awssdk.services.dynamodb.model.ProjectionType
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
 import java.time.Instant
@@ -150,18 +151,34 @@ class DynamoDBDatabaseClientDataAccessProvider(
         private val lsiClientNameIndex =
             PartitionAndSortIndex("lsi-client_name-index", profileId, clientName)
 
+        // Projected attributes to GSIs/LSIs
+        private val commonProjectedAttributes = listOf(
+            DatabaseClientAttributeKeys.STATUS,
+            DatabaseClientAttributeKeys.TAGS,
+            DatabaseClientAttributesHelper.ATTRIBUTES,
+        )
+        private val projectedAttributesForCreatedSortKey =
+            mutableListOf(DatabaseClientAttributesHelper.CLIENT_NAME_COLUMN, Meta.LAST_MODIFIED)
+                .apply { addAll(commonProjectedAttributes) }
+        private val projectedAttributesForUpdatedSortKey =
+            mutableListOf(DatabaseClientAttributesHelper.CLIENT_NAME_COLUMN, Meta.CREATED)
+                .apply { addAll(commonProjectedAttributes) }
+        private val projectedAttributesForClientNameSortKey =
+            mutableListOf(Meta.CREATED, Meta.LAST_MODIFIED)
+                .apply { addAll(commonProjectedAttributes) }
+
         override fun queryCapabilities(): TableQueryCapabilities = object : TableQueryCapabilities(
             indexes = listOf(
                 Index.from(compositePrimaryKey),
-                Index.from(clientNameCreatedIndex),
-                Index.from(clientNameUpdatedIndex),
-                Index.from(clientNameClientNameIndex),
-                Index.from(tagCreatedIndex),
-                Index.from(tagUpdatedIndex),
-                Index.from(tagClientNameIndex),
-                Index.from(lsiCreatedIndex),
-                Index.from(lsiUpdatedIndex),
-                Index.from(lsiClientNameIndex),
+                Index.from(clientNameCreatedIndex, ProjectionType.INCLUDE, projectedAttributesForCreatedSortKey),
+                Index.from(clientNameUpdatedIndex, ProjectionType.INCLUDE, projectedAttributesForUpdatedSortKey),
+                Index.from(clientNameClientNameIndex, ProjectionType.INCLUDE, projectedAttributesForClientNameSortKey),
+                Index.from(tagCreatedIndex, ProjectionType.INCLUDE, projectedAttributesForCreatedSortKey),
+                Index.from(tagUpdatedIndex, ProjectionType.INCLUDE, projectedAttributesForUpdatedSortKey),
+                Index.from(tagClientNameIndex, ProjectionType.INCLUDE, projectedAttributesForClientNameSortKey),
+                Index.from(lsiCreatedIndex, ProjectionType.INCLUDE, projectedAttributesForCreatedSortKey),
+                Index.from(lsiUpdatedIndex, ProjectionType.INCLUDE, projectedAttributesForUpdatedSortKey),
+                Index.from(lsiClientNameIndex, ProjectionType.INCLUDE, projectedAttributesForClientNameSortKey),
             ),
             attributeMap = mapOf(
                 DatabaseClientAttributesHelper.PROFILE_ID to profileId,
