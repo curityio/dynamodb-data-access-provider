@@ -80,7 +80,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient
 ) : DatabaseClientDataAccessProvider {
     private val _json = _configuration.getJsonHandler()
-
     object DatabaseClientsTable : TableWithCapabilities("curity-database-clients") {
         const val CLIENT_NAME_KEY = "client_name_key"
         const val TAG_KEY = "tag_key"
@@ -127,10 +126,17 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         // Composite string helpers
         // TODO escape potentially existing # in the first part of each of these keys
-        fun tagKeyFor(profileId: String, tag: String) = "$profileId$KEY_VALUE_SEPARATOR$tag"
-        fun clientIdKeyFor(clientId: String, tag: String) = "$clientId$KEY_VALUE_SEPARATOR$tag"
-        fun clientIdFrom(clientIdKey: String) = clientIdKey.substringBefore(KEY_VALUE_SEPARATOR)
-        fun clientNameKeyFor(profileId: String, clientName: String) = "$profileId$KEY_VALUE_SEPARATOR${clientName}"
+        fun tagKeyFor(profileId: String, tag: String) = "${profileId.escape()}$KEY_VALUE_SEPARATOR${tag.escape()}"
+        fun clientIdKeyFor(clientId: String, tag: String) = "${clientId.escape()}$KEY_VALUE_SEPARATOR${tag.escape()}"
+        fun clientIdFrom(clientIdKey: String) = clientIdKey.substring(0,
+                clientIdKey.replace("\\" + KEY_VALUE_SEPARATOR, "~~").indexOf(KEY_VALUE_SEPARATOR))
+            .replace("\\" + KEY_VALUE_SEPARATOR, KEY_VALUE_SEPARATOR)
+        fun clientNameKeyFor(profileId: String, clientName: String) =
+            "${profileId.escape()}$KEY_VALUE_SEPARATOR${clientName.escape()}"
+
+        fun String.escape(separator: String = KEY_VALUE_SEPARATOR): String {
+            return this.replace(separator, "\\" + separator)
+        }
 
         // GSIs
         private val clientNameCreatedIndex =
@@ -204,6 +210,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         fun primaryKey(pkValue: String, skValue: String) =
             mapOf(profileId.toNameValuePair(pkValue), clientIdKey.toNameValuePair(skValue))
     }
+
 
     override fun getClientById(clientId: String, profileId: String): DatabaseClientAttributes? {
         logger.debug("Getting database client with id: '$clientId' in profile: '$profileId'")
