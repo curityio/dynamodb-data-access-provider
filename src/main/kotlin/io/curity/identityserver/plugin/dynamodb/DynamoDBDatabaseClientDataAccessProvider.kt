@@ -85,6 +85,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
         const val TAG_KEY = "tag_key"
         private const val VERSION = "version"
         private const val KEY_VALUE_SEPARATOR = "#"
+        private const val KEY_ESCAPE_CHARACTER = "\\"
+        private const val KEY_ESCAPED_SEPARATOR = KEY_ESCAPE_CHARACTER + KEY_VALUE_SEPARATOR
         val INTERNAL_ATTRIBUTES = arrayOf(DatabaseClientAttributesHelper.PROFILE_ID, CLIENT_NAME_KEY, TAG_KEY, VERSION)
 
         // Table Partition Key (PK)
@@ -125,17 +127,29 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val compositePrimaryKey = CompositePrimaryKey(profileId, clientIdKey)
 
         // Composite string helpers
-        // TODO escape potentially existing # in the first part of each of these keys
-        fun tagKeyFor(profileId: String, tag: String) = "${profileId.escape()}$KEY_VALUE_SEPARATOR${tag.escape()}"
-        fun clientIdKeyFor(clientId: String, tag: String) = "${clientId.escape()}$KEY_VALUE_SEPARATOR${tag.escape()}"
-        fun clientIdFrom(clientIdKey: String) = clientIdKey.substring(0,
-                clientIdKey.replace("\\" + KEY_VALUE_SEPARATOR, "~~").indexOf(KEY_VALUE_SEPARATOR))
-            .replace("\\" + KEY_VALUE_SEPARATOR, KEY_VALUE_SEPARATOR)
-        fun clientNameKeyFor(profileId: String, clientName: String) =
-            "${profileId.escape()}$KEY_VALUE_SEPARATOR${clientName.escape()}"
+        fun tagKeyFor(profileId: String, tag: String) = compositeKeyFromComponents(profileId, tag)
+        fun clientIdKeyFor(clientId: String, tag: String) = compositeKeyFromComponents(clientId, tag)
+        fun clientNameKeyFor(profileId: String, clientName: String) = compositeKeyFromComponents(profileId, clientName)
+        fun clientIdFrom(clientIdKey: String) = clientIdKey.splitKeyComponents().first
 
-        fun String.escape(separator: String = KEY_VALUE_SEPARATOR): String {
-            return this.replace(separator, "\\" + separator)
+        private fun compositeKeyFromComponents(key: String, subKey: String): String =
+            key.replace(KEY_VALUE_SEPARATOR, KEY_ESCAPED_SEPARATOR) + KEY_VALUE_SEPARATOR + subKey
+
+        internal fun String.splitKeyComponents(): Pair<String, String> {
+            var previousChar: Char? = null
+            var idx = 0
+            while (idx < length) {
+                if (this[idx] == KEY_VALUE_SEPARATOR.first() && previousChar != KEY_ESCAPE_CHARACTER.first()) {
+                    // We found a non escaped separator to split the composed key on.
+                    break
+                }
+
+                previousChar = this[idx]
+                idx++
+            }
+
+            return this.substring(0, idx).replace(KEY_ESCAPED_SEPARATOR, KEY_VALUE_SEPARATOR) to
+                    if (idx < this.length - 1) this.substring(idx + 1) else ""
         }
 
         // GSIs
@@ -168,13 +182,13 @@ class DynamoDBDatabaseClientDataAccessProvider(
         )
         private val projectedAttributesForCreatedSortKey =
             mutableListOf(DatabaseClientAttributesHelper.CLIENT_NAME_COLUMN, Meta.LAST_MODIFIED)
-                .apply { addAll(commonProjectedAttributes) }
+                .apply { addAll(commonProjectedAttributes) }.toList()
         private val projectedAttributesForUpdatedSortKey =
             mutableListOf(DatabaseClientAttributesHelper.CLIENT_NAME_COLUMN, Meta.CREATED)
-                .apply { addAll(commonProjectedAttributes) }
+                .apply { addAll(commonProjectedAttributes) }.toList()
         private val projectedAttributesForClientNameSortKey =
             mutableListOf(Meta.CREATED, Meta.LAST_MODIFIED)
-                .apply { addAll(commonProjectedAttributes) }
+                .apply { addAll(commonProjectedAttributes) }.toList()
 
         override fun queryCapabilities(): TableQueryCapabilities = object : TableQueryCapabilities(
             indexes = listOf(
