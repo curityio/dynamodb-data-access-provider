@@ -42,8 +42,8 @@ class DynamoDBDataAccessProviderDescriptor :
     override fun getPluginImplementationType() = "dynamodb"
 
     override fun getConfigurationType() = DynamoDBDataAccessProviderConfiguration::class.java
-
-    override fun getCredentialDataAccessProvider() = DynamoDBUserAccountDataAccessProvider::class.java
+    
+    override fun getCredentialDataAccessProviderFactory() = DynamoDBUserAccountDataAccessProvider::class.java
 
     override fun getUserAccountDataAccessProvider() = DynamoDBUserAccountDataAccessProvider::class.java
 

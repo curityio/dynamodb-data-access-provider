@@ -37,8 +37,7 @@ import org.slf4j.MarkerFactory
 import se.curity.identityserver.sdk.attribute.AccountAttributes
 import se.curity.identityserver.sdk.attribute.Attribute
 import se.curity.identityserver.sdk.attribute.Attributes
-import se.curity.identityserver.sdk.attribute.AuthenticationAttributes
-import se.curity.identityserver.sdk.attribute.ContextAttributes
+import se.curity.identityserver.sdk.attribute.CredentialAttributes
 import se.curity.identityserver.sdk.attribute.SubjectAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
@@ -46,7 +45,9 @@ import se.curity.identityserver.sdk.attribute.scim.v2.extensions.LinkedAccount
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.data.query.ResourceQueryResult
 import se.curity.identityserver.sdk.data.update.AttributeUpdate
-import se.curity.identityserver.sdk.datasource.CredentialDataAccessProvider
+import se.curity.identityserver.sdk.datasource.CredentialDataAccessProviderFactory
+import se.curity.identityserver.sdk.datasource.CredentialStoringDataAccessProvider
+import se.curity.identityserver.sdk.datasource.CredentialStoringDataAccessProvider.GetResult
 import se.curity.identityserver.sdk.datasource.PageableUserAccountDataAccessProvider
 import se.curity.identityserver.sdk.datasource.UserAccountDataAccessProvider
 import se.curity.identityserver.sdk.datasource.db.TableCapabilities.TableCapability
@@ -110,7 +111,8 @@ import java.util.UUID
 class DynamoDBUserAccountDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient,
     private val _configuration: DynamoDBDataAccessProviderConfiguration
-) : UserAccountDataAccessProvider, PageableUserAccountDataAccessProvider, CredentialDataAccessProvider {
+) : UserAccountDataAccessProvider, PageableUserAccountDataAccessProvider,
+    CredentialDataAccessProviderFactory, CredentialStoringDataAccessProvider {
     private val jsonHandler = _configuration.getJsonHandler()
 
     companion object {
@@ -713,10 +715,8 @@ class DynamoDBUserAccountDataAccessProvider(
         return getById(accountId, attributesEnumeration)
     }
 
-    override fun updatePassword(accountAttributes: AccountAttributes) {
-        val username = accountAttributes.userName
-        val password = accountAttributes.password
-
+    override fun store(subjectAttributes: SubjectAttributes, passwordData: String) {
+        val username = subjectAttributes.subject
         _logger.debug(MASK_MARKER, "Received request to update password for username : {}", username)
 
         retry("updatePassword", N_OF_ATTEMPTS)
@@ -734,14 +734,14 @@ class DynamoDBUserAccountDataAccessProvider(
             val updated = Instant.now().epochSecond
             val commonItem = observedItem + mapOf(
                 AccountsTable.updated.toNameValuePair(updated),
-                AccountsTable.password.toNameValuePair(password),
+                AccountsTable.password.toNameValuePair(passwordData),
                 AccountsTable.version.toNameValuePair(newVersion)
             )
 
             // Fill the initials for userName and email (if present) only for the main item,
             // to build a partial Global Secondary Index on these attributes.
             val additionalAttributesForTheMainItem = mutableMapOf<String, AttributeValue>()
-            additionalAttributesForTheMainItem.addAttr(AccountsTable.userNameInitial, accountAttributes.userName)
+            additionalAttributesForTheMainItem.addAttr(AccountsTable.userNameInitial, username)
             commonItem[AccountsTable.email.name]?.also {
                 additionalAttributesForTheMainItem.addAttr(AccountsTable.emailInitial, it.s())
             }
@@ -798,8 +798,9 @@ class DynamoDBUserAccountDataAccessProvider(
         }
     }
 
-    override fun verifyPassword(userName: String, password: String): AuthenticationAttributes? {
-        _logger.debug(MASK_MARKER, "Received request to verify password for username : {}", userName)
+    override fun get(subjectAttributes: SubjectAttributes): GetResult? {
+        val username = subjectAttributes.subject
+        _logger.debug(MASK_MARKER, "Received request to verify password for username : {}", username)
 
         val request = GetItemRequest.builder()
             .tableName(AccountsTable.name(_configuration))
@@ -807,7 +808,7 @@ class DynamoDBUserAccountDataAccessProvider(
             .key(
                 mapOf(
                     AccountsTable.pk.uniqueKeyEntryFor(
-                        AccountsTable.userName, userName
+                        AccountsTable.userName, username
                     )
                 )
             )
@@ -830,22 +831,28 @@ class DynamoDBUserAccountDataAccessProvider(
             return null
         }
 
-        // Password is not verified by this DAP, which is aligned with customQueryVerifiesPassword returning false
-        return AuthenticationAttributes.of(
-            SubjectAttributes.of(
-                userName,
-                Attributes.of(
-                    Attribute.of("password", AccountsTable.password.optionalFrom(item)),
-                    Attribute.of("accountId", AccountsTable.accountId.optionalFrom(item)),
-                    Attribute.of("userName", AccountsTable.userName.optionalFrom(item))
-                )
-            ),
-            ContextAttributes.empty()
+        val subjectAttributes = SubjectAttributes.of(
+            username,
+            Attributes.of(
+                Attribute.of("accountId", AccountsTable.accountId.optionalFrom(item)),
+                Attribute.of("userName", AccountsTable.userName.optionalFrom(item))
+            )
         )
+        val passwordData = AccountsTable.password.optionalFrom(item)
+
+        return GetResult(subjectAttributes, CredentialAttributes.empty(), passwordData)
     }
 
-    override fun customQueryVerifiesPassword(): Boolean {
-        return false
+    override fun store(subjectAttributes: SubjectAttributes, passwordData: String, credentialAttributes: CredentialAttributes) {
+        TODO("Not yet implemented")
+    }
+
+    override fun storeAttributes(subjectAttributes: SubjectAttributes, credentialAttributes: CredentialAttributes) {
+        TODO("Not yet implemented")
+    }
+
+    override fun delete(subjectAttributes: SubjectAttributes) {
+        TODO("Not yet implemented")
     }
 
     private fun getItemByAccountId(accountId: String): DynamoDBItem? {
@@ -1404,6 +1411,4 @@ class DynamoDBUserAccountDataAccessProvider(
             AccountsTable.accountId.toExpressionNameValuePair(accountId)
         )
     }
-
-
 }
