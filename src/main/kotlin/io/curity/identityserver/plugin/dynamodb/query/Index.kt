@@ -16,12 +16,13 @@
 
 package io.curity.identityserver.plugin.dynamodb.query
 
+import io.curity.identityserver.plugin.dynamodb.CompositePrimaryKey
 import io.curity.identityserver.plugin.dynamodb.DynamoDBAttribute
 import io.curity.identityserver.plugin.dynamodb.PartitionAndSortIndex
 import io.curity.identityserver.plugin.dynamodb.PartitionOnlyIndex
 import io.curity.identityserver.plugin.dynamodb.PrimaryKey
-import io.curity.identityserver.plugin.dynamodb.CompositePrimaryKey
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
+import software.amazon.awssdk.services.dynamodb.model.ProjectionType
 
 /**
  * Represents a queryable DynamoDB index
@@ -29,12 +30,17 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 data class Index(
     val name: String?,
     val partitionAttribute: DynamoDBAttribute<*>,
-    val sortAttribute: DynamoDBAttribute<*>? = null
+    val sortAttribute: DynamoDBAttribute<*>? = null,
+    val projectionType: ProjectionType? = null,
+    val projectedAttributes: Collection<String>? = null,
 ) {
     companion object {
         fun <T> from(index: PartitionOnlyIndex<T>) = Index(index.name, index.attribute)
-        fun <T1, T2> from(index: PartitionAndSortIndex<T1, T2>) =
-            Index(index.name, index.partitionAttribute, index.sortAttribute)
+        fun <T1, T2> from(
+            index: PartitionAndSortIndex<T1, T2>,
+            projectionType: ProjectionType? = null,
+            projectedAttributes: Collection<String>? = null
+        ) = Index(index.name, index.partitionAttribute, index.sortAttribute, projectionType, projectedAttributes)
 
         fun <T> from(primaryKey: PrimaryKey<T>) = Index(null, primaryKey.attribute)
         fun <T1, T2> from(compositePrimaryKey: CompositePrimaryKey<T1, T2>) =

@@ -69,6 +69,7 @@ import se.curity.identityserver.sdk.datasource.query.DatabaseClientAttributesSor
 import se.curity.identityserver.sdk.errors.ConflictException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
+import software.amazon.awssdk.services.dynamodb.model.ProjectionType
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
 import java.time.Instant
@@ -86,6 +87,9 @@ class DynamoDBDatabaseClientDataAccessProvider(
         const val CLIENT_NAME_KEY = "client_name_key"
         const val TAG_KEY = "tag_key"
         private const val VERSION = "version"
+        private const val KEY_VALUE_SEPARATOR = "#"
+        private const val KEY_ESCAPE_CHARACTER = "\\"
+        private const val KEY_ESCAPED_SEPARATOR = KEY_ESCAPE_CHARACTER + KEY_VALUE_SEPARATOR
         val INTERNAL_ATTRIBUTES = arrayOf(DatabaseClientAttributesHelper.PROFILE_ID, CLIENT_NAME_KEY, TAG_KEY, VERSION)
 
         // Table Partition Key (PK)
@@ -127,9 +131,30 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val compositePrimaryKey = CompositePrimaryKey(profileId, clientIdKey)
 
         // Composite string helpers
-        fun tagKeyFor(profileId: String, tag: String) = "$profileId#$tag"
-        fun clientIdKeyFor(clientId: String, tag: String) = "$clientId#$tag"
-        fun clientNameKeyFor(profileId: String, clientName: String) = "$profileId#${clientName}"
+        fun tagKeyFor(profileId: String, tag: String) = compositeKeyFromComponents(profileId, tag)
+        fun clientIdKeyFor(clientId: String, tag: String) = compositeKeyFromComponents(clientId, tag)
+        fun clientNameKeyFor(profileId: String, clientName: String) = compositeKeyFromComponents(profileId, clientName)
+        fun clientIdFrom(clientIdKey: String) = clientIdKey.splitKeyComponents().first
+
+        private fun compositeKeyFromComponents(key: String, subKey: String): String =
+            key.replace(KEY_VALUE_SEPARATOR, KEY_ESCAPED_SEPARATOR) + KEY_VALUE_SEPARATOR + subKey
+
+        internal fun String.splitKeyComponents(): Pair<String, String> {
+            var previousChar: Char? = null
+            var idx = 0
+            while (idx < length) {
+                if (this[idx] == KEY_VALUE_SEPARATOR.first() && previousChar != KEY_ESCAPE_CHARACTER.first()) {
+                    // We found a non escaped separator to split the composed key on.
+                    break
+                }
+
+                previousChar = this[idx]
+                idx++
+            }
+
+            return this.substring(0, idx).replace(KEY_ESCAPED_SEPARATOR, KEY_VALUE_SEPARATOR) to
+                    if (idx < this.length - 1) this.substring(idx + 1) else ""
+        }
 
         // GSIs
         private val clientNameCreatedIndex =
@@ -153,18 +178,34 @@ class DynamoDBDatabaseClientDataAccessProvider(
         private val lsiClientNameIndex =
             PartitionAndSortIndex("lsi-client_name-index", profileId, clientName)
 
+        // Projected attributes to GSIs/LSIs
+        private val commonProjectedAttributes = listOf(
+            DatabaseClientAttributeKeys.STATUS,
+            DatabaseClientAttributeKeys.TAGS,
+            DatabaseClientAttributesHelper.ATTRIBUTES,
+        )
+        private val projectedAttributesForCreatedSortKey =
+            mutableListOf(DatabaseClientAttributesHelper.CLIENT_NAME_COLUMN, Meta.LAST_MODIFIED)
+                .apply { addAll(commonProjectedAttributes) }.toList()
+        private val projectedAttributesForUpdatedSortKey =
+            mutableListOf(DatabaseClientAttributesHelper.CLIENT_NAME_COLUMN, Meta.CREATED)
+                .apply { addAll(commonProjectedAttributes) }.toList()
+        private val projectedAttributesForClientNameSortKey =
+            mutableListOf(Meta.CREATED, Meta.LAST_MODIFIED)
+                .apply { addAll(commonProjectedAttributes) }.toList()
+
         override fun queryCapabilities(): TableQueryCapabilities = object : TableQueryCapabilities(
             indexes = listOf(
                 Index.from(compositePrimaryKey),
-                Index.from(clientNameCreatedIndex),
-                Index.from(clientNameUpdatedIndex),
-                Index.from(clientNameClientNameIndex),
-                Index.from(tagCreatedIndex),
-                Index.from(tagUpdatedIndex),
-                Index.from(tagClientNameIndex),
-                Index.from(lsiCreatedIndex),
-                Index.from(lsiUpdatedIndex),
-                Index.from(lsiClientNameIndex),
+                Index.from(clientNameCreatedIndex, ProjectionType.INCLUDE, projectedAttributesForCreatedSortKey),
+                Index.from(clientNameUpdatedIndex, ProjectionType.INCLUDE, projectedAttributesForUpdatedSortKey),
+                Index.from(clientNameClientNameIndex, ProjectionType.INCLUDE, projectedAttributesForClientNameSortKey),
+                Index.from(tagCreatedIndex, ProjectionType.INCLUDE, projectedAttributesForCreatedSortKey),
+                Index.from(tagUpdatedIndex, ProjectionType.INCLUDE, projectedAttributesForUpdatedSortKey),
+                Index.from(tagClientNameIndex, ProjectionType.INCLUDE, projectedAttributesForClientNameSortKey),
+                Index.from(lsiCreatedIndex, ProjectionType.INCLUDE, projectedAttributesForCreatedSortKey),
+                Index.from(lsiUpdatedIndex, ProjectionType.INCLUDE, projectedAttributesForUpdatedSortKey),
+                Index.from(lsiClientNameIndex, ProjectionType.INCLUDE, projectedAttributesForClientNameSortKey),
             ),
             attributeMap = mapOf(
                 DatabaseClientAttributesHelper.PROFILE_ID to profileId,
@@ -426,10 +467,12 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 after = secondaryClientIdKey,
                 additionalAttributes = mapOf(
                     // Add composite tagKey as PK for tag-based GSIs
-                    DatabaseClientsTable.profileWithTagKey.name to
-                            DatabaseClientsTable.profileWithTagKey.toAttrValue(
-                                DatabaseClientsTable.tagKeyFor(profileId, newTag)
-                            )
+                    Pair(
+                        DatabaseClientsTable.profileWithTagKey.name,
+                        DatabaseClientsTable.profileWithTagKey.toAttrValue(
+                            DatabaseClientsTable.tagKeyFor(profileId, newTag)
+                        )
+                    )
                 )
             )
         }
@@ -698,7 +741,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
             // Non-nullable attributes
             add(DatabaseClientAttributeKeys.NAME, DatabaseClientsTable.clientName.from(item))
             add(DatabaseClientAttributesHelper.ATTRIBUTES, DatabaseClientsTable.attributes.optionalFrom(item) ?: "{}")
-            add(DatabaseClientAttributeKeys.CLIENT_ID, DatabaseClientsTable.clientIdKey.from(item))
+            val clientId = DatabaseClientsTable.clientIdFrom(DatabaseClientsTable.clientIdKey.from(item))
+            add(DatabaseClientAttributeKeys.CLIENT_ID, clientId)
 
             // Nullable attributes
             add(Attribute.of(
