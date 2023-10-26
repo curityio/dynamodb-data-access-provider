@@ -28,6 +28,10 @@
     {
       "AttributeName" : "lastModified",
       "AttributeType": "N"
+    },
+    {
+      "AttributeName" : "attributes",
+      "AttributeType" : "S"
     }
   ],
   "LocalSecondaryIndexes" : [
@@ -36,11 +40,11 @@
       "Projection" : {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "client_id_key",
           "client_name",
           "status",
           "tags",
-          "updated"
+          "lastModified",
+          "attributes"
         ]
       },
       "KeySchema" : [
@@ -59,11 +63,11 @@
       "Projection" : {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "client_id_key",
           "client_name",
           "status",
           "tags",
-          "created"
+          "created",
+          "attributes"
         ]
       },
       "KeySchema" : [
@@ -82,11 +86,11 @@
       "Projection" : {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "client_id_key",
           "status",
           "tags",
           "created",
-          "updated"
+          "lastModified",
+          "attributes"
         ]
       },
       "KeySchema" : [
@@ -107,10 +111,11 @@
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "client_id_key",
+          "client_name",
           "status",
           "tags",
-          "updated"
+          "lastModified",
+          "attributes"
         ]
       },
       "ProvisionedThroughput": {
@@ -133,10 +138,11 @@
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "client_id_key",
+          "client_name",
           "status",
           "tags",
-          "created"
+          "created",
+          "attributes"
         ]
       },
       "ProvisionedThroughput": {
@@ -159,11 +165,11 @@
       "Projection" : {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "client_id_key",
           "status",
           "tags",
           "created",
-          "updated"
+          "lastModified",
+          "attributes"
         ]
       },
       "ProvisionedThroughput" : {
@@ -186,11 +192,11 @@
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "client_id_key",
+          "client_name",
           "status",
           "tags",
-          "client_name",
-          "updated"
+          "lastModified",
+          "attributes"
         ]
       },
       "ProvisionedThroughput": {
@@ -213,11 +219,11 @@
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "client_id_key",
+          "client_name",
           "status",
           "tags",
-          "client_name",
-          "created"
+          "created",
+          "attributes"
         ]
       },
       "ProvisionedThroughput": {
@@ -240,11 +246,11 @@
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
-          "client_id_key",
           "status",
           "tags",
           "created",
-          "updated"
+          "lastModified",
+          "attributes"
         ]
       },
       "ProvisionedThroughput": {
