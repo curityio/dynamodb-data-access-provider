@@ -740,7 +740,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
             // Non-nullable attributes
             add(DatabaseClientAttributeKeys.NAME, DatabaseClientsTable.clientName.from(item))
-            add(DatabaseClientAttributesHelper.ATTRIBUTES, DatabaseClientsTable.attributes.optionalFrom(item) ?: "{}")
+            add(DatabaseClientAttributesHelper.ATTRIBUTES, DatabaseClientsTable.attributes.from(item))
             val clientId = DatabaseClientsTable.clientIdFrom(DatabaseClientsTable.clientIdKey.from(item))
             add(DatabaseClientAttributeKeys.CLIENT_ID, clientId)
 
