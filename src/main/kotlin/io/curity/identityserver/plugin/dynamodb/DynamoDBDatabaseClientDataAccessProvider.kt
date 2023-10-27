@@ -597,7 +597,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             indexAndKeys.useScan,
             _configuration.getAllowTableScans(),
             DatabaseClientsTable.queryCapabilities(),
-            filters.toAttributesFiltering(),
+            null,
             sortRequest
         )
 
@@ -938,9 +938,5 @@ class DynamoDBDatabaseClientDataAccessProvider(
             item,
             (method as? ClientAuthenticationVerifier.CredentialManager)?.credentialManagerId
         )
-    }
-
-    private fun DatabaseClientAttributesFiltering?.toAttributesFiltering(): AttributesFiltering? {
-        return null
     }
 }
