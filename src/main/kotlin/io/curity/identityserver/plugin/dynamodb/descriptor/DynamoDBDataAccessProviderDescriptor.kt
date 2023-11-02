@@ -18,6 +18,7 @@ package io.curity.identityserver.plugin.dynamodb.descriptor
 import io.curity.identityserver.plugin.dynamodb.DynamoDBAttributeDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBBucketDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
+import io.curity.identityserver.plugin.dynamodb.DynamoDBDatabaseClientDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBDeviceDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBDynamicallyRegisteredClientDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBSecondaryIndexFeatureCheck
@@ -29,6 +30,7 @@ import io.curity.identityserver.plugin.dynamodb.token.DynamoDBDelegationDataAcce
 import io.curity.identityserver.plugin.dynamodb.token.DynamoDBNonceDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.token.DynamoDBTokenDataAccessProvider
 import se.curity.identityserver.sdk.datasource.AttributeDataAccessProvider
+import se.curity.identityserver.sdk.datasource.DatabaseClientDataAccessProvider
 import se.curity.identityserver.sdk.datasource.DelegationDataAccessProvider
 import se.curity.identityserver.sdk.datasource.NonceDataAccessProvider
 import se.curity.identityserver.sdk.datasource.SessionDataAccessProvider
@@ -68,6 +70,9 @@ class DynamoDBDataAccessProviderDescriptor :
 
     override fun getAttributeDataAccessProvider(): Class<out AttributeDataAccessProvider> =
         DynamoDBAttributeDataAccessProvider::class.java
+
+    override fun getDatabaseClientDataAccessProvider(): Class<out DatabaseClientDataAccessProvider> =
+        DynamoDBDatabaseClientDataAccessProvider::class.java
 
     override fun createManagedObject(configuration: DynamoDBDataAccessProviderConfiguration):
             Optional<out ManagedObject<DynamoDBDataAccessProviderConfiguration>> {
