@@ -647,6 +647,9 @@ class DynamoDBDatabaseClientDataAccessProvider(
                     ).s()
             }
         }
+        if (potentialPartitionKeys.isEmpty()) {
+            potentialPartitionKeys[DatabaseClientsTable.profileId] = profileId
+        }
 
         val potentialSortKeys: MutableMap<DynamoDBAttribute<*>, Any> = mutableMapOf()
 
