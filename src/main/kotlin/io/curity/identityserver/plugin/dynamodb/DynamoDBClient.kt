@@ -41,8 +41,12 @@ import software.amazon.awssdk.core.retry.conditions.RetryCondition
 import software.amazon.awssdk.core.retry.conditions.SdkRetryCondition
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient
+import software.amazon.awssdk.services.dynamodb.model.CreateTableRequest
+import software.amazon.awssdk.services.dynamodb.model.CreateTableResponse
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemResponse
+import software.amazon.awssdk.services.dynamodb.model.DeleteTableRequest
+import software.amazon.awssdk.services.dynamodb.model.DeleteTableResponse
 import software.amazon.awssdk.services.dynamodb.model.DescribeTableRequest
 import software.amazon.awssdk.services.dynamodb.model.DescribeTableResponse
 import software.amazon.awssdk.services.dynamodb.model.DynamoDbException
@@ -59,6 +63,7 @@ import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsResponse
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemResponse
+import software.amazon.awssdk.services.dynamodb.waiters.DynamoDbWaiter
 import software.amazon.awssdk.services.sts.StsClient
 import software.amazon.awssdk.services.sts.model.AssumeRoleRequest
 import software.amazon.awssdk.services.sts.model.AssumeRoleResponse
@@ -238,7 +243,12 @@ class DynamoDBClient @JvmOverloads constructor(
         throw UnsupportedQueryException.QueryRequiresTableScan()
     }
 
+    fun createTable(request: CreateTableRequest): CreateTableResponse = client.call { createTable(request) }
+    fun deleteTable(request: DeleteTableRequest): DeleteTableResponse = client.call { deleteTable(request) }
     fun describeTable(request: DescribeTableRequest): DescribeTableResponse = client.call { describeTable(request) }
+
+
+    fun waiter(): DynamoDbWaiter = client.waiter()
 
     /**
      * @param featureId The feature's ID to check support for.
