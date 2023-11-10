@@ -234,7 +234,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
     private fun getItemById(clientId: String, profileId: String): DynamoDBItem? {
         val request = GetItemRequest.builder()
-            .tableName(DatabaseClientsTable.name(_configuration))
+            .tableName(tableName())
             .key(DatabaseClientsTable.primaryKey(profileId, clientId))
             .consistentRead(true)
             .build()
