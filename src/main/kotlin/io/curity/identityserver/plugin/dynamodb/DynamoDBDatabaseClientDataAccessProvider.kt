@@ -86,7 +86,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
     object DatabaseClientsTable : TableWithCapabilities("curity-database-clients") {
         const val CLIENT_NAME_KEY = "client_name_key"
         const val TAG_KEY = "tag_key"
-        private const val VERSION = "version"
+        const val VERSION = "version"
         private const val KEY_VALUE_SEPARATOR = "#"
         private const val KEY_ESCAPE_CHARACTER = "\\"
         private const val KEY_ESCAPED_SEPARATOR = KEY_ESCAPE_CHARACTER + KEY_VALUE_SEPARATOR
@@ -237,7 +237,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
     private fun getItemById(clientId: String, profileId: String): DynamoDBItem? {
         val request = GetItemRequest.builder()
-            .tableName(DatabaseClientsTable.name(_configuration))
+            .tableName(tableName())
             .key(DatabaseClientsTable.primaryKey(profileId, clientId))
             .consistentRead(true)
             .build()
@@ -267,21 +267,22 @@ class DynamoDBDatabaseClientDataAccessProvider(
         addTransactionItem(
             attributes.addConfigurationReferencesTo(commonItem),
             // Main item's specific attributes
-            mapOf(
+            listOfNotNull(
                 // Add clientIdKey as SK for base table
                 // For the main item, it is not composite and holds clientId only
                 Pair(
                     DatabaseClientsTable.clientIdKey.name,
                     DatabaseClientsTable.clientIdKey.toAttrValue(attributes.clientId)
                 ),
-                // Add composite clientNameKey as PK for clientName-based GSIs
+                // Add composite clientNameKey as PK for clientName-based GSIs,
+                // but only if 'name' valid
                 Pair(
                     DatabaseClientsTable.clientNameKey.name,
                     DatabaseClientsTable.clientNameKey.toAttrValue(
                         DatabaseClientsTable.clientNameKeyFor(profileId, attributes.name)
                     )
-                ),
-            ),
+                ).takeIf { !attributes.name.isNullOrEmpty() },
+            ).toMap(),
             transactionItems,
             writeConditionExpression
         )
@@ -703,7 +704,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val item = mutableMapOf<String, AttributeValue>()
 
         // Non-nullable attributes
-        DatabaseClientsTable.clientName.addTo(item, name)
         // Persist the whole DatabaseClientAttributes, but non persistable attributes, in the "attributes" attribute
         DatabaseClientsTable.attributes.addTo(
             item,
@@ -718,6 +718,10 @@ class DynamoDBDatabaseClientDataAccessProvider(
         // Nullable attributes
         DatabaseClientsTable.status.addToNullable(item, status?.name)
         DatabaseClientsTable.tags.addToNullable(item, tags)
+        // Don't set 'name' if value not valid as secondary index's key
+        if (!name.isNullOrEmpty()) {
+            DatabaseClientsTable.clientName.addTo(item, name)
+        }
 
         return item
     }
@@ -742,7 +746,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
             // as not part of DatabaseClientAttributes
 
             // Non-nullable attributes
-            add(DatabaseClientAttributeKeys.NAME, DatabaseClientsTable.clientName.from(item))
             add(DatabaseClientAttributesHelper.ATTRIBUTES, DatabaseClientsTable.attributes.from(item))
             val clientId = DatabaseClientsTable.clientIdFrom(DatabaseClientsTable.clientIdKey.from(item))
             add(DatabaseClientAttributeKeys.CLIENT_ID, clientId)
@@ -778,6 +781,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 )
             )
             add(DatabaseClientAttributeKeys.TAGS, DatabaseClientsTable.tags.optionalFrom(item))
+            // 'clientName' could have been not set if value were not valid as secondary index's key
+            add(DatabaseClientAttributeKeys.NAME, DatabaseClientsTable.clientName.optionalFrom(item))
         }
 
         val rawAttributes = Attributes.of(result)
