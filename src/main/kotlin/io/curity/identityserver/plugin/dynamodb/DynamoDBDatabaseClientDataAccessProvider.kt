@@ -88,7 +88,15 @@ class DynamoDBDatabaseClientDataAccessProvider(
         private const val KEY_VALUE_SEPARATOR = "#"
         private const val KEY_ESCAPE_CHARACTER = "\\"
         private const val KEY_ESCAPED_SEPARATOR = KEY_ESCAPE_CHARACTER + KEY_VALUE_SEPARATOR
-        val INTERNAL_ATTRIBUTES = arrayOf(DatabaseClientAttributesHelper.PROFILE_ID, CLIENT_NAME_KEY, TAG_KEY, VERSION)
+
+        val INTERNAL_ATTRIBUTES = mapOf(
+            // boolean states if null value is allowed
+            Pair(DatabaseClientAttributesHelper.PROFILE_ID, false),
+            Pair(CLIENT_ID_KEY, false),
+            Pair(CLIENT_NAME_KEY, true),
+            Pair(TAG_KEY, true),
+            Pair(VERSION, false),
+        )
 
         // Table Partition Key (PK)
         val profileId = StringAttribute(DatabaseClientAttributesHelper.PROFILE_ID)
@@ -121,6 +129,9 @@ class DynamoDBDatabaseClientDataAccessProvider(
         // Non-key attributes
         val tags = ListStringAttribute(DatabaseClientAttributeKeys.TAGS)
         val status = StringAttribute(DatabaseClientAttributeKeys.STATUS)
+
+        // Duplicates clientIdKey to be used in filter expressions, as not a key (vs. clientIdKey)
+        val clientId = StringAttribute(DatabaseClientAttributeKeys.CLIENT_ID)
 
         val attributes = StringAttribute(DatabaseClientAttributesHelper.ATTRIBUTES)
 
@@ -207,6 +218,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             attributeMap = mapOf(
                 DatabaseClientAttributesHelper.PROFILE_ID to profileId,
                 CLIENT_ID_KEY to clientIdKey,
+                DatabaseClientAttributeKeys.CLIENT_ID to clientId,
                 CLIENT_NAME_KEY to clientNameKey,
                 DatabaseClientAttributeKeys.NAME to clientName,
                 TAG_KEY to tagKey,
@@ -637,6 +649,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             )
         )
         DatabaseClientsTable.profileId.addTo(item, profileId)
+        DatabaseClientsTable.clientId.addTo(item, clientId)
         DatabaseClientsTable.created.addTo(item, created)
         DatabaseClientsTable.updated.addTo(item, updated)
 
@@ -667,12 +680,12 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val item = this
 
         result.apply {
-            // DDB-specific attributes ignored: PROFILE_ID, CLIENT_NAME_KEY, TAG_KEY, VERSION,
+            // DDB-specific attributes ignored: PROFILE_ID, CLIENT_ID_KEY, CLIENT_NAME_KEY, TAG_KEY, VERSION,
             // as not part of DatabaseClientAttributes
 
             // Non-nullable attributes
             add(DatabaseClientAttributesHelper.ATTRIBUTES, DatabaseClientsTable.attributes.from(item))
-            add(DatabaseClientAttributeKeys.CLIENT_ID, DatabaseClientsTable.clientIdKey.from(item))
+            add(DatabaseClientAttributeKeys.CLIENT_ID, DatabaseClientsTable.clientId.from(item))
 
             // Nullable attributes
             add(Attribute.of(
