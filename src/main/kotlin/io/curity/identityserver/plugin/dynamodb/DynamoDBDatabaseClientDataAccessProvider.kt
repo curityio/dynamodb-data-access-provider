@@ -82,6 +82,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
     private val _json = _configuration.getJsonHandler()
     object DatabaseClientsTable : TableWithCapabilities("curity-database-clients") {
         const val CLIENT_NAME_KEY = "client_name_key"
+        const val CLIENT_ID_KEY = "client_id_key"
         const val TAG_KEY = "tag_key"
         const val VERSION = "version"
         private const val KEY_VALUE_SEPARATOR = "#"
@@ -205,7 +206,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             ),
             attributeMap = mapOf(
                 DatabaseClientAttributesHelper.PROFILE_ID to profileId,
-                DatabaseClientAttributeKeys.CLIENT_ID to clientIdKey,
+                CLIENT_ID_KEY to clientIdKey,
                 CLIENT_NAME_KEY to clientNameKey,
                 DatabaseClientAttributeKeys.NAME to clientName,
                 TAG_KEY to tagKey,
@@ -671,8 +672,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
             // Non-nullable attributes
             add(DatabaseClientAttributesHelper.ATTRIBUTES, DatabaseClientsTable.attributes.from(item))
-            val clientId = DatabaseClientsTable.clientIdFrom(DatabaseClientsTable.clientIdKey.from(item))
-            add(DatabaseClientAttributeKeys.CLIENT_ID, clientId)
+            add(DatabaseClientAttributeKeys.CLIENT_ID, DatabaseClientsTable.clientIdKey.from(item))
 
             // Nullable attributes
             add(Attribute.of(
