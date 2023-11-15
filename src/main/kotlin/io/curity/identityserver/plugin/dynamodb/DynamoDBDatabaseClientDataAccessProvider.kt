@@ -27,9 +27,17 @@ import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributes
 import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.SECONDARY_CLIENT_AUTHENTICATION
 import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.SECONDARY_CREDENTIAL_MANAGER_ID
 import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.SECONDARY_MUTUAL_TLS_CLIENT_CERTIFICATE_ID
+import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeExpression
+import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeOperator.Co
+import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeOperator.Eq
+import io.curity.identityserver.plugin.dynamodb.query.DisjunctiveNormalForm
+import io.curity.identityserver.plugin.dynamodb.query.DynamoDBQueryBuilder
 import io.curity.identityserver.plugin.dynamodb.query.Index
+import io.curity.identityserver.plugin.dynamodb.query.Product
 import io.curity.identityserver.plugin.dynamodb.query.QueryHelper
+import io.curity.identityserver.plugin.dynamodb.query.QueryPlan
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
+import io.curity.identityserver.plugin.dynamodb.query.and
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.attribute.Attribute
@@ -63,13 +71,13 @@ import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.datasource.DatabaseClientDataAccessProvider
 import se.curity.identityserver.sdk.datasource.pagination.PaginatedDataAccessResult
 import se.curity.identityserver.sdk.datasource.pagination.PaginationRequest
-import se.curity.identityserver.sdk.datasource.query.AttributesFiltering
 import se.curity.identityserver.sdk.datasource.query.DatabaseClientAttributesFiltering
 import se.curity.identityserver.sdk.datasource.query.DatabaseClientAttributesSorting
 import se.curity.identityserver.sdk.errors.ConflictException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.ProjectionType
+import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
 import java.time.Instant
@@ -591,25 +599,121 @@ class DynamoDBDatabaseClientDataAccessProvider(
         sortRequest: DatabaseClientAttributesSorting?,
         activeClientsOnly: Boolean
     ): PaginatedDataAccessResult<DatabaseClientAttributes> {
-        val potentialKeys = createPotentialKeys(profileId, filters, activeClientsOnly, sortRequest)
-        val indexAndKeys = QueryHelper.findIndexAndKeysFrom(DatabaseClientsTable, potentialKeys)
 
-        QueryHelper.validateRequest(
-            indexAndKeys.useScan,
-            _configuration.getAllowTableScans(),
-            DatabaseClientsTable.queryCapabilities(),
-            null,
-            sortRequest
+        val profileIdAttribute = DatabaseClientsTable.profileId
+
+        //TODO validate
+
+        var partitionKeyCondition: BinaryAttributeExpression? = null
+        var sortKeyCondition: QueryPlan.RangeCondition? = null
+        var sortIndexAttribute: DynamoDBAttribute<*>? = null
+        var filterAttributes: DisjunctiveNormalForm? = null
+
+        sortRequest?.sortBy?.let { sortBy ->
+            DatabaseClientsTable.queryCapabilities().attributeMap[sortBy]?.let { attribute ->
+                sortIndexAttribute = attribute
+            }
+        }
+
+        filters?.searchTermsFilter?.let {
+            partitionKeyCondition = BinaryAttributeExpression(profileIdAttribute, Eq, profileId)
+
+            filterAttributes = DisjunctiveNormalForm(
+                setOf(
+                    Product(
+                        it.split(" ").asSequence().map { token ->
+                            BinaryAttributeExpression(DatabaseClientsTable.clientName, Co, token)
+                        }.toSet()
+                    )
+                )
+            )
+            //TODO add client_id
+        }
+
+        val tags = filters?.tagsFilter.orEmpty().toMutableSet()
+        val tagKeyAttribute = DatabaseClientsTable.profileWithTagKey
+        tags.firstOrNull()?.let {
+            partitionKeyCondition = BinaryAttributeExpression(tagKeyAttribute, Eq, it)
+            tags.remove(it)
+        }
+        tags.map {
+            Product(
+                setOf(
+                    BinaryAttributeExpression(tagKeyAttribute, Co, it)
+                )
+            )
+        }.forEach {
+            filterAttributes = if (filterAttributes != null) {
+                and(it, filterAttributes!!)
+            } else {
+                DisjunctiveNormalForm(setOf(it))
+            }
+        }
+
+        filters?.clientNameFilter?.let {
+            val clientNameAttribute = DatabaseClientsTable.clientName
+            if (partitionKeyCondition == null) {
+                val clientNameKeyAttribute = DatabaseClientsTable.clientNameKey
+                partitionKeyCondition = BinaryAttributeExpression(
+                    clientNameKeyAttribute, Eq, it)
+            } else if (sortIndexAttribute == null) {
+                sortIndexAttribute = clientNameAttribute
+                sortKeyCondition = QueryPlan.RangeCondition.Binary(
+                    BinaryAttributeExpression(clientNameAttribute, Eq, it)
+                )
+            } else {
+                val filterExpression = Product.of(
+                    BinaryAttributeExpression(clientNameAttribute, Eq, clientNameAttribute.toAttrValue(it))
+                )
+                filterAttributes = if (filterAttributes != null) {
+                    and(filterExpression, filterAttributes!!)
+                } else {
+                    DisjunctiveNormalForm(setOf(filterExpression))
+                }
+            }
+        }
+
+        if (activeClientsOnly) {
+            val filterExpression = Product.of(
+                BinaryAttributeExpression(DatabaseClientsTable.status, Eq, DatabaseClientStatus.ACTIVE.name)
+            )
+            filterAttributes = if (filterAttributes != null) {
+                and(filterExpression, filterAttributes!!)
+            } else {
+                DisjunctiveNormalForm(setOf(filterExpression))
+            }
+        }
+
+        partitionKeyCondition = partitionKeyCondition ?:
+            BinaryAttributeExpression(profileIdAttribute, Eq, profileId)
+        sortIndexAttribute = sortIndexAttribute ?: if (partitionKeyCondition!!.attribute == DatabaseClientsTable.profileId) {
+            DatabaseClientsTable.clientIdKey
+        } else {
+            DatabaseClientsTable.created
+        }
+
+        val index = DatabaseClientsTable.queryCapabilities().indexes.firstOrNull() {
+            it.partitionAttribute == partitionKeyCondition!!.attribute && it.sortAttribute == sortIndexAttribute
+        } ?: throw IllegalStateException("Could not find any applicable index").also {
+            logger.debug("No index selected for execution; PK:{}, SK:{}, filters:{}, sort:{}",
+                partitionKeyCondition, sortIndexAttribute, filters, sortRequest)
+            }
+
+        val primaryKeyCondition = QueryPlan.KeyCondition(
+            index,
+            partitionKeyCondition!!,
+            sortKeyCondition
         )
+        val products = filterAttributes?.products?.toList().orEmpty()
+        val sortOrder = ResourceQuery.Sorting.SortOrder.ASCENDING //TODO
+        val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(primaryKeyCondition, products, sortOrder)
 
-        val (values, encodedCursor) = QueryHelper.list(
+        val (values, encodedCursor) = queryWithPagination(
+            QueryRequest.builder().tableName(tableName())
+                .configureWith(dynamoDBQuery),
+            DEFAULT_PAGE_SIZE,
+            null,
             _dynamoDBClient,
-            _json,
-            tableName(),
-            indexAndKeys,
-            sortRequest?.sortOrder?.let { it == ResourceQuery.Sorting.SortOrder.ASCENDING } ?: true,
-            paginationRequest?.count,
-            paginationRequest?.cursor,
             ::toLastEvaluatedKey
         )
 
@@ -617,7 +721,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             .map { it.toAttributes() }
             .toList()
 
-        return PaginatedDataAccessResult(items, encodedCursor)
+        return PaginatedDataAccessResult(items, encodedCursor.toString())
     }
 
     override fun getClientCountBy(
