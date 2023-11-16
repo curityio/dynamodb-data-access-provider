@@ -290,6 +290,11 @@ class DynamoDBDatabaseClientDataAccessProvider(
                         DatabaseClientsTable.clientNameKeyFor(profileId, attributes.name)
                     )
                 ).takeIf { !attributes.name.isNullOrEmpty() },
+                Pair(
+                    DatabaseClientsTable.profileWithTagKey.name,
+                    DatabaseClientsTable.profileWithTagKey.toAttrValue(
+                        DatabaseClientsTable.tagKeyFor(profileId, ""))
+                ).takeIf { attributes.tags.isNullOrEmpty() },
             ).toMap(),
             transactionItems,
             writeConditionExpression
@@ -630,24 +635,32 @@ class DynamoDBDatabaseClientDataAccessProvider(
             //TODO add client_id
         }
 
-        val tags = filters?.tagsFilter.orEmpty().toMutableSet()
-        val tagKeyAttribute = DatabaseClientsTable.profileWithTagKey
-        tags.firstOrNull()?.let {
-            partitionKeyCondition = BinaryAttributeExpression(tagKeyAttribute, Eq, it)
-            tags.remove(it)
-        }
-        tags.map {
-            Product(
-                setOf(
-                    BinaryAttributeExpression(tagKeyAttribute, Co, it)
-                )
-            )
-        }.forEach {
-            filterAttributes = if (filterAttributes != null) {
-                and(it, filterAttributes!!)
+        filters?.tagsFilter?.let { filterSet ->
+            val tags = filterSet.toMutableSet()
+            val tagKeyAttribute = DatabaseClientsTable.profileWithTagKey
+            if (tags.isEmpty()) {
+                partitionKeyCondition = BinaryAttributeExpression(tagKeyAttribute, Eq, DatabaseClientsTable.tagKeyFor(profileId, ""))
             } else {
-                DisjunctiveNormalForm(setOf(it))
+                tags.first().let {
+                    partitionKeyCondition = BinaryAttributeExpression(
+                        tagKeyAttribute, Eq, DatabaseClientsTable.tagKeyFor(profileId, it))
+                    tags.remove(it)
+                }
             }
+            tags.map {
+                Product(
+                    setOf(
+                        BinaryAttributeExpression(DatabaseClientsTable.tags, Co, it)
+                    )
+                )
+            }.forEach {
+                filterAttributes = if (filterAttributes != null) {
+                    and(it, filterAttributes!!)
+                } else {
+                    DisjunctiveNormalForm(setOf(it))
+                }
+            }
+
         }
 
         filters?.clientNameFilter?.let {
@@ -689,7 +702,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         sortIndexAttribute = sortIndexAttribute ?: if (partitionKeyCondition!!.attribute == DatabaseClientsTable.profileId) {
             DatabaseClientsTable.clientIdKey
         } else {
-            DatabaseClientsTable.created
+            DatabaseClientsTable.clientName // Default sorting
         }
 
         val index = DatabaseClientsTable.queryCapabilities().indexes.firstOrNull() {
@@ -705,8 +718,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
             sortKeyCondition
         )
         val products = filterAttributes?.products?.toList().orEmpty()
-        val sortOrder = ResourceQuery.Sorting.SortOrder.ASCENDING //TODO
-        val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(primaryKeyCondition, products, sortOrder)
+        val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(
+            primaryKeyCondition, products, sortRequest?.sortOrder)
 
         val (values, encodedCursor) = queryWithPagination(
             QueryRequest.builder().tableName(tableName())
