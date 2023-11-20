@@ -30,14 +30,13 @@ import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributes
 import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeExpression
 import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeOperator.Co
 import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeOperator.Eq
-import io.curity.identityserver.plugin.dynamodb.query.DisjunctiveNormalForm
 import io.curity.identityserver.plugin.dynamodb.query.DynamoDBQueryBuilder
 import io.curity.identityserver.plugin.dynamodb.query.Index
-import io.curity.identityserver.plugin.dynamodb.query.Product
 import io.curity.identityserver.plugin.dynamodb.query.QueryHelper
 import io.curity.identityserver.plugin.dynamodb.query.QueryPlan
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
 import io.curity.identityserver.plugin.dynamodb.query.and
+import io.curity.identityserver.plugin.dynamodb.query.normalize
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.attribute.Attribute
@@ -82,6 +81,7 @@ import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
 import java.time.Instant
 import java.util.Optional
+import io.curity.identityserver.plugin.dynamodb.query.Expression as QueryExpression
 
 
 // TODO IS-7807 add javadoc documenting different records and DDB-specific attributes
@@ -607,12 +607,14 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         val profileIdAttribute = DatabaseClientsTable.profileId
 
-        //TODO validate
-
         var partitionKeyCondition: BinaryAttributeExpression? = null
         var sortKeyCondition: QueryPlan.RangeCondition? = null
         var sortIndexAttribute: DynamoDBAttribute<*>? = null
-        var filterAttributes: DisjunctiveNormalForm? = null
+        var filterExpression: QueryExpression? = null
+
+        fun addToFilterExpression(expression: QueryExpression) {
+            filterExpression = filterExpression?.let {and(it, expression) } ?: expression
+        }
 
         sortRequest?.sortBy?.let { sortBy ->
             DatabaseClientsTable.queryCapabilities().attributeMap[sortBy]?.let { attribute ->
@@ -623,16 +625,10 @@ class DynamoDBDatabaseClientDataAccessProvider(
         filters?.searchTermsFilter?.let {
             partitionKeyCondition = BinaryAttributeExpression(profileIdAttribute, Eq, profileId)
 
-            filterAttributes = DisjunctiveNormalForm(
-                setOf(
-                    Product(
-                        it.split(" ").asSequence().map { token ->
-                            BinaryAttributeExpression(DatabaseClientsTable.clientName, Co, token)
-                        }.toSet()
-                    )
-                )
-            )
-            //TODO add client_id
+            it.split(" ").forEach() { token ->
+                addToFilterExpression(BinaryAttributeExpression(DatabaseClientsTable.clientName, Co, token))
+                //TODO add client_id
+            }
         }
 
         filters?.tagsFilter?.let { filterSet ->
@@ -647,63 +643,33 @@ class DynamoDBDatabaseClientDataAccessProvider(
                     tags.remove(it)
                 }
             }
-            tags.map {
-                Product(
-                    setOf(
-                        BinaryAttributeExpression(DatabaseClientsTable.tags, Co, it)
-                    )
-                )
-            }.forEach {
-                filterAttributes = if (filterAttributes != null) {
-                    and(it, filterAttributes!!)
-                } else {
-                    DisjunctiveNormalForm(setOf(it))
-                }
+            tags.forEach {
+                addToFilterExpression(BinaryAttributeExpression(DatabaseClientsTable.tags, Co, it))
             }
-
         }
 
         filters?.clientNameFilter?.let {
             val clientNameAttribute = DatabaseClientsTable.clientName
+            val clientNameKeyExpression = BinaryAttributeExpression(DatabaseClientsTable.clientNameKey, Eq, it)
             if (partitionKeyCondition == null) {
-                val clientNameKeyAttribute = DatabaseClientsTable.clientNameKey
-                partitionKeyCondition = BinaryAttributeExpression(
-                    clientNameKeyAttribute, Eq, it)
+                partitionKeyCondition = clientNameKeyExpression
             } else if (sortIndexAttribute == null) {
                 sortIndexAttribute = clientNameAttribute
-                sortKeyCondition = QueryPlan.RangeCondition.Binary(
-                    BinaryAttributeExpression(clientNameAttribute, Eq, it)
-                )
+                sortKeyCondition = QueryPlan.RangeCondition.Binary(clientNameKeyExpression)
             } else {
-                val filterExpression = Product.of(
-                    BinaryAttributeExpression(clientNameAttribute, Eq, clientNameAttribute.toAttrValue(it))
-                )
-                filterAttributes = if (filterAttributes != null) {
-                    and(filterExpression, filterAttributes!!)
-                } else {
-                    DisjunctiveNormalForm(setOf(filterExpression))
-                }
+                addToFilterExpression(
+                    BinaryAttributeExpression(clientNameAttribute, Eq, clientNameAttribute.toAttrValue(it)))
             }
         }
 
         if (activeClientsOnly) {
-            val filterExpression = Product.of(
+            addToFilterExpression(
                 BinaryAttributeExpression(DatabaseClientsTable.status, Eq, DatabaseClientStatus.ACTIVE.name)
             )
-            filterAttributes = if (filterAttributes != null) {
-                and(filterExpression, filterAttributes!!)
-            } else {
-                DisjunctiveNormalForm(setOf(filterExpression))
-            }
         }
 
-        partitionKeyCondition = partitionKeyCondition ?:
-            BinaryAttributeExpression(profileIdAttribute, Eq, profileId)
-        sortIndexAttribute = sortIndexAttribute ?: if (partitionKeyCondition!!.attribute == DatabaseClientsTable.profileId) {
-            DatabaseClientsTable.clientIdKey
-        } else {
-            DatabaseClientsTable.clientName // Default sorting
-        }
+        partitionKeyCondition = partitionKeyCondition ?: BinaryAttributeExpression(profileIdAttribute, Eq, profileId)
+        sortIndexAttribute = sortIndexAttribute ?: DatabaseClientsTable.clientName // Default sorting
 
         val index = DatabaseClientsTable.queryCapabilities().indexes.firstOrNull() {
             it.partitionAttribute == partitionKeyCondition!!.attribute && it.sortAttribute == sortIndexAttribute
@@ -717,7 +683,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             partitionKeyCondition!!,
             sortKeyCondition
         )
-        val products = filterAttributes?.products?.toList().orEmpty()
+        val products = filterExpression?.let { normalize(it).products.toList() }.orEmpty()
         val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(
             primaryKeyCondition, products, sortRequest?.sortOrder)
 
