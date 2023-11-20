@@ -192,15 +192,21 @@ class DynamoDBDatabaseClientDataAccessProvider(
             DatabaseClientAttributeKeys.TAGS,
             DatabaseClientAttributesHelper.ATTRIBUTES,
         )
-        private val projectedAttributesForCreatedSortKey =
-            mutableListOf(DatabaseClientAttributesHelper.CLIENT_NAME_COLUMN, Meta.LAST_MODIFIED)
-                .apply { addAll(commonProjectedAttributes) }.toList()
-        private val projectedAttributesForUpdatedSortKey =
-            mutableListOf(DatabaseClientAttributesHelper.CLIENT_NAME_COLUMN, Meta.CREATED)
-                .apply { addAll(commonProjectedAttributes) }.toList()
-        private val projectedAttributesForClientNameSortKey =
-            mutableListOf(Meta.CREATED, Meta.LAST_MODIFIED)
-                .apply { addAll(commonProjectedAttributes) }.toList()
+        private val projectedAttributesForCreatedSortKey = mutableListOf(
+            DatabaseClientAttributesHelper.CLIENT_NAME_COLUMN,
+            DatabaseClientAttributeKeys.CLIENT_ID,
+            Meta.LAST_MODIFIED,
+        ).apply { addAll(commonProjectedAttributes) }.toList()
+        private val projectedAttributesForUpdatedSortKey = mutableListOf(
+            DatabaseClientAttributesHelper.CLIENT_NAME_COLUMN,
+            DatabaseClientAttributeKeys.CLIENT_ID,
+            Meta.CREATED,
+        ).apply { addAll(commonProjectedAttributes) }.toList()
+        private val projectedAttributesForClientNameSortKey = mutableListOf(
+            DatabaseClientAttributeKeys.CLIENT_ID,
+            Meta.CREATED,
+            Meta.LAST_MODIFIED,
+        ).apply { addAll(commonProjectedAttributes) }.toList()
 
         override fun queryCapabilities(): TableQueryCapabilities = object : TableQueryCapabilities(
             indexes = listOf(
