@@ -10,6 +10,10 @@
       "AttributeType": "S"
     },
     {
+      "AttributeName" : "client_id",
+      "AttributeType" : "S"
+    },
+    {
       "AttributeName" : "client_name_key",
       "AttributeType": "S"
     },
@@ -40,6 +44,7 @@
       "Projection" : {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
+          "client_id",
           "client_name",
           "status",
           "tags",
@@ -63,6 +68,7 @@
       "Projection" : {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
+          "client_id",
           "client_name",
           "status",
           "tags",
@@ -86,6 +92,7 @@
       "Projection" : {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
+          "client_id",
           "status",
           "tags",
           "created",
@@ -111,6 +118,7 @@
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
+          "client_id",
           "client_name",
           "status",
           "tags",
@@ -138,6 +146,7 @@
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
+          "client_id",
           "client_name",
           "status",
           "tags",
@@ -165,6 +174,7 @@
       "Projection" : {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
+          "client_id",
           "status",
           "tags",
           "created",
@@ -192,6 +202,7 @@
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
+          "client_id",
           "client_name",
           "status",
           "tags",
@@ -219,6 +230,7 @@
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
+          "client_id",
           "client_name",
           "status",
           "tags",
@@ -246,6 +258,7 @@
       "Projection": {
         "ProjectionType" : "INCLUDE",
         "NonKeyAttributes" : [
+          "client_id",
           "status",
           "tags",
           "created",
