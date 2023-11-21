@@ -416,7 +416,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             before = currentClientIdKey,
             // New clientIdKey based on clientId only
             after = attributes.clientId,
-            additionalAttributes = mapOf(
+            additionalAttributes = listOfNotNull(
                 // Add clientIdKey as SK for base table. For the main item, it is not composite and holds clientId only
                 Pair(
                     DatabaseClientsTable.clientIdKey.name,
@@ -428,8 +428,14 @@ class DynamoDBDatabaseClientDataAccessProvider(
                     DatabaseClientsTable.clientNameKey.toAttrValue(
                         DatabaseClientsTable.clientNameKeyFor(profileId, attributes.name)
                     )
-                )
-            ),
+                ),
+                Pair(
+                    DatabaseClientsTable.profileWithTagKey.name,
+                    DatabaseClientsTable.profileWithTagKey.toAttrValue(
+                        DatabaseClientsTable.tagKeyFor(profileId, "")
+                    )
+                ).takeIf { attributes.tags.isNullOrEmpty() },
+            ).toMap(),
             null,
             // Override commonItem by adding configuration references for the main item only
             attributes.addConfigurationReferencesTo(commonItem)
