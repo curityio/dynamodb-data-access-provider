@@ -32,6 +32,9 @@ import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeOperator.Co
 import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeOperator.Eq
 import io.curity.identityserver.plugin.dynamodb.query.DynamoDBQueryBuilder
 import io.curity.identityserver.plugin.dynamodb.query.Index
+import io.curity.identityserver.plugin.dynamodb.query.LogicalExpression
+import io.curity.identityserver.plugin.dynamodb.query.LogicalOperator.And
+import io.curity.identityserver.plugin.dynamodb.query.LogicalOperator.Or
 import io.curity.identityserver.plugin.dynamodb.query.QueryHelper
 import io.curity.identityserver.plugin.dynamodb.query.QueryPlan
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
@@ -130,6 +133,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val updated = NumberLongAttribute(Meta.LAST_MODIFIED)
 
         // Non-key attributes
+        val clientId = ListStringAttribute(DatabaseClientAttributeKeys.CLIENT_ID)
         val tags = ListStringAttribute(DatabaseClientAttributeKeys.TAGS)
         val status = StringAttribute(DatabaseClientAttributeKeys.STATUS)
 
@@ -625,10 +629,19 @@ class DynamoDBDatabaseClientDataAccessProvider(
         filters?.searchTermsFilter?.let {
             partitionKeyCondition = BinaryAttributeExpression(profileIdAttribute, Eq, profileId)
 
-            it.split(" ").forEach() { token ->
-                addToFilterExpression(BinaryAttributeExpression(DatabaseClientsTable.clientName, Co, token))
-                //TODO add client_id
+            val expressionPairs = it.split(" ").map { token ->
+                Pair(
+                    BinaryAttributeExpression(DatabaseClientsTable.clientId, Co, token),
+                    BinaryAttributeExpression(DatabaseClientsTable.clientName, Co, token),
+                )
             }
+
+            val clientIdExpressions = expressionPairs.map { pair -> pair.first as QueryExpression }
+                .reduceRight { current, next -> LogicalExpression(current, And, next) }
+            val clientNameExpressions = expressionPairs.map { pair -> pair.second as QueryExpression }
+                .reduceRight { current, next -> LogicalExpression(current, And, next) }
+
+            addToFilterExpression(LogicalExpression(clientIdExpressions, Or, clientNameExpressions))
         }
 
         filters?.tagsFilter?.let { filterSet ->
@@ -709,50 +722,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
         activeClientsOnly: Boolean
     ): Long {
         TODO("Not yet implemented")
-    }
-
-    private fun createPotentialKeys(
-        profileId: String,
-        filters: DatabaseClientAttributesFiltering?,
-        activeClientsOnly: Boolean,
-        sortRequest: DatabaseClientAttributesSorting? = null
-    ): QueryHelper.PotentialKeys {
-        val potentialPartitionKeys: MutableMap<DynamoDBAttribute<*>, Any> = mutableMapOf()
-
-        filters?.clientNameFilter?.let { clientName ->
-            potentialPartitionKeys[DatabaseClientsTable.clientNameKey] = clientName
-        }
-        filters?.tagsFilter?.let { tags: Set<String> ->
-            // TODO support multiple tags - for the first release, only a single tag may be provided
-            tags.firstOrNull()?.let { onlyTag ->
-                potentialPartitionKeys[DatabaseClientsTable.profileWithTagKey] =
-                    DatabaseClientsTable.profileWithTagKey.toAttrValue(
-                        DatabaseClientsTable.tagKeyFor(profileId, onlyTag)
-                    ).s()
-            }
-        }
-        if (potentialPartitionKeys.isEmpty()) {
-            potentialPartitionKeys[DatabaseClientsTable.profileId] = profileId
-        }
-
-        val potentialSortKeys: MutableMap<DynamoDBAttribute<*>, Any> = mutableMapOf()
-
-        val sortBy = DatabaseClientsTable.queryCapabilities().attributeMap[sortRequest?.sortBy]
-        if (sortBy != null) {
-            potentialSortKeys[sortBy] = QueryHelper.NoValueForSortKeys()
-        }
-
-        val potentialFilterKeys: MutableMap<DynamoDBAttribute<*>, Any> = mutableMapOf()
-        if (activeClientsOnly) {
-            potentialFilterKeys[DatabaseClientsTable.status] = DatabaseClientStatus.ACTIVE.name
-        }
-
-        @Suppress("UNCHECKED_CAST")
-        return QueryHelper.PotentialKeys(
-            potentialPartitionKeys as Map<DynamoDBAttribute<Any>, Any>,
-            potentialSortKeys as Map<DynamoDBAttribute<Any>, Any>,
-            potentialFilterKeys as Map<DynamoDBAttribute<Any>, Any>
-        )
     }
 
     companion object {
