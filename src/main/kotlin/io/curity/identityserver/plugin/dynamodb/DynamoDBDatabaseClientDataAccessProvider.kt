@@ -35,7 +35,6 @@ import io.curity.identityserver.plugin.dynamodb.query.Index
 import io.curity.identityserver.plugin.dynamodb.query.LogicalExpression
 import io.curity.identityserver.plugin.dynamodb.query.LogicalOperator.And
 import io.curity.identityserver.plugin.dynamodb.query.LogicalOperator.Or
-import io.curity.identityserver.plugin.dynamodb.query.QueryHelper
 import io.curity.identityserver.plugin.dynamodb.query.QueryPlan
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
 import io.curity.identityserver.plugin.dynamodb.query.and
@@ -142,7 +141,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val updated = NumberLongAttribute(Meta.LAST_MODIFIED)
 
         // Non-key attributes
-        val clientId = ListStringAttribute(DatabaseClientAttributeKeys.CLIENT_ID)
         val tags = ListStringAttribute(DatabaseClientAttributeKeys.TAGS)
         val status = StringAttribute(DatabaseClientAttributeKeys.STATUS)
 

@@ -97,7 +97,8 @@
           "tags",
           "created",
           "lastModified",
-          "attributes"
+          "attributes",
+          "client_name"
         ]
       },
       "KeySchema" : [
@@ -107,7 +108,7 @@
         },
         {
           "KeyType" : "RANGE",
-          "AttributeName" : "client_name"
+          "AttributeName" : "client_name_key"
         }
       ]
     }
