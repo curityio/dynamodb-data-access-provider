@@ -74,7 +74,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         val redirectUris = ListStringAttribute("redirectUris")
         val grantTypes = ListStringAttribute("grantTypes")
 
-        val primaryKey = PrimaryKey(clientId)
+        val primaryKey = PartitionKey(clientId)
         private val authenticatedUserCreatedIndex =
             PartitionAndSortIndex("authenticatedUser-created-index", authenticatedUser, created)
         private val authenticatedUserUpdatedIndex =
@@ -327,7 +327,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         indexAndKeys: QueryHelper.IndexAndKeys<Any, Any>
     ): (Map<String, AttributeValue>) -> Map<String, AttributeValue> =
         if (indexAndKeys.index != null) ({ indexAndKeys.index.toIndexPrimaryKey(it, DcrTable.primaryKey) })
-        else ({ mapOf(DcrTable.primaryKey.attribute.name to DcrTable.primaryKey.attribute.attributeValueFrom(it)) })
+        else ({ mapOf(DcrTable.primaryKey.partitionAttribute.name to DcrTable.primaryKey.partitionAttribute.attributeValueFrom(it)) })
 
     companion object {
         private val logger: Logger =

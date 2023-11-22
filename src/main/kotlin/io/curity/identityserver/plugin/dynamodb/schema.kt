@@ -334,14 +334,16 @@ fun Put.Builder.conditionExpression(expression: Expression)
     return this
 }
 
-class PrimaryKey<T>(
-    val attribute: DynamoDBAttribute<T>
-)
+sealed class PrimaryKey<T>(val partitionAttribute: DynamoDBAttribute<T>)
+
+class PartitionKey<T>(
+    partitionAttribute: DynamoDBAttribute<T>
+): PrimaryKey<T>(partitionAttribute)
 
 class CompositePrimaryKey<T1, T2>(
-    val partitionAttribute: DynamoDBAttribute<T1>,
+    partitionAttribute: DynamoDBAttribute<T1>,
     val sortAttribute: DynamoDBAttribute<T2>
-)
+): PrimaryKey<T1>(partitionAttribute)
 
 // A DynamoDB index composed by a single column (partition key)
 class PartitionOnlyIndex<T>(

@@ -1073,7 +1073,7 @@ class DynamoDBUserAccountDataAccessProvider(
     }
 
     private fun toLastEvaluatedKey(item: Map<String, AttributeValue>): Map<String, AttributeValue> =
-        mapOf(AccountsTable.primaryKey.attribute.name to AccountsTable.primaryKey.attribute.attributeValueFrom(item))
+        mapOf(AccountsTable.primaryKey.partitionAttribute.name to AccountsTable.primaryKey.partitionAttribute.attributeValueFrom(item))
 
     private fun scanCount(queryPlan: QueryPlan.UsingScan?): Long {
         val scanRequestBuilder = ScanRequest.builder()
@@ -1342,7 +1342,7 @@ class DynamoDBUserAccountDataAccessProvider(
         val created = NumberLongAttribute("created")
         val updated = NumberLongAttribute("updated")
 
-        val primaryKey = PrimaryKey(pk)
+        val primaryKey = PartitionKey(pk)
         val userNameInitialUserNameIndex =
             PartitionAndSortIndex("userNameInitial-userName-index", userNameInitial, userName)
         private val emailInitialEmailIndex =
@@ -1358,13 +1358,13 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val queryCapabilities = TableQueryCapabilities(
             indexes = buildList {
-                add(Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, accountId))))
-                add(Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, userName))))
+                add(Index.from(PartitionKey(UniquenessBasedIndexStringAttribute(pk, accountId))))
+                add(Index.from(PartitionKey(UniquenessBasedIndexStringAttribute(pk, userName))))
                 add(Index.from(userNameInitialUserNameIndex))
-                add(Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, email))))
+                add(Index.from(PartitionKey(UniquenessBasedIndexStringAttribute(pk, email))))
                 add(Index.from(emailInitialEmailIndex))
                 if (UNIQUE_ACCOUNT_PHONE_NUMBER) {
-                    add(Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, phone))))
+                    add(Index.from(PartitionKey(UniquenessBasedIndexStringAttribute(pk, phone))))
                 }
             },
             attributeMap = buildMap {

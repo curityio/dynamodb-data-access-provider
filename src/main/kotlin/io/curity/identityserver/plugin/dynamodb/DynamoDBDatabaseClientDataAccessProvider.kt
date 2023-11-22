@@ -35,6 +35,7 @@ import io.curity.identityserver.plugin.dynamodb.query.Index
 import io.curity.identityserver.plugin.dynamodb.query.LogicalExpression
 import io.curity.identityserver.plugin.dynamodb.query.LogicalOperator.And
 import io.curity.identityserver.plugin.dynamodb.query.LogicalOperator.Or
+import io.curity.identityserver.plugin.dynamodb.query.QueryHelper
 import io.curity.identityserver.plugin.dynamodb.query.QueryPlan
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
 import io.curity.identityserver.plugin.dynamodb.query.and
@@ -198,7 +199,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         private val lsiUpdatedIndex =
             PartitionAndSortIndex("lsi-lastModified-index", profileId, updated)
         private val lsiClientNameIndex =
-            PartitionAndSortIndex("lsi-client_name-index", profileId, clientName)
+            PartitionAndSortIndex("lsi-client_name-index", profileId, clientNameKey)
 
         // Projected attributes to GSIs/LSIs
         private val commonProjectedAttributes = listOf(
@@ -699,7 +700,13 @@ class DynamoDBDatabaseClientDataAccessProvider(
         }
 
         partitionKeyCondition = partitionKeyCondition ?: BinaryAttributeExpression(profileIdAttribute, Eq, profileId)
-        sortIndexAttribute = sortIndexAttribute ?: DatabaseClientsTable.clientName // Default sorting
+        sortIndexAttribute = (sortIndexAttribute ?: DatabaseClientsTable.clientName).let {// Default sorting
+            if (it == DatabaseClientsTable.clientName && partitionKeyCondition!!.attribute == profileIdAttribute) {
+                return@let DatabaseClientsTable.clientNameKey
+            } else {
+                it
+            }
+        }
 
         val index = DatabaseClientsTable.queryCapabilities().indexes.firstOrNull() {
             it.partitionAttribute == partitionKeyCondition!!.attribute && it.sortAttribute == sortIndexAttribute
@@ -717,20 +724,24 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(
             primaryKeyCondition, products, sortRequest?.sortOrder)
 
-        val (values, encodedCursor) = queryWithPagination(
-            QueryRequest.builder().tableName(tableName())
-                .configureWith(dynamoDBQuery),
-            DEFAULT_PAGE_SIZE,
-            null,
-            _dynamoDBClient,
-            ::toLastEvaluatedKey
-        )
+        val exclusiveStartKey = paginationRequest?.cursor?.takeIf { it.isNotBlank() }
+            ?.let { QueryHelper.getExclusiveStartKey(_json, it) }
+
+        val limit = paginationRequest?.count ?: DEFAULT_PAGE_SIZE
+
+        val (values, lastEvaluationKey) = queryWithPagination(
+            QueryRequest.builder().tableName(tableName()).configureWith(dynamoDBQuery),
+            limit,
+            exclusiveStartKey,
+            _dynamoDBClient) {
+            index.toIndexPrimaryKey(it, DatabaseClientsTable.compositePrimaryKey)
+        }
 
         val items = values
             .map { it.toAttributes() }
             .toList()
 
-        return PaginatedDataAccessResult(items, encodedCursor.toString())
+        return PaginatedDataAccessResult(items, QueryHelper.getEncodedCursor(_json, lastEvaluationKey))
     }
 
     override fun getClientCountBy(
