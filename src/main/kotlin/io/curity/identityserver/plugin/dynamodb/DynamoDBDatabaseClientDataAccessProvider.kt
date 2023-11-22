@@ -222,20 +222,34 @@ class DynamoDBDatabaseClientDataAccessProvider(
             DatabaseClientAttributeKeys.CLIENT_ID,
             Meta.CREATED,
             Meta.LAST_MODIFIED,
-        ).apply { addAll(commonProjectedAttributes) }.toList()
+        ).apply { addAll(commonProjectedAttributes) }
 
         override fun queryCapabilities(): TableQueryCapabilities = object : TableQueryCapabilities(
             indexes = listOf(
                 Index.from(compositePrimaryKey),
                 Index.from(clientNameCreatedIndex, ProjectionType.INCLUDE, projectedAttributesForCreatedSortKey),
                 Index.from(clientNameUpdatedIndex, ProjectionType.INCLUDE, projectedAttributesForUpdatedSortKey),
-                Index.from(clientNameClientNameIndex, ProjectionType.INCLUDE, projectedAttributesForClientNameSortKey),
+                Index.from(
+                    clientNameClientNameIndex,
+                    ProjectionType.INCLUDE,
+                    projectedAttributesForClientNameSortKey.toList()
+                ),
                 Index.from(tagCreatedIndex, ProjectionType.INCLUDE, projectedAttributesForCreatedSortKey),
                 Index.from(tagUpdatedIndex, ProjectionType.INCLUDE, projectedAttributesForUpdatedSortKey),
-                Index.from(tagClientNameIndex, ProjectionType.INCLUDE, projectedAttributesForClientNameSortKey),
+                Index.from(
+                    tagClientNameIndex,
+                    ProjectionType.INCLUDE,
+                    projectedAttributesForClientNameSortKey.toList()
+                ),
                 Index.from(lsiCreatedIndex, ProjectionType.INCLUDE, projectedAttributesForCreatedSortKey),
                 Index.from(lsiUpdatedIndex, ProjectionType.INCLUDE, projectedAttributesForUpdatedSortKey),
-                Index.from(lsiClientNameIndex, ProjectionType.INCLUDE, projectedAttributesForClientNameSortKey),
+                Index.from(
+                    lsiClientNameIndex,
+                    ProjectionType.INCLUDE,
+                    projectedAttributesForClientNameSortKey.apply {
+                        add(DatabaseClientAttributesHelper.CLIENT_NAME_COLUMN)
+                    }.toList()
+                ),
             ),
             attributeMap = mapOf(
                 DatabaseClientAttributesHelper.PROFILE_ID to profileId,
