@@ -222,34 +222,23 @@ class DynamoDBDatabaseClientDataAccessProvider(
             DatabaseClientAttributeKeys.CLIENT_ID,
             Meta.CREATED,
             Meta.LAST_MODIFIED,
-        ).apply { addAll(commonProjectedAttributes) }
+        ).apply { addAll(commonProjectedAttributes) }.toList()
+        private val projectedAttributesForClientNameKeySortKey = mutableListOf(
+            DatabaseClientAttributesHelper.CLIENT_NAME_COLUMN
+        ).apply { addAll(projectedAttributesForClientNameSortKey) }.toList()
 
         override fun queryCapabilities(): TableQueryCapabilities = object : TableQueryCapabilities(
             indexes = listOf(
                 Index.from(compositePrimaryKey),
                 Index.from(clientNameCreatedIndex, ProjectionType.INCLUDE, projectedAttributesForCreatedSortKey),
                 Index.from(clientNameUpdatedIndex, ProjectionType.INCLUDE, projectedAttributesForUpdatedSortKey),
-                Index.from(
-                    clientNameClientNameIndex,
-                    ProjectionType.INCLUDE,
-                    projectedAttributesForClientNameSortKey.toList()
-                ),
+                Index.from(clientNameClientNameIndex, ProjectionType.INCLUDE, projectedAttributesForClientNameSortKey),
                 Index.from(tagCreatedIndex, ProjectionType.INCLUDE, projectedAttributesForCreatedSortKey),
                 Index.from(tagUpdatedIndex, ProjectionType.INCLUDE, projectedAttributesForUpdatedSortKey),
-                Index.from(
-                    tagClientNameIndex,
-                    ProjectionType.INCLUDE,
-                    projectedAttributesForClientNameSortKey.toList()
-                ),
+                Index.from(tagClientNameIndex, ProjectionType.INCLUDE, projectedAttributesForClientNameSortKey),
                 Index.from(lsiCreatedIndex, ProjectionType.INCLUDE, projectedAttributesForCreatedSortKey),
                 Index.from(lsiUpdatedIndex, ProjectionType.INCLUDE, projectedAttributesForUpdatedSortKey),
-                Index.from(
-                    lsiClientNameIndex,
-                    ProjectionType.INCLUDE,
-                    projectedAttributesForClientNameSortKey.apply {
-                        add(DatabaseClientAttributesHelper.CLIENT_NAME_COLUMN)
-                    }.toList()
-                ),
+                Index.from(lsiClientNameIndex, ProjectionType.INCLUDE, projectedAttributesForClientNameKeySortKey),
             ),
             attributeMap = mapOf(
                 DatabaseClientAttributesHelper.PROFILE_ID to profileId,
