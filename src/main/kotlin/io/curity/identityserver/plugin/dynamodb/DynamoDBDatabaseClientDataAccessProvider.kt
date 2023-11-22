@@ -80,6 +80,7 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.ProjectionType
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
+import software.amazon.awssdk.services.dynamodb.model.Select
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
 import java.time.Instant
@@ -627,6 +628,50 @@ class DynamoDBDatabaseClientDataAccessProvider(
         activeClientsOnly: Boolean
     ): PaginatedDataAccessResult<DatabaseClientAttributes> {
 
+        val (index, dynamoDBQuery) = prepareQuery(profileId, filters, sortRequest, activeClientsOnly)
+
+        val exclusiveStartKey = paginationRequest?.cursor?.takeIf { it.isNotBlank() }
+            ?.let { QueryHelper.getExclusiveStartKey(_json, it) }
+
+        val limit = paginationRequest?.count ?: DEFAULT_PAGE_SIZE
+
+        val (values, lastEvaluationKey) = queryWithPagination(
+            QueryRequest.builder().tableName(tableName()).configureWith(dynamoDBQuery),
+            limit,
+            exclusiveStartKey,
+            _dynamoDBClient) {
+            index.toIndexPrimaryKey(it, DatabaseClientsTable.compositePrimaryKey)
+        }
+
+        val items = values
+            .map { it.toAttributes() }
+            .toList()
+
+        return PaginatedDataAccessResult(items, QueryHelper.getEncodedCursor(_json, lastEvaluationKey))
+    }
+
+    override fun getClientCountBy(
+        profileId: String,
+        filters: DatabaseClientAttributesFiltering?,
+        activeClientsOnly: Boolean
+    ): Long {
+        val (index, dynamoDBQuery) = prepareQuery(profileId, filters, null, activeClientsOnly)
+
+        val queryRequest = QueryRequest.builder()
+            .tableName(tableName())
+            .configureWith(dynamoDBQuery)
+            .select(Select.COUNT)
+            .build()
+
+        return count(queryRequest, _dynamoDBClient)
+    }
+
+    private fun prepareQuery(
+        profileId: String,
+        filters: DatabaseClientAttributesFiltering?,
+        sortRequest: DatabaseClientAttributesSorting?,
+        activeClientsOnly: Boolean
+    ): Pair<Index, DynamoDBQuery> {
         val profileIdAttribute = DatabaseClientsTable.profileId
 
         var partitionKeyCondition: BinaryAttributeExpression? = null
@@ -635,7 +680,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         var filterExpression: QueryExpression? = null
 
         fun addToFilterExpression(expression: QueryExpression) {
-            filterExpression = filterExpression?.let {and(it, expression) } ?: expression
+            filterExpression = filterExpression?.let { and(it, expression) } ?: expression
         }
 
         sortRequest?.sortBy?.let { sortBy ->
@@ -666,11 +711,13 @@ class DynamoDBDatabaseClientDataAccessProvider(
             val tags = filterSet.toMutableSet()
             val tagKeyAttribute = DatabaseClientsTable.profileWithTagKey
             if (tags.isEmpty()) {
-                partitionKeyCondition = BinaryAttributeExpression(tagKeyAttribute, Eq, DatabaseClientsTable.tagKeyFor(profileId, ""))
+                partitionKeyCondition =
+                    BinaryAttributeExpression(tagKeyAttribute, Eq, DatabaseClientsTable.tagKeyFor(profileId, ""))
             } else {
                 tags.first().let {
                     partitionKeyCondition = BinaryAttributeExpression(
-                        tagKeyAttribute, Eq, DatabaseClientsTable.tagKeyFor(profileId, it))
+                        tagKeyAttribute, Eq, DatabaseClientsTable.tagKeyFor(profileId, it)
+                    )
                     tags.remove(it)
                 }
             }
@@ -689,7 +736,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 sortKeyCondition = QueryPlan.RangeCondition.Binary(clientNameKeyExpression)
             } else {
                 addToFilterExpression(
-                    BinaryAttributeExpression(clientNameAttribute, Eq, clientNameAttribute.toAttrValue(it)))
+                    BinaryAttributeExpression(clientNameAttribute, Eq, clientNameAttribute.toAttrValue(it))
+                )
             }
         }
 
@@ -711,9 +759,11 @@ class DynamoDBDatabaseClientDataAccessProvider(
         val index = DatabaseClientsTable.queryCapabilities().indexes.firstOrNull() {
             it.partitionAttribute == partitionKeyCondition!!.attribute && it.sortAttribute == sortIndexAttribute
         } ?: throw IllegalStateException("Could not find any applicable index").also {
-            logger.debug("No index selected for execution; PK:{}, SK:{}, filters:{}, sort:{}",
-                partitionKeyCondition, sortIndexAttribute, filters, sortRequest)
-            }
+            logger.debug(
+                "No index selected for execution; PK:{}, SK:{}, filters:{}, sort:{}",
+                partitionKeyCondition, sortIndexAttribute, filters, sortRequest
+            )
+        }
 
         val primaryKeyCondition = QueryPlan.KeyCondition(
             index,
@@ -722,34 +772,9 @@ class DynamoDBDatabaseClientDataAccessProvider(
         )
         val products = filterExpression?.let { normalize(it).products.toList() }.orEmpty()
         val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(
-            primaryKeyCondition, products, sortRequest?.sortOrder)
-
-        val exclusiveStartKey = paginationRequest?.cursor?.takeIf { it.isNotBlank() }
-            ?.let { QueryHelper.getExclusiveStartKey(_json, it) }
-
-        val limit = paginationRequest?.count ?: DEFAULT_PAGE_SIZE
-
-        val (values, lastEvaluationKey) = queryWithPagination(
-            QueryRequest.builder().tableName(tableName()).configureWith(dynamoDBQuery),
-            limit,
-            exclusiveStartKey,
-            _dynamoDBClient) {
-            index.toIndexPrimaryKey(it, DatabaseClientsTable.compositePrimaryKey)
-        }
-
-        val items = values
-            .map { it.toAttributes() }
-            .toList()
-
-        return PaginatedDataAccessResult(items, QueryHelper.getEncodedCursor(_json, lastEvaluationKey))
-    }
-
-    override fun getClientCountBy(
-        profileId: String,
-        filters: DatabaseClientAttributesFiltering?,
-        activeClientsOnly: Boolean
-    ): Long {
-        TODO("Not yet implemented")
+            primaryKeyCondition, products, sortRequest?.sortOrder
+        )
+        return Pair(index, dynamoDBQuery)
     }
 
     companion object {
