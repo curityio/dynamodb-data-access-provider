@@ -737,17 +737,18 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         filters?.clientNameFilter?.let {
             val clientNameAttribute = DatabaseClientsTable.clientName
-            val clientNameKeyExpression = BinaryAttributeExpression(DatabaseClientsTable.clientNameKey, Eq,
-                DatabaseClientsTable.clientNameKeyFor(profileId, it))
+            val clientNameAttributeExpression =
+                BinaryAttributeExpression(clientNameAttribute, Eq, it)
             if (partitionKeyCondition == null) {
-                partitionKeyCondition = clientNameKeyExpression
+                partitionKeyCondition = BinaryAttributeExpression(
+                    DatabaseClientsTable.clientNameKey, Eq,
+                    DatabaseClientsTable.clientNameKeyFor(profileId, it)
+                )
             } else if (sortIndexAttribute == null) {
                 sortIndexAttribute = clientNameAttribute
-                sortKeyCondition = QueryPlan.RangeCondition.Binary(clientNameKeyExpression)
+                sortKeyCondition = QueryPlan.RangeCondition.Binary(clientNameAttributeExpression)
             } else {
-                addToFilterExpression(
-                    BinaryAttributeExpression(clientNameAttribute, Eq, clientNameAttribute.toAttrValue(it))
-                )
+                addToFilterExpression(clientNameAttributeExpression)
             }
         }
 
