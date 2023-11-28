@@ -130,7 +130,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         // DynamoDB-specific, composite string made up of profileId and an individual item from tags
         // PK for tag-based GSIs
-        val profileWithTagKey = object : UniqueStringAttribute(TAG_KEY, "") {
+        val tagKey = object : UniqueStringAttribute(TAG_KEY, "") {
             override fun uniquenessValueFrom(value: String) = value
         }
 
@@ -188,11 +188,11 @@ class DynamoDBDatabaseClientDataAccessProvider(
         private val clientNameClientNameIndex =
             PartitionAndSortIndex("client_name-client_name-index", clientNameKey, clientName)
         private val tagCreatedIndex =
-            PartitionAndSortIndex("tag-created-index", profileWithTagKey, created)
+            PartitionAndSortIndex("tag-created-index", tagKey, created)
         private val tagUpdatedIndex =
-            PartitionAndSortIndex("tag-lastModified-index", profileWithTagKey, updated)
+            PartitionAndSortIndex("tag-lastModified-index", tagKey, updated)
         private val tagClientNameIndex =
-            PartitionAndSortIndex("tag-client_name-index", profileWithTagKey, clientName)
+            PartitionAndSortIndex("tag-client_name-index", tagKey, clientName)
 
         // LSIs
         private val lsiCreatedIndex =
@@ -246,7 +246,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 DatabaseClientAttributeKeys.CLIENT_ID to clientId,
                 CLIENT_NAME_KEY to clientNameKey,
                 DatabaseClientAttributeKeys.NAME to clientName,
-                TAG_KEY to profileWithTagKey,
+                TAG_KEY to tagKey,
                 DatabaseClientAttributeKeys.TAGS to tags,
                 Meta.CREATED to created,
                 Meta.LAST_MODIFIED to updated,
@@ -309,16 +309,17 @@ class DynamoDBDatabaseClientDataAccessProvider(
                     DatabaseClientsTable.clientIdKey.toAttrValue(attributes.clientId)
                 ),
                 // Add composite clientNameKey as PK for clientName-based GSIs,
-                // but only if 'name' valid
+                // if clientName is not present add just key, e.g. {profile}#
+                // => we need to have all clients present in the Indexes (even without name)
                 Pair(
                     DatabaseClientsTable.clientNameKey.name,
                     DatabaseClientsTable.clientNameKey.toAttrValue(
                         DatabaseClientsTable.clientNameKeyFor(profileId, attributes.name)
                     )
-                ).takeIf { !attributes.name.isNullOrEmpty() },
+                ),
                 Pair(
-                    DatabaseClientsTable.profileWithTagKey.name,
-                    DatabaseClientsTable.profileWithTagKey.toAttrValue(
+                    DatabaseClientsTable.tagKey.name,
+                    DatabaseClientsTable.tagKey.toAttrValue(
                         DatabaseClientsTable.tagKeyFor(profileId, ""))
                 ).takeIf { attributes.tags.isNullOrEmpty() },
             ).toMap(),
@@ -341,8 +342,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
                     ),
                     // Add composite tagKey as PK for tag-based GSIs
                     Pair(
-                        DatabaseClientsTable.profileWithTagKey.name,
-                        DatabaseClientsTable.profileWithTagKey.toAttrValue(
+                        DatabaseClientsTable.tagKey.name,
+                        DatabaseClientsTable.tagKey.toAttrValue(
                             DatabaseClientsTable.tagKeyFor(profileId, tag)
                         )
                     ),
@@ -433,8 +434,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
                     )
                 ),
                 Pair(
-                    DatabaseClientsTable.profileWithTagKey.name,
-                    DatabaseClientsTable.profileWithTagKey.toAttrValue(
+                    DatabaseClientsTable.tagKey.name,
+                    DatabaseClientsTable.tagKey.toAttrValue(
                         DatabaseClientsTable.tagKeyFor(profileId, "")
                     )
                 ).takeIf { attributes.tags.isNullOrEmpty() },
@@ -469,8 +470,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 additionalAttributes = mapOf(
                     // Add composite tagKey as PK for tag-based GSIs
                     Pair(
-                        DatabaseClientsTable.profileWithTagKey.name,
-                        DatabaseClientsTable.profileWithTagKey.toAttrValue(
+                        DatabaseClientsTable.tagKey.name,
+                        DatabaseClientsTable.tagKey.toAttrValue(
                             DatabaseClientsTable.tagKeyFor(profileId, newTag)
                         )
                     )
@@ -514,8 +515,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 additionalAttributes = mapOf(
                     // Add composite tagKey as PK for tag-based GSIs
                     Pair(
-                        DatabaseClientsTable.profileWithTagKey.name,
-                        DatabaseClientsTable.profileWithTagKey.toAttrValue(
+                        DatabaseClientsTable.tagKey.name,
+                        DatabaseClientsTable.tagKey.toAttrValue(
                             DatabaseClientsTable.tagKeyFor(profileId, newTag)
                         )
                     )
@@ -664,7 +665,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         filters: DatabaseClientAttributesFiltering?,
         activeClientsOnly: Boolean
     ): Long {
-        val (index, dynamoDBQuery) = prepareQuery(profileId, filters, null, activeClientsOnly)
+        val (_, dynamoDBQuery) = prepareQuery(profileId, filters, null, activeClientsOnly)
 
         val queryRequest = QueryRequest.builder()
             .tableName(tableName())
@@ -698,19 +699,19 @@ class DynamoDBDatabaseClientDataAccessProvider(
             }
         }
 
-        filters?.searchTermsFilter?.let {
+        filters?.searchTermsFilter?.takeIf { it.isNotBlank() }?.let {
             partitionKeyCondition = BinaryAttributeExpression(profileIdAttribute, Eq, profileId)
 
-            val expressionPairs = it.split(" ").map { token ->
+            val expressionPairs : List<Pair<QueryExpression, QueryExpression>> = it.split(" ").map { token ->
                 Pair(
                     BinaryAttributeExpression(DatabaseClientsTable.clientId, Co, token),
                     BinaryAttributeExpression(DatabaseClientsTable.clientName, Co, token),
                 )
             }
 
-            val clientIdExpressions = expressionPairs.map { pair -> pair.first as QueryExpression }
+            val clientIdExpressions = expressionPairs.map { pair -> pair.first }
                 .reduceRight { current, next -> LogicalExpression(current, And, next) }
-            val clientNameExpressions = expressionPairs.map { pair -> pair.second as QueryExpression }
+            val clientNameExpressions = expressionPairs.map { pair -> pair.second }
                 .reduceRight { current, next -> LogicalExpression(current, And, next) }
 
             addToFilterExpression(LogicalExpression(clientIdExpressions, Or, clientNameExpressions))
@@ -718,7 +719,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         filters?.tagsFilter?.let { filterSet ->
             val tags = filterSet.toMutableSet()
-            val tagKeyAttribute = DatabaseClientsTable.profileWithTagKey
+            val tagKeyAttribute = DatabaseClientsTable.tagKey
             if (tags.isEmpty()) {
                 partitionKeyCondition =
                     BinaryAttributeExpression(tagKeyAttribute, Eq, DatabaseClientsTable.tagKeyFor(profileId, ""))
@@ -735,7 +736,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             }
         }
 
-        filters?.clientNameFilter?.let {
+        filters?.clientNameFilter?.takeIf{ it.isNotBlank() }?.let {
             val clientNameAttribute = DatabaseClientsTable.clientName
             val clientNameAttributeExpression =
                 BinaryAttributeExpression(clientNameAttribute, Eq, it)

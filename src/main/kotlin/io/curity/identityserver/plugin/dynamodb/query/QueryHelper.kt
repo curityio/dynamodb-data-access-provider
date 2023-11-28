@@ -156,7 +156,7 @@ object QueryHelper {
         allowedScan: Boolean,
         tableCapabilities: TableCapabilities? = null,
         attributesFiltering: AttributesFiltering? = null,
-        sortRequest: ResourceQuery.Sorting? = null
+        sortRequest: AttributesSorting? = null
     ) {
         if (FilterType.ENDS_WITH == attributesFiltering?.filterType
             && tableCapabilities?.isSupported(TableCapabilities.TableCapability.FILTERING_ENDS_WITH) == false
