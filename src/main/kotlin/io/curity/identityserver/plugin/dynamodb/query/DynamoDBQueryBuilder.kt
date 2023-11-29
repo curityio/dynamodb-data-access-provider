@@ -92,6 +92,9 @@ class DynamoDBQueryBuilder {
             is BinaryAttributeExpression -> {
                 val attribute = if (expression.attribute is ListStringAttribute
                     && expression.operator is BinaryAttributeOperator.Co) {
+                    // colonNameFor() method is casting the expression value to type of the given attribute.
+                    // But for the `string set` attribute (ListStringAttribute) and the `contains` operation
+                    // the correct `value` type is `string`, e.g.: `CONTAINS(stringSetAttribute, stringValue)
                     StringAttribute(expression.attribute.name)
                 } else {
                     expression.attribute

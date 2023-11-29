@@ -317,6 +317,9 @@ class DynamoDBDatabaseClientDataAccessProvider(
                         DatabaseClientsTable.clientNameKeyFor(profileId, attributes.name)
                     )
                 ),
+                // If the client has not tags create an empty tagKey attribute value, e.g.: `{profileId}#`
+                // It's used in case when filtering clients with no tags
+                // For the list of use-cases consult the ticket: #IS-8010
                 Pair(
                     DatabaseClientsTable.tagKey.name,
                     DatabaseClientsTable.tagKey.toAttrValue(
@@ -696,6 +699,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
         sortRequest?.sortBy?.let { sortBy ->
             DatabaseClientsTable.queryCapabilities().attributeMap[sortBy]?.let { attribute ->
                 sortIndexAttribute = attribute
+            } ?: {
+                logger.debug("Sort attribute was not found: $sortBy")
             }
         }
 
@@ -710,10 +715,12 @@ class DynamoDBDatabaseClientDataAccessProvider(
             }
 
             val clientIdExpressions = expressionPairs.map { pair -> pair.first }
-                .reduceRight { current, next -> LogicalExpression(current, And, next) }
+                .reduce { current, next -> LogicalExpression(current, And, next) }
             val clientNameExpressions = expressionPairs.map { pair -> pair.second }
-                .reduceRight { current, next -> LogicalExpression(current, And, next) }
+                .reduce { current, next -> LogicalExpression(current, And, next) }
 
+            // ( CONTAINS( client_id, token1 ) [ AND CONTAINS( client_id, token2 ) ] )
+            // OR ( CONTAINS( client_name, token1 ) [ AND CONTAINS( client_name, token2 ) ] )
             addToFilterExpression(LogicalExpression(clientIdExpressions, Or, clientNameExpressions))
         }
 
@@ -809,9 +816,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
             DatabaseClientsTable.version.optionalFrom(this)
                 ?: throw SchemaErrorException(DatabaseClientsTable, DatabaseClientsTable.version)
     }
-
-    private fun toLastEvaluatedKey(item: Map<String, AttributeValue>): Map<String, AttributeValue> =
-        mapOf(DatabaseClientsTable.clientIdKey.name to DatabaseClientsTable.clientIdKey.attributeValueFrom(item))
 
     private fun DatabaseClientAttributes.toItem(
         profileId: String,
