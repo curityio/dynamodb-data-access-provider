@@ -679,6 +679,15 @@ class DynamoDBDatabaseClientDataAccessProvider(
         return count(queryRequest, _dynamoDBClient)
     }
 
+    /**
+     * Business logic in this method is based on Use-case definition (Access Patterns in DynamoDB jargon)
+     * which can be found from the ticket https://curity.atlassian.net/browse/IS-8005?focusedCommentId=44369
+     *
+     * The main idea is, based on the provided input to figure out the right Use Case.
+     * Then from Use Case to identify the correct Index to be used
+     * by constructing the Primary Key (which is the combination of Partition Key and Sort Key).
+     * And also constructing the Key and Filter Expressions.
+     */
     private fun prepareQuery(
         profileId: String,
         filters: DatabaseClientAttributesFiltering?,
@@ -776,7 +785,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         // if no sorting is present take the default which is by client name
         sortIndexAttribute = (sortIndexAttribute ?: DatabaseClientsTable.clientName).let {
             // if sorting is by client name and partition key is profile_id the sorting key is clientNameKey
-            // consult the Use-Case table: https://curity.atlassian.net/browse/IS-8005?focusedCommentId=44369
+            // consult the Use-Case table
             if (it == DatabaseClientsTable.clientName && partitionKeyCondition!!.attribute == profileIdAttribute) {
                 return@let DatabaseClientsTable.clientNameKey
             } else {
