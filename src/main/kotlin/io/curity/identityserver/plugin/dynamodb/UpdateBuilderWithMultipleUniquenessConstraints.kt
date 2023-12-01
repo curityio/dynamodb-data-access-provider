@@ -31,15 +31,28 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
     private val _configuration: DynamoDBDataAccessProviderConfiguration,
     private val _table: Table,
     private val _commonItem: Map<String, AttributeValue>,
-    private val _keyAttribute: DynamoDBAttribute<String>,
-    private val _conditionExpression: Expression
+    private val _pkAttribute: DynamoDBAttribute<String>,
+    private val _conditionExpression: Expression,
+    // For a composite primary key, provide also the partition key value...
+    private val _pkValue: String? = null,
+    // ... and the sort key attribute
+    private val _skAttribute: DynamoDBAttribute<String>? = null,
 ) {
 
     private val _transactionItems = mutableListOf<TransactWriteItem>()
+    private var _conditionExpressionOverride: Expression? = null
+    private var _commonItemOverride: Map<String, AttributeValue>? = null
 
     // Handles the update of an unique attribute
-    fun <T> handleUniqueAttribute(attribute: UniqueAttribute<T>, before: T?, after: T?,
-                                  additionalAttributes: Map<String, AttributeValue> = mapOf()) {
+    // Not thread-safe when any new overriding parameter is provided
+    fun <T> handleUniqueAttribute(
+        attribute: UniqueAttribute<T>, before: T?, after: T?,
+        additionalAttributes: Map<String, AttributeValue> = mapOf(),
+        conditionExpressionOverride: Expression? = null,
+        commonItemOverride: Map<String, AttributeValue>? = null,
+    ) {
+        setOverrides(conditionExpressionOverride, commonItemOverride)
+
         if (before == after) {
             if (after != null) {
                 // Even if the key value doesn't change, we still need to update the item's data.
@@ -55,22 +68,24 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
                 removeItem(attribute.uniquenessValueFrom(before))
             }
         }
+
+        setOverrides(null, null)
     }
 
-    private fun removeItem(pkValue: String) {
+    private fun removeItem(keyValue: String) {
         _transactionItems.add(
             TransactWriteItem.builder()
                 .delete {
                     it.tableName(_table.name(_configuration))
-                    it.key(mapOf(_keyAttribute.toNameValuePair(pkValue)))
-                    it.conditionExpression(_conditionExpression)
+                    it.key(primaryKey(keyValue))
+                    it.conditionExpression(getConditionExpression())
                 }
                 .build()
         )
     }
 
-    private fun insertItem(pkValue: String, additionalAttributes: Map<String, AttributeValue>) {
-        val secondaryItem = _commonItem + setOf(_keyAttribute.toNameValuePair(pkValue)) + additionalAttributes
+    private fun insertItem(keyValue: String, additionalAttributes: Map<String, AttributeValue>) {
+        val secondaryItem = getCommonItem() + keySet(keyValue) + additionalAttributes
         _transactionItems.add(
             TransactWriteItem.builder()
                 .put {
@@ -78,14 +93,14 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
                     it.item(
                         secondaryItem
                     )
-                    it.conditionExpression("attribute_not_exists(${_keyAttribute.name})")
+                    it.conditionExpression("attribute_not_exists(${_pkAttribute.name})")
                 }
                 .build()
         )
     }
 
-    private fun updateItem(pkValue: String, additionalAttributes: Map<String, AttributeValue>) {
-        val secondaryItem = _commonItem + setOf(_keyAttribute.toNameValuePair(pkValue)) + additionalAttributes
+    private fun updateItem(keyValue: String, additionalAttributes: Map<String, AttributeValue>) {
+        val secondaryItem = getCommonItem() + keySet(keyValue) + additionalAttributes
         _transactionItems.add(
             TransactWriteItem.builder()
                 .put {
@@ -93,7 +108,7 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
                     it.item(
                         secondaryItem
                     )
-                    it.conditionExpression(_conditionExpression)
+                    it.conditionExpression(getConditionExpression())
                 }
                 .build()
         )
@@ -104,4 +119,30 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
             .transactItems(_transactionItems)
             .build()
     }
+
+    private fun primaryKey(keyValue: String): Map<String, AttributeValue> =
+        if (_skAttribute == null || _pkValue == null) {
+            mapOf(_pkAttribute.toNameValuePair(keyValue))
+        } else {
+            mapOf(_pkAttribute.toNameValuePair(_pkValue), _skAttribute.toNameValuePair(keyValue))
+        }
+
+    private fun keySet(keyValue: String): Set<Pair<String, AttributeValue>> =
+        if (_skAttribute == null || _pkValue == null) {
+            setOf(_pkAttribute.toNameValuePair(keyValue))
+        } else {
+            setOf(_pkAttribute.toNameValuePair(_pkValue), _skAttribute.toNameValuePair(keyValue))
+        }
+
+    private fun setOverrides(
+        conditionExpressionOverride: Expression?,
+        commonItemOverride: Map<String, AttributeValue>?
+    ) {
+        _conditionExpressionOverride = conditionExpressionOverride
+        _commonItemOverride = commonItemOverride
+    }
+
+    private fun getConditionExpression(): Expression = _conditionExpressionOverride ?: _conditionExpression
+
+    private fun getCommonItem(): Map<String, AttributeValue> = _commonItemOverride ?: _commonItem
 }

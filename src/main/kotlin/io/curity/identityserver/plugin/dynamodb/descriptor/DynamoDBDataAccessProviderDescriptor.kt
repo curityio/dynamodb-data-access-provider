@@ -18,9 +18,10 @@ package io.curity.identityserver.plugin.dynamodb.descriptor
 import io.curity.identityserver.plugin.dynamodb.DynamoDBAttributeDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBBucketDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
+import io.curity.identityserver.plugin.dynamodb.DynamoDBDatabaseClientDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBDeviceDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBDynamicallyRegisteredClientDataAccessProvider
-import io.curity.identityserver.plugin.dynamodb.DynamoDBGlobalSecondaryIndexFeatureCheck
+import io.curity.identityserver.plugin.dynamodb.DynamoDBSecondaryIndexFeatureCheck
 import io.curity.identityserver.plugin.dynamodb.DynamoDBSessionDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBUserAccountDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.DynamoDBUserAccountDataAccessProvider.AccountsTable
@@ -29,6 +30,7 @@ import io.curity.identityserver.plugin.dynamodb.token.DynamoDBDelegationDataAcce
 import io.curity.identityserver.plugin.dynamodb.token.DynamoDBNonceDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.token.DynamoDBTokenDataAccessProvider
 import se.curity.identityserver.sdk.datasource.AttributeDataAccessProvider
+import se.curity.identityserver.sdk.datasource.DatabaseClientDataAccessProvider
 import se.curity.identityserver.sdk.datasource.DelegationDataAccessProvider
 import se.curity.identityserver.sdk.datasource.NonceDataAccessProvider
 import se.curity.identityserver.sdk.datasource.SessionDataAccessProvider
@@ -69,6 +71,9 @@ class DynamoDBDataAccessProviderDescriptor :
     override fun getAttributeDataAccessProvider(): Class<out AttributeDataAccessProvider> =
         DynamoDBAttributeDataAccessProvider::class.java
 
+    override fun getDatabaseClientDataAccessProvider(): Class<out DatabaseClientDataAccessProvider> =
+        DynamoDBDatabaseClientDataAccessProvider::class.java
+
     override fun createManagedObject(configuration: DynamoDBDataAccessProviderConfiguration):
             Optional<out ManagedObject<DynamoDBDataAccessProviderConfiguration>> {
         val accountsTableName = AccountsTable.name(configuration)
@@ -76,7 +81,7 @@ class DynamoDBDataAccessProviderDescriptor :
             // Since Curity 8.0.0: two global secondary indexes were created on the curity-accounts table.
             // Presence of the userNameInitial-userName-index implies that start_with search on userName or email
             // is possible in the underlying DynamoDB database.
-            DynamoDBGlobalSecondaryIndexFeatureCheck(accountsTableName, AccountsTable.userNameInitialUserNameIndex)
+            DynamoDBSecondaryIndexFeatureCheck(accountsTableName, AccountsTable.userNameInitialUserNameIndex)
         )
         return Optional.of(DynamoDBClient(configuration, featuresToCheck))
     }

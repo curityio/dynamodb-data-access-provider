@@ -17,6 +17,7 @@
 package io.curity.identityserver.plugin.dynamodb
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBUserAccountDataAccessProvider.AccountsTable
+import io.curity.identityserver.plugin.dynamodb.DynamoDBUserAccountDataAccessProvider.Companion.COUNTBY_OPERATION
 import io.curity.identityserver.plugin.dynamodb.DynamoDBUserAccountDataAccessProvider.Companion.GETALLBY_OPERATION
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import org.junit.jupiter.api.Assertions
@@ -39,7 +40,7 @@ class DynamoDBUserAccountDataAccessProviderTest {
         on { getJsonHandler() } doReturn jsonHandler
     }
     private val dynamoDBClient = mock<DynamoDBClient>()
-    private val featureId = DynamoDBGlobalSecondaryIndexFeatureCheck.buildFeatureId(
+    private val featureId = DynamoDBSecondaryIndexFeatureCheck.buildFeatureId(
         AccountsTable.name(configuration),
         AccountsTable.userNameInitialUserNameIndex
     )
@@ -83,7 +84,7 @@ class DynamoDBUserAccountDataAccessProviderTest {
         val exception = Assertions.assertThrows(UnsupportedOperationException::class.java) {
             dap.getCountBy(false)
         }
-        Assertions.assertEquals(GETALLBY_OPERATION, exception.message)
+        Assertions.assertEquals(COUNTBY_OPERATION, exception.message)
         verify(dynamoDBClient).supportsFeature(featureId)
     }
 
