@@ -19,6 +19,8 @@ package io.curity.identityserver.plugin.dynamodb.query
 import io.curity.identityserver.plugin.dynamodb.DynamoDBAttribute
 import io.curity.identityserver.plugin.dynamodb.DynamoDBQuery
 import io.curity.identityserver.plugin.dynamodb.DynamoDBScan
+import io.curity.identityserver.plugin.dynamodb.ListStringAttribute
+import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import se.curity.identityserver.sdk.data.query.ResourceQuery.Sorting.SortOrder
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 
@@ -88,7 +90,16 @@ class DynamoDBQueryBuilder {
         return when (expression) {
             is UnaryAttributeExpression -> expression.operator.toDynamoOperator(hashName)
             is BinaryAttributeExpression -> {
-                val colonName = colonNameFor(expression.attribute, expression.value)
+                val attribute = if (expression.attribute is ListStringAttribute
+                    && expression.operator is BinaryAttributeOperator.Co) {
+                    // colonNameFor() method is casting the expression value to type of the given attribute.
+                    // But for the `string set` attribute (ListStringAttribute) and the `contains` operation
+                    // the correct `value` type is `string`, e.g.: `CONTAINS(stringSetAttribute, stringValue)
+                    StringAttribute(expression.attribute.name)
+                } else {
+                    expression.attribute
+                }
+                val colonName = colonNameFor(attribute, expression.value)
                 expression.operator.toDynamoOperator(hashName, colonName)
             }
         }

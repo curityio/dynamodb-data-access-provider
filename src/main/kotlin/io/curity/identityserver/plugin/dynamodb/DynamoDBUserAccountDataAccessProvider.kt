@@ -195,6 +195,8 @@ class DynamoDBUserAccountDataAccessProvider(
         private const val MAX_QUERIES = 8
     }
 
+    private val tableName = AccountsTable.name(_configuration)
+
     override fun getById(
         accountId: String
     ): AccountAttributes? = fromAttributes(getById(accountId, ResourceQuery.Exclusions.none()))
@@ -246,7 +248,7 @@ class DynamoDBUserAccountDataAccessProvider(
         attributesEnumeration: ResourceQuery.AttributesEnumeration?
     ): ResourceAttributes<*>? {
         val requestBuilder = GetItemRequest.builder()
-            .tableName(AccountsTable.name(_configuration))
+            .tableName(tableName)
             .key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(key, keyValue)))
             .consistentRead(true)
 
@@ -360,7 +362,7 @@ class DynamoDBUserAccountDataAccessProvider(
         transactionItems.add(
             TransactWriteItem.builder()
                 .put {
-                    it.tableName(AccountsTable.name(_configuration))
+                    it.tableName(tableName)
                     it.conditionExpression(writeConditionExpression)
                     it.item(item)
                 }
@@ -425,7 +427,7 @@ class DynamoDBUserAccountDataAccessProvider(
                 "User account data source '{}' does not support '{}' because feature {} is missing",
                 this, operation, featureId
             )
-            throw UnsupportedOperationException(GETALLBY_OPERATION)
+            throw UnsupportedOperationException(operation)
         }
     }
 
@@ -442,7 +444,7 @@ class DynamoDBUserAccountDataAccessProvider(
                         BinaryAttributeExpression(
                             AccountsTable.active,
                             BinaryAttributeOperator.Eq,
-                            AccountsTable.active.toAttrValue(true).bool()
+                            true // only active accounts
                         )
                     )
                 )
@@ -492,7 +494,7 @@ class DynamoDBUserAccountDataAccessProvider(
         // secondary item keys.
         val getItemResponse = _dynamoDBClient.getItem(
             GetItemRequest.builder()
-                .tableName(AccountsTable.name(_configuration))
+                .tableName(tableName)
                 .key(AccountsTable.keyFromAccountId(accountId))
                 .build()
         )
@@ -523,7 +525,7 @@ class DynamoDBUserAccountDataAccessProvider(
         transactionItems.add(
             TransactWriteItem.builder()
                 .delete {
-                    it.tableName(AccountsTable.name(_configuration))
+                    it.tableName(tableName)
                     it.key(AccountsTable.keyFromAccountId(accountId))
                     it.conditionExpression(conditionExpression)
                 }
@@ -532,7 +534,7 @@ class DynamoDBUserAccountDataAccessProvider(
         transactionItems.add(
             TransactWriteItem.builder()
                 .delete {
-                    it.tableName(AccountsTable.name(_configuration))
+                    it.tableName(tableName)
                     it.key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, userName)))
                     it.conditionExpression(conditionExpression)
                 }
@@ -542,7 +544,7 @@ class DynamoDBUserAccountDataAccessProvider(
             transactionItems.add(
                 TransactWriteItem.builder()
                     .delete {
-                        it.tableName(AccountsTable.name(_configuration))
+                        it.tableName(tableName)
                         it.key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.email, email)))
                         it.conditionExpression(conditionExpression)
                     }
@@ -553,7 +555,7 @@ class DynamoDBUserAccountDataAccessProvider(
             transactionItems.add(
                 TransactWriteItem.builder()
                     .delete {
-                        it.tableName(AccountsTable.name(_configuration))
+                        it.tableName(tableName)
                         it.key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.phone, phone)))
                         it.conditionExpression(conditionExpression)
                     }
@@ -803,7 +805,7 @@ class DynamoDBUserAccountDataAccessProvider(
         _logger.debug(MASK_MARKER, "Received request to verify password for username : {}", username)
 
         val request = GetItemRequest.builder()
-            .tableName(AccountsTable.name(_configuration))
+            .tableName(tableName)
             // 'password' is not a DynamoDB reserved word
             .key(
                 mapOf(
@@ -857,7 +859,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
     private fun getItemByAccountId(accountId: String): DynamoDBItem? {
         val requestBuilder = GetItemRequest.builder()
-            .tableName(AccountsTable.name(_configuration))
+            .tableName(tableName)
             .key(AccountsTable.keyFromAccountId(accountId))
             .consistentRead(true)
 
@@ -869,7 +871,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
     private fun getItemByUsername(userName: String): DynamoDBItem? {
         val requestBuilder = GetItemRequest.builder()
-            .tableName(AccountsTable.name(_configuration))
+            .tableName(tableName)
             .key(AccountsTable.keyFromUserName(userName))
             .consistentRead(true)
 
@@ -1033,7 +1035,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
     private fun scan(queryPlan: QueryPlan.UsingScan?): Sequence<DynamoDBItem> {
         val scanRequestBuilder = ScanRequest.builder()
-            .tableName(AccountsTable.name(_configuration))
+            .tableName(tableName)
 
         return if (queryPlan != null && queryPlan.expression.products.isNotEmpty()) {
             val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression).addPkFiltering()
@@ -1056,7 +1058,7 @@ class DynamoDBUserAccountDataAccessProvider(
             null
         }
         val limit = paginationRequest?.count ?: DEFAULT_PAGE_SIZE
-        val scanRequestBuilder = ScanRequest.builder().tableName(AccountsTable.name(_configuration))
+        val scanRequestBuilder = ScanRequest.builder().tableName(tableName)
 
         val result = if (queryPlan != null && queryPlan.expression.products.isNotEmpty()) {
             val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression).addPkFiltering()
@@ -1071,11 +1073,11 @@ class DynamoDBUserAccountDataAccessProvider(
     }
 
     private fun toLastEvaluatedKey(item: Map<String, AttributeValue>): Map<String, AttributeValue> =
-        mapOf(AccountsTable.primaryKey.attribute.name to AccountsTable.primaryKey.attribute.attributeValueFrom(item))
+        mapOf(AccountsTable.primaryKey.partitionAttribute.name to AccountsTable.primaryKey.partitionAttribute.attributeValueFrom(item))
 
     private fun scanCount(queryPlan: QueryPlan.UsingScan?): Long {
         val scanRequestBuilder = ScanRequest.builder()
-            .tableName(AccountsTable.name(_configuration))
+            .tableName(tableName)
 
         return if (queryPlan != null && queryPlan.expression.products.isNotEmpty()) {
             val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression).addPkFiltering()
@@ -1103,7 +1105,7 @@ class DynamoDBUserAccountDataAccessProvider(
             val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(query.key, query.value)
 
             val queryRequest = QueryRequest.builder()
-                .tableName(AccountsTable.name(_configuration))
+                .tableName(tableName)
                 .configureWith(dynamoDBQuery)
                 .build()
 
@@ -1156,7 +1158,7 @@ class DynamoDBUserAccountDataAccessProvider(
         val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(query.key, query.value)
 
         val queryRequest = QueryRequest.builder()
-            .tableName(AccountsTable.name(_configuration))
+            .tableName(tableName)
             .configureWith(dynamoDBQuery)
             .select(Select.COUNT)
             .build()
@@ -1256,10 +1258,13 @@ class DynamoDBUserAccountDataAccessProvider(
             when (key) {
                 AccountsTable.pk.name -> { /*ignore*/
                 }
+
                 AccountsTable.version.name -> { /*ignore*/
                 }
+
                 AccountsTable.accountId.name -> { /*ignore: already in the 'id' attribute*/
                 }
+
                 AccountsTable.active.name -> map["active"] = value.bool()
                 AccountsTable.email.name -> {
                 } // skip, emails are in attributes
@@ -1337,7 +1342,7 @@ class DynamoDBUserAccountDataAccessProvider(
         val created = NumberLongAttribute("created")
         val updated = NumberLongAttribute("updated")
 
-        val primaryKey = PrimaryKey(pk)
+        val primaryKey = PartitionKey(pk)
         val userNameInitialUserNameIndex =
             PartitionAndSortIndex("userNameInitial-userName-index", userNameInitial, userName)
         private val emailInitialEmailIndex =
@@ -1353,13 +1358,13 @@ class DynamoDBUserAccountDataAccessProvider(
 
         val queryCapabilities = TableQueryCapabilities(
             indexes = buildList {
-                add(Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, accountId))))
-                add(Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, userName))))
+                add(Index.from(PartitionKey(UniquenessBasedIndexStringAttribute(pk, accountId))))
+                add(Index.from(PartitionKey(UniquenessBasedIndexStringAttribute(pk, userName))))
                 add(Index.from(userNameInitialUserNameIndex))
-                add(Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, email))))
+                add(Index.from(PartitionKey(UniquenessBasedIndexStringAttribute(pk, email))))
                 add(Index.from(emailInitialEmailIndex))
                 if (UNIQUE_ACCOUNT_PHONE_NUMBER) {
-                    add(Index.from(PrimaryKey(UniquenessBasedIndexStringAttribute(pk, phone))))
+                    add(Index.from(PartitionKey(UniquenessBasedIndexStringAttribute(pk, phone))))
                 }
             },
             attributeMap = buildMap {

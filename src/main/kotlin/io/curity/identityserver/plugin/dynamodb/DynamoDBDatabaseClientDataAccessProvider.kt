@@ -27,8 +27,19 @@ import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributes
 import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.SECONDARY_CLIENT_AUTHENTICATION
 import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.SECONDARY_CREDENTIAL_MANAGER_ID
 import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseClientAttributesHelper.SECONDARY_MUTUAL_TLS_CLIENT_CERTIFICATE_ID
+import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeExpression
+import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeOperator.Co
+import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeOperator.Eq
+import io.curity.identityserver.plugin.dynamodb.query.DynamoDBQueryBuilder
 import io.curity.identityserver.plugin.dynamodb.query.Index
+import io.curity.identityserver.plugin.dynamodb.query.LogicalExpression
+import io.curity.identityserver.plugin.dynamodb.query.LogicalOperator.And
+import io.curity.identityserver.plugin.dynamodb.query.LogicalOperator.Or
+import io.curity.identityserver.plugin.dynamodb.query.QueryHelper
+import io.curity.identityserver.plugin.dynamodb.query.QueryPlan
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
+import io.curity.identityserver.plugin.dynamodb.query.and
+import io.curity.identityserver.plugin.dynamodb.query.normalize
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.attribute.Attribute
@@ -68,10 +79,13 @@ import se.curity.identityserver.sdk.errors.ConflictException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.ProjectionType
+import software.amazon.awssdk.services.dynamodb.model.QueryRequest
+import software.amazon.awssdk.services.dynamodb.model.Select
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
 import java.time.Instant
 import java.util.Optional
+import io.curity.identityserver.plugin.dynamodb.query.Expression as QueryExpression
 
 
 // TODO IS-7807 add javadoc documenting different records and DDB-specific attributes
@@ -80,6 +94,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient
 ) : DatabaseClientDataAccessProvider {
     private val _json = _configuration.getJsonHandler()
+
     object DatabaseClientsTable : TableWithCapabilities("curity-database-clients") {
         const val CLIENT_NAME_KEY = "client_name_key"
         const val CLIENT_ID_KEY = "client_id_key"
@@ -100,6 +115,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
 
         // Table Partition Key (PK)
         val profileId = StringAttribute(DatabaseClientAttributesHelper.PROFILE_ID)
+
         // DynamoDB-specific, composite string made up of clientId and tag, or clientId only
         // Table Sort Key (SK)
         val clientIdKey = object : UniqueStringAttribute("client_id_key", "") {
@@ -184,7 +200,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         private val lsiUpdatedIndex =
             PartitionAndSortIndex("lsi-lastModified-index", profileId, updated)
         private val lsiClientNameIndex =
-            PartitionAndSortIndex("lsi-client_name-index", profileId, clientName)
+            PartitionAndSortIndex("lsi-client_name-index", profileId, clientNameKey)
 
         // Projected attributes to GSIs/LSIs
         private val commonProjectedAttributes = listOf(
@@ -207,6 +223,9 @@ class DynamoDBDatabaseClientDataAccessProvider(
             Meta.CREATED,
             Meta.LAST_MODIFIED,
         ).apply { addAll(commonProjectedAttributes) }.toList()
+        private val projectedAttributesForClientNameKeySortKey = mutableListOf(
+            DatabaseClientAttributesHelper.CLIENT_NAME_COLUMN
+        ).apply { addAll(projectedAttributesForClientNameSortKey) }.toList()
 
         override fun queryCapabilities(): TableQueryCapabilities = object : TableQueryCapabilities(
             indexes = listOf(
@@ -219,7 +238,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 Index.from(tagClientNameIndex, ProjectionType.INCLUDE, projectedAttributesForClientNameSortKey),
                 Index.from(lsiCreatedIndex, ProjectionType.INCLUDE, projectedAttributesForCreatedSortKey),
                 Index.from(lsiUpdatedIndex, ProjectionType.INCLUDE, projectedAttributesForUpdatedSortKey),
-                Index.from(lsiClientNameIndex, ProjectionType.INCLUDE, projectedAttributesForClientNameSortKey),
+                Index.from(lsiClientNameIndex, ProjectionType.INCLUDE, projectedAttributesForClientNameKeySortKey),
             ),
             attributeMap = mapOf(
                 DatabaseClientAttributesHelper.PROFILE_ID to profileId,
@@ -243,7 +262,6 @@ class DynamoDBDatabaseClientDataAccessProvider(
         fun primaryKey(pkValue: String, skValue: String) =
             mapOf(profileId.toNameValuePair(pkValue), clientIdKey.toNameValuePair(skValue))
     }
-
 
     override fun getClientById(clientId: String, profileId: String): DatabaseClientAttributes? {
         logger.debug("Getting database client with id: '$clientId' in profile: '$profileId'")
@@ -291,13 +309,22 @@ class DynamoDBDatabaseClientDataAccessProvider(
                     DatabaseClientsTable.clientIdKey.toAttrValue(attributes.clientId)
                 ),
                 // Add composite clientNameKey as PK for clientName-based GSIs,
-                // but only if 'name' valid
+                // if clientName is not present add just key, e.g. {profile}#
+                // => we need to have all clients present in the Indexes (even without name)
                 Pair(
                     DatabaseClientsTable.clientNameKey.name,
                     DatabaseClientsTable.clientNameKey.toAttrValue(
                         DatabaseClientsTable.clientNameKeyFor(profileId, attributes.name)
                     )
-                ).takeIf { !attributes.name.isNullOrEmpty() },
+                ),
+                // If the client has not tags create an empty tagKey attribute value, e.g.: `{profileId}#`
+                // It's used in case when filtering clients with no tags
+                // For the list of use-cases consult the ticket: #IS-8010
+                Pair(
+                    DatabaseClientsTable.tagKey.name,
+                    DatabaseClientsTable.tagKey.toAttrValue(
+                        DatabaseClientsTable.tagKeyFor(profileId, ""))
+                ).takeIf { attributes.tags.isNullOrEmpty() },
             ).toMap(),
             transactionItems,
             writeConditionExpression
@@ -396,7 +423,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             before = currentClientIdKey,
             // New clientIdKey based on clientId only
             after = attributes.clientId,
-            additionalAttributes = mapOf(
+            additionalAttributes = listOfNotNull(
                 // Add clientIdKey as SK for base table. For the main item, it is not composite and holds clientId only
                 Pair(
                     DatabaseClientsTable.clientIdKey.name,
@@ -408,8 +435,14 @@ class DynamoDBDatabaseClientDataAccessProvider(
                     DatabaseClientsTable.clientNameKey.toAttrValue(
                         DatabaseClientsTable.clientNameKeyFor(profileId, attributes.name)
                     )
-                )
-            ),
+                ),
+                Pair(
+                    DatabaseClientsTable.tagKey.name,
+                    DatabaseClientsTable.tagKey.toAttrValue(
+                        DatabaseClientsTable.tagKeyFor(profileId, "")
+                    )
+                ).takeIf { attributes.tags.isNullOrEmpty() },
+            ).toMap(),
             null,
             // Override commonItem by adding configuration references for the main item only
             attributes.addConfigurationReferencesTo(commonItem)
@@ -607,7 +640,27 @@ class DynamoDBDatabaseClientDataAccessProvider(
         sortRequest: DatabaseClientAttributesSorting?,
         activeClientsOnly: Boolean
     ): PaginatedDataAccessResult<DatabaseClientAttributes> {
-        TODO("Not yet implemented")
+
+        val (index, dynamoDBQuery) = prepareQuery(profileId, filters, sortRequest, activeClientsOnly)
+
+        val exclusiveStartKey = paginationRequest?.cursor?.takeIf { it.isNotBlank() }
+            ?.let { QueryHelper.getExclusiveStartKey(_json, it) }
+
+        val limit = paginationRequest?.count ?: DEFAULT_PAGE_SIZE
+
+        val (values, lastEvaluationKey) = queryWithPagination(
+            QueryRequest.builder().tableName(tableName()).configureWith(dynamoDBQuery),
+            limit,
+            exclusiveStartKey,
+            _dynamoDBClient) {
+            index.toIndexPrimaryKey(it, DatabaseClientsTable.compositePrimaryKey)
+        }
+
+        val items = values
+            .map { it.toAttributes() }
+            .toList()
+
+        return PaginatedDataAccessResult(items, QueryHelper.getEncodedCursor(_json, lastEvaluationKey))
     }
 
     override fun getClientCountBy(
@@ -615,7 +668,132 @@ class DynamoDBDatabaseClientDataAccessProvider(
         filters: DatabaseClientAttributesFiltering?,
         activeClientsOnly: Boolean
     ): Long {
-        TODO("Not yet implemented")
+        val (_, dynamoDBQuery) = prepareQuery(profileId, filters, null, activeClientsOnly)
+
+        val queryRequest = QueryRequest.builder()
+            .tableName(tableName())
+            .configureWith(dynamoDBQuery)
+            .select(Select.COUNT)
+            .build()
+
+        return count(queryRequest, _dynamoDBClient)
+    }
+
+    private fun prepareQuery(
+        profileId: String,
+        filters: DatabaseClientAttributesFiltering?,
+        sortRequest: DatabaseClientAttributesSorting?,
+        activeClientsOnly: Boolean
+    ): Pair<Index, DynamoDBQuery> {
+        val profileIdAttribute = DatabaseClientsTable.profileId
+
+        var partitionKeyCondition: BinaryAttributeExpression? = null
+        var sortKeyCondition: QueryPlan.RangeCondition? = null
+        var sortIndexAttribute: DynamoDBAttribute<*>? = null
+        var filterExpression: QueryExpression? = null
+
+        fun addToFilterExpression(expression: QueryExpression) {
+            filterExpression = filterExpression?.let { and(it, expression) } ?: expression
+        }
+
+        sortRequest?.sortBy?.let { sortBy ->
+            DatabaseClientsTable.queryCapabilities().attributeMap[sortBy]?.let { attribute ->
+                sortIndexAttribute = attribute
+            } ?: {
+                logger.debug("Sort attribute was not found: $sortBy")
+            }
+        }
+
+        filters?.searchTermsFilter?.takeIf { it.isNotBlank() }?.let {
+            partitionKeyCondition = BinaryAttributeExpression(profileIdAttribute, Eq, profileId)
+
+            val expressionPairs : List<Pair<QueryExpression, QueryExpression>> = it.split(" ").map { token ->
+                Pair(
+                    BinaryAttributeExpression(DatabaseClientsTable.clientId, Co, token),
+                    BinaryAttributeExpression(DatabaseClientsTable.clientName, Co, token),
+                )
+            }
+
+            val clientIdExpressions = expressionPairs.map { pair -> pair.first }
+                .reduce { current, next -> LogicalExpression(current, And, next) }
+            val clientNameExpressions = expressionPairs.map { pair -> pair.second }
+                .reduce { current, next -> LogicalExpression(current, And, next) }
+
+            // ( CONTAINS( client_id, token1 ) [ AND CONTAINS( client_id, token2 ) ] )
+            // OR ( CONTAINS( client_name, token1 ) [ AND CONTAINS( client_name, token2 ) ] )
+            addToFilterExpression(LogicalExpression(clientIdExpressions, Or, clientNameExpressions))
+        }
+
+        filters?.tagsFilter?.let { filterSet ->
+            val tags = filterSet.toMutableSet()
+            val tagKeyAttribute = DatabaseClientsTable.tagKey
+            if (tags.isEmpty()) {
+                partitionKeyCondition =
+                    BinaryAttributeExpression(tagKeyAttribute, Eq, DatabaseClientsTable.tagKeyFor(profileId, ""))
+            } else {
+                tags.first().let {
+                    partitionKeyCondition = BinaryAttributeExpression(
+                        tagKeyAttribute, Eq, DatabaseClientsTable.tagKeyFor(profileId, it)
+                    )
+                    tags.remove(it)
+                }
+            }
+            tags.forEach {
+                addToFilterExpression(BinaryAttributeExpression(DatabaseClientsTable.tags, Co, it))
+            }
+        }
+
+        filters?.clientNameFilter?.takeIf{ it.isNotBlank() }?.let {
+            val clientNameAttribute = DatabaseClientsTable.clientName
+            val clientNameAttributeExpression =
+                BinaryAttributeExpression(clientNameAttribute, Eq, it)
+            if (partitionKeyCondition == null) {
+                partitionKeyCondition = BinaryAttributeExpression(
+                    DatabaseClientsTable.clientNameKey, Eq,
+                    DatabaseClientsTable.clientNameKeyFor(profileId, it)
+                )
+            } else if (sortIndexAttribute == null) {
+                sortIndexAttribute = clientNameAttribute
+                sortKeyCondition = QueryPlan.RangeCondition.Binary(clientNameAttributeExpression)
+            } else {
+                addToFilterExpression(clientNameAttributeExpression)
+            }
+        }
+
+        if (activeClientsOnly) {
+            addToFilterExpression(
+                BinaryAttributeExpression(DatabaseClientsTable.status, Eq, DatabaseClientStatus.ACTIVE.name)
+            )
+        }
+
+        partitionKeyCondition = partitionKeyCondition ?: BinaryAttributeExpression(profileIdAttribute, Eq, profileId)
+        sortIndexAttribute = (sortIndexAttribute ?: DatabaseClientsTable.clientName).let {// Default sorting
+            if (it == DatabaseClientsTable.clientName && partitionKeyCondition!!.attribute == profileIdAttribute) {
+                return@let DatabaseClientsTable.clientNameKey
+            } else {
+                it
+            }
+        }
+
+        val index = DatabaseClientsTable.queryCapabilities().indexes.firstOrNull() {
+            it.partitionAttribute == partitionKeyCondition!!.attribute && it.sortAttribute == sortIndexAttribute
+        } ?: throw IllegalStateException("Could not find any applicable index").also {
+            logger.debug(
+                "No index selected for execution; PK:{}, SK:{}, filters:{}, sort:{}",
+                partitionKeyCondition, sortIndexAttribute, filters, sortRequest
+            )
+        }
+
+        val primaryKeyCondition = QueryPlan.KeyCondition(
+            index,
+            partitionKeyCondition!!,
+            sortKeyCondition
+        )
+        val products = filterExpression?.let { normalize(it).products.toList() }.orEmpty()
+        val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(
+            primaryKeyCondition, products, sortRequest?.sortOrder
+        )
+        return Pair(index, dynamoDBQuery)
     }
 
     companion object {
