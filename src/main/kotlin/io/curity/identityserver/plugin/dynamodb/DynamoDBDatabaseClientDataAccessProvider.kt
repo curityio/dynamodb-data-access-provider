@@ -679,6 +679,15 @@ class DynamoDBDatabaseClientDataAccessProvider(
         return count(queryRequest, _dynamoDBClient)
     }
 
+    /**
+     * Business logic in this method is based on Use-case definition (Access Patterns in DynamoDB jargon)
+     * which can be found from the ticket https://curity.atlassian.net/browse/IS-8005?focusedCommentId=44369
+     *
+     * The main idea is, based on the provided input to figure out the right Use Case.
+     * Then from Use Case to identify the correct Index to be used
+     * by constructing the Primary Key (which is the combination of Partition Key and Sort Key).
+     * And also constructing the Key and Filter Expressions.
+     */
     private fun prepareQuery(
         profileId: String,
         filters: DatabaseClientAttributesFiltering?,
@@ -696,6 +705,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             filterExpression = filterExpression?.let { and(it, expression) } ?: expression
         }
 
+        // handle sort attribute first if present
         sortRequest?.sortBy?.let { sortBy ->
             DatabaseClientsTable.queryCapabilities().attributeMap[sortBy]?.let { attribute ->
                 sortIndexAttribute = attribute
@@ -704,6 +714,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             }
         }
 
+        // handle search terms
         filters?.searchTermsFilter?.takeIf { it.isNotBlank() }?.let {
             partitionKeyCondition = BinaryAttributeExpression(profileIdAttribute, Eq, profileId)
 
@@ -724,6 +735,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             addToFilterExpression(LogicalExpression(clientIdExpressions, Or, clientNameExpressions))
         }
 
+        // handle tags
         filters?.tagsFilter?.let { filterSet ->
             val tags = filterSet.toMutableSet()
             val tagKeyAttribute = DatabaseClientsTable.tagKey
@@ -743,6 +755,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
             }
         }
 
+        // handle client name
         filters?.clientNameFilter?.takeIf{ it.isNotBlank() }?.let {
             val clientNameAttribute = DatabaseClientsTable.clientName
             val clientNameAttributeExpression =
@@ -760,14 +773,19 @@ class DynamoDBDatabaseClientDataAccessProvider(
             }
         }
 
+        // handle active clients
         if (activeClientsOnly) {
             addToFilterExpression(
                 BinaryAttributeExpression(DatabaseClientsTable.status, Eq, DatabaseClientStatus.ACTIVE.name)
             )
         }
 
+        // resolve partition key
         partitionKeyCondition = partitionKeyCondition ?: BinaryAttributeExpression(profileIdAttribute, Eq, profileId)
-        sortIndexAttribute = (sortIndexAttribute ?: DatabaseClientsTable.clientName).let {// Default sorting
+        // if no sorting is present take the default which is by client name
+        sortIndexAttribute = (sortIndexAttribute ?: DatabaseClientsTable.clientName).let {
+            // if sorting is by client name and partition key is profile_id the sorting key is clientNameKey
+            // consult the Use-Case table
             if (it == DatabaseClientsTable.clientName && partitionKeyCondition!!.attribute == profileIdAttribute) {
                 return@let DatabaseClientsTable.clientNameKey
             } else {
@@ -775,7 +793,8 @@ class DynamoDBDatabaseClientDataAccessProvider(
             }
         }
 
-        val index = DatabaseClientsTable.queryCapabilities().indexes.firstOrNull() {
+        // find the right index
+        val index = DatabaseClientsTable.queryCapabilities().indexes.firstOrNull {
             it.partitionAttribute == partitionKeyCondition!!.attribute && it.sortAttribute == sortIndexAttribute
         } ?: throw IllegalStateException("Could not find any applicable index").also {
             logger.debug(
@@ -784,15 +803,15 @@ class DynamoDBDatabaseClientDataAccessProvider(
             )
         }
 
-        val primaryKeyCondition = QueryPlan.KeyCondition(
-            index,
-            partitionKeyCondition!!,
-            sortKeyCondition
-        )
+        // construct the key condition
+        val keyCondition = QueryPlan.KeyCondition(index, partitionKeyCondition!!, sortKeyCondition)
+        // and the filter condition
         val products = filterExpression?.let { normalize(it).products.toList() }.orEmpty()
+
         val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(
-            primaryKeyCondition, products, sortRequest?.sortOrder
+            keyCondition, products, sortRequest?.sortOrder
         )
+
         return Pair(index, dynamoDBQuery)
     }
 
