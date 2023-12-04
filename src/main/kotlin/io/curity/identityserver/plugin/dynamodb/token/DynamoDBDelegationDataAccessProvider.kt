@@ -21,7 +21,7 @@ import io.curity.identityserver.plugin.dynamodb.EnumAttribute
 import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
 import io.curity.identityserver.plugin.dynamodb.PartitionAndSortIndex
 import io.curity.identityserver.plugin.dynamodb.PartitionOnlyIndex
-import io.curity.identityserver.plugin.dynamodb.PrimaryKey
+import io.curity.identityserver.plugin.dynamodb.PartitionKey
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import io.curity.identityserver.plugin.dynamodb.Table
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
@@ -92,7 +92,7 @@ class DynamoDBDelegationDataAccessProvider(
         val consentResult = StringAttribute("consentResult")
         val claims = StringAttribute("claims")
 
-        val primaryKey = PrimaryKey(id)
+        val primaryKey = PartitionKey(id)
         val ownerStatusIndex = PartitionAndSortIndex("owner-status-index", owner, status)
         val authorizationCodeIndex = PartitionOnlyIndex("authorization-hash-index", authorizationCodeHash)
         val clientStatusIndex = PartitionAndSortIndex("clientId-status-index", clientId, status)

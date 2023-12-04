@@ -74,7 +74,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         val redirectUris = ListStringAttribute("redirectUris")
         val grantTypes = ListStringAttribute("grantTypes")
 
-        val primaryKey = PrimaryKey(clientId)
+        val primaryKey = PartitionKey(clientId)
         private val authenticatedUserCreatedIndex =
             PartitionAndSortIndex("authenticatedUser-created-index", authenticatedUser, created)
         private val authenticatedUserUpdatedIndex =
@@ -102,9 +102,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             )
         )
 
-        override fun keyAttribute(): StringAttribute = clientId
-
-        fun key(value: String) = mapOf(keyAttribute().toNameValuePair(value))
+        fun primaryKey(value: String) = mapOf(clientId.toNameValuePair(value))
     }
 
     private fun DynamoDBItem.toAttributes(): DynamicallyRegisteredClientAttributes {
@@ -182,7 +180,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
 
         val request = GetItemRequest.builder()
             .tableName(DcrTable.name(_configuration))
-            .key(DcrTable.key(clientId))
+            .key(DcrTable.primaryKey(clientId))
             .consistentRead(true)
             .build()
 
@@ -246,7 +244,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
 
         val requestBuilder = UpdateItemRequest.builder()
             .tableName(DcrTable.name(_configuration))
-            .key(DcrTable.key(dynamicallyRegisteredClientAttributes.clientId))
+            .key(DcrTable.primaryKey(dynamicallyRegisteredClientAttributes.clientId))
             .apply { builder.applyTo(this) }
 
         try {
@@ -264,7 +262,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
 
         val request = DeleteItemRequest.builder()
             .tableName(DcrTable.name(_configuration))
-            .key(DcrTable.key(clientId))
+            .key(DcrTable.primaryKey(clientId))
             .build()
 
         _dynamoDBClient.deleteItem(request)
@@ -329,7 +327,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         indexAndKeys: QueryHelper.IndexAndKeys<Any, Any>
     ): (Map<String, AttributeValue>) -> Map<String, AttributeValue> =
         if (indexAndKeys.index != null) ({ indexAndKeys.index.toIndexPrimaryKey(it, DcrTable.primaryKey) })
-        else ({ mapOf(DcrTable.primaryKey.attribute.name to DcrTable.primaryKey.attribute.attributeValueFrom(it)) })
+        else ({ mapOf(DcrTable.primaryKey.partitionAttribute.name to DcrTable.primaryKey.partitionAttribute.attributeValueFrom(it)) })
 
     companion object {
         private val logger: Logger =
