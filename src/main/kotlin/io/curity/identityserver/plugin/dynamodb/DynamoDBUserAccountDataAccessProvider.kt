@@ -37,7 +37,6 @@ import org.slf4j.MarkerFactory
 import se.curity.identityserver.sdk.attribute.AccountAttributes
 import se.curity.identityserver.sdk.attribute.Attribute
 import se.curity.identityserver.sdk.attribute.Attributes
-import se.curity.identityserver.sdk.attribute.CredentialAttributes
 import se.curity.identityserver.sdk.attribute.SubjectAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
@@ -842,15 +841,7 @@ class DynamoDBUserAccountDataAccessProvider(
         )
         val passwordData = AccountsTable.password.optionalFrom(item)
 
-        return GetResult(subjectAttributes, CredentialAttributes.empty(), passwordData)
-    }
-
-    override fun store(subjectAttributes: SubjectAttributes, passwordData: String, credentialAttributes: CredentialAttributes) {
-        TODO("Not yet implemented")
-    }
-
-    override fun storeAttributes(subjectAttributes: SubjectAttributes, credentialAttributes: CredentialAttributes) {
-        TODO("Not yet implemented")
+        return GetResult(subjectAttributes, passwordData)
     }
 
     override fun delete(subjectAttributes: SubjectAttributes) {
