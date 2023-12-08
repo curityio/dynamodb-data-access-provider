@@ -6,7 +6,7 @@
 
     <groupId>io.curity.identityserver.plugin</groupId>
     <artifactId>identityserver.plugins.data.access.dynamodb</artifactId>
-    <version>1.1.0</version>
+    <version>1.2.0</version>
     <packaging>jar</packaging>
 
     <name>Curity DynamoDB Data Access Provider</name>
@@ -20,7 +20,7 @@
     </licenses>
 
     <properties>
-        <kotlin.version>1.6.10</kotlin.version>
+        <kotlin.version>1.9.0</kotlin.version>
         <kotlin.code.style>official</kotlin.code.style>
 
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -28,8 +28,8 @@
         <apache-client.version>4.5.13</apache-client.version>
         <awssdk.version>2.19.8</awssdk.version>
         <byte-buddy.version>1.11.0</byte-buddy.version>
-        <curity.version>8.1.0</curity.version>
-        <jackson.version>2.14.1</jackson.version>
+        <curity.version>8.7.0-SNAPSHOT</curity.version>
+        <jackson.version>2.16.0</jackson.version>
         <junit.version>5.9.1</junit.version>
         <mockito.version>2.6.5</mockito.version>
         <mockito-kotlin.version>2.2.11</mockito-kotlin.version>
