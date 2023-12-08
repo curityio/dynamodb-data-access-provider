@@ -19,3 +19,6 @@ hs_err_pid*
 deploy.sh
 *.iml
 target
+
+# Mac
+.DS_Store
