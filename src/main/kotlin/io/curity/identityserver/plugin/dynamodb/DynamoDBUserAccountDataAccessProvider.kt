@@ -844,8 +844,13 @@ class DynamoDBUserAccountDataAccessProvider(
         return GetResult(subjectAttributes, passwordData)
     }
 
-    override fun delete(subjectAttributes: SubjectAttributes) {
-        TODO("Not yet implemented")
+    // From Credential DAP
+    override fun delete(subjectAttributes: SubjectAttributes): Boolean {
+        _logger.debug(
+            "DynamoDB data-source doesn't support deleting credentials because they are stored with accounts. " +
+                    "This request will be ignored, but the credential will be removed if the account is deleted."
+        )
+        return true
     }
 
     private fun getItemByAccountId(accountId: String): DynamoDBItem? {
