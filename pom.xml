@@ -62,7 +62,7 @@
                     </execution>
                 </executions>
                 <configuration>
-                    <jvmTarget>17</jvmTarget>
+                    <jvmTarget>21</jvmTarget>
                     <args>
                         <arg>-Xemit-jvm-type-annotations</arg>
                     </args>
