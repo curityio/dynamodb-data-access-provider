@@ -1,6 +1,5 @@
 {
   "TableName": "curity-database-clients",
-  "BillingMode": "PAY_PER_REQUEST",
   "AttributeDefinitions": [
     {
       "AttributeName" : "profile_id",

@@ -1,0 +1,66 @@
+{
+  "TableName" : "curity-accounts",
+  "BillingMode": "PAY_PER_REQUEST",
+  "AttributeDefinitions" : [
+    {
+      "AttributeName" : "pk",
+      "AttributeType" : "S"
+    },
+    {
+      "AttributeName" : "userName",
+      "AttributeType" : "S"
+    },
+    {
+      "AttributeName" : "userNameInitial",
+      "AttributeType" : "S"
+    },
+    {
+      "AttributeName" : "email",
+      "AttributeType" : "S"
+    },
+    {
+      "AttributeName" : "emailInitial",
+      "AttributeType" : "S"
+    }
+  ],
+  "GlobalSecondaryIndexes" : [
+    {
+      "IndexName" : "userNameInitial-userName-index",
+      "KeySchema" : [
+        {
+          "KeyType" : "HASH",
+          "AttributeName" : "userNameInitial"
+        },
+        {
+          "KeyType" : "RANGE",
+          "AttributeName" : "userName"
+        }
+      ],
+      "Projection" : {
+        "ProjectionType" : "ALL"
+      }
+    },
+    {
+      "IndexName" : "emailInitial-email-index",
+      "KeySchema" : [
+        {
+          "KeyType" : "HASH",
+          "AttributeName" : "emailInitial"
+        },
+        {
+          "KeyType" : "RANGE",
+          "AttributeName" : "email"
+        }
+      ],
+      "Projection" : {
+        "ProjectionType" : "ALL"
+      }
+    }
+  ],
+  "KeySchema" : [
+    {
+      "AttributeName" : "pk",
+      "KeyType" : "HASH"
+    }
+  ]
+}

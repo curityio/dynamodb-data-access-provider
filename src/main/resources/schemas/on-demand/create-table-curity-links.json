@@ -1,0 +1,42 @@
+{
+  "TableName": "curity-links",
+  "BillingMode": "PAY_PER_REQUEST",
+  "AttributeDefinitions": [
+    {
+      "AttributeName": "linkedAccountId_linkedAccountDomainName",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "accountId",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "linkingAccountManager",
+      "AttributeType": "S"
+    }
+  ],
+  "KeySchema": [
+    {
+      "AttributeName": "linkedAccountId_linkedAccountDomainName",
+      "KeyType": "HASH"
+    }
+  ],
+  "GlobalSecondaryIndexes": [
+    {
+      "IndexName": "list-links-index",
+      "Projection": {
+        "ProjectionType": "ALL"
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName": "accountId"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "linkingAccountManager"
+        }
+      ]
+    }
+  ]
+}
