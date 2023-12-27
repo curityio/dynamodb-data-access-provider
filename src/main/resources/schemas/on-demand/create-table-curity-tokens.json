@@ -1,0 +1,18 @@
+{
+  "TableName": "curity-tokens",
+  "BillingMode": "PAY_PER_REQUEST",
+  "AttributeDefinitions": [
+    {
+      "AttributeName": "tokenHash",
+      "AttributeType": "S"
+    }
+  ],
+  "KeySchema": [
+    {
+      "AttributeName": "tokenHash",
+      "KeyType": "HASH"
+    }
+  ]
+}
+
+

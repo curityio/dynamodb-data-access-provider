@@ -19,7 +19,7 @@ Installing the Plugin
 ~~~~~~~~~~~~~~~~~~~~~
 
 To install the plugin, copy the compiled JAR (and all of its dependencies) into the :file:`${IDSVR_HOME}/usr/share/plugins/${pluginGroup}`
-on each node, including the admin node. For more information about installing plugins, refer to the `curity.io/plugins`_.
+on each node, including the admin node. For more information about installing plugins, refer to the `https://curity.io/docs/idsvr/latest/developer-guide/plugins/index.html#plugin-installation`_.
 
 Required Dependencies
 """""""""""""""""""""
@@ -31,8 +31,11 @@ Tables, keys, and indexes
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The folder `src/main/resources/schemas <src/main/resources/schemas>`_ contains JSON files with the required tables,
-as well as their key and index schemas.
+as well as their key and index schemas for the `Provisioned` AWS Billing Mode.
 The included ``ProvisionedThroughput`` values are illustrative and need to be adapted to the final usage scenario.
+
+There is also another set of JSON files for the `on-demand` Billing Mode which can be found from the `on-demand` folder
+under the `schemas`.
 
 Phone number uniqueness requirement
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
