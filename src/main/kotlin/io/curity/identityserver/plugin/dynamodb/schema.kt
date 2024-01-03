@@ -57,8 +57,6 @@ abstract class TableWithCapabilities(
     suffixName: String
 ) : Table(suffixName) {
     abstract fun queryCapabilities(): TableQueryCapabilities
-
-    abstract fun keyAttribute(): StringAttribute
 }
 
 // A DynamoDB attribute
@@ -210,7 +208,7 @@ class StringCompositeAttribute2(name: String, private val template: (String, Str
     override fun comparator(): Comparator<Map<String, AttributeValue>>? = null
 }
 
-class UniqueStringAttribute(name: String, val prefix: String) : BaseAttribute<String>(name, AttributeType.S),
+open class UniqueStringAttribute(name: String, val prefix: String) : BaseAttribute<String>(name, AttributeType.S),
     UniqueAttribute<String> {
     private fun getUniquePkValue(value: String) = "$prefix$value"
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
@@ -336,9 +334,16 @@ fun Put.Builder.conditionExpression(expression: Expression)
     return this
 }
 
-class PrimaryKey<T>(
-    val attribute: DynamoDBAttribute<T>
-)
+sealed class PrimaryKey<T>(val partitionAttribute: DynamoDBAttribute<T>)
+
+class PartitionKey<T>(
+    partitionAttribute: DynamoDBAttribute<T>
+): PrimaryKey<T>(partitionAttribute)
+
+class CompositePrimaryKey<T1, T2>(
+    partitionAttribute: DynamoDBAttribute<T1>,
+    val sortAttribute: DynamoDBAttribute<T2>
+): PrimaryKey<T1>(partitionAttribute)
 
 // A DynamoDB index composed by a single column (partition key)
 class PartitionOnlyIndex<T>(

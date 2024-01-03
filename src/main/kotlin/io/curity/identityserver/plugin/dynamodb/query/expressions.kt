@@ -151,6 +151,7 @@ fun operatorFrom(filterOperator: Filter.AttributeOperator) = when (filterOperato
     Filter.AttributeOperator.SW -> BinaryAttributeOperator.Sw
     Filter.AttributeOperator.EW -> BinaryAttributeOperator.Ew
     Filter.AttributeOperator.PR -> UnaryAttributeOperator.Pr
+    Filter.AttributeOperator.NP -> UnaryAttributeOperator.NotPr
     Filter.AttributeOperator.GT -> BinaryAttributeOperator.Gt
     Filter.AttributeOperator.GE -> BinaryAttributeOperator.Ge
     Filter.AttributeOperator.LT -> BinaryAttributeOperator.Lt
