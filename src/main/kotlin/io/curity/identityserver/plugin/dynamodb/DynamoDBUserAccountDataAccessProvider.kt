@@ -36,6 +36,7 @@ import org.slf4j.Marker
 import org.slf4j.MarkerFactory
 import se.curity.identityserver.sdk.attribute.AccountAttributes
 import se.curity.identityserver.sdk.attribute.Attribute
+import se.curity.identityserver.sdk.attribute.AttributeValue.formatAsStringAttributeValue
 import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.attribute.SubjectAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
@@ -1285,24 +1286,23 @@ class DynamoDBUserAccountDataAccessProvider(
         }
 
         if (attributesEnumeration.includeMeta()) {
-            val zoneId =
-                if (map["timezone"] != null) ZoneId.of(map["timezone"].toString()) else ZoneId.of("UTC")
+            val zoneId = if (map["timezone"] != null) ZoneId.of(map["timezone"].toString()) else ZoneId.of("UTC")
 
             map["meta"] = mapOf(
                 Meta.RESOURCE_TYPE to AccountAttributes.RESOURCE_TYPE,
-                "created" to
-                        ZonedDateTime.ofInstant(
-                            Instant.ofEpochSecond(AccountsTable.created.optionalFrom(this) ?: -1L),
-                            zoneId
-                        )
-                            .toString(),
-                "lastModified" to
-                        ZonedDateTime.ofInstant(
-                            Instant.ofEpochSecond(AccountsTable.updated.optionalFrom(this) ?: -1L),
-                            zoneId
-                        )
-                            .toString()
-
+                "created" to formatAsStringAttributeValue(
+                    ZonedDateTime.ofInstant(
+                        Instant.ofEpochSecond(AccountsTable.created.optionalFrom(this) ?: -1L),
+                        zoneId
+                    )
+                ),
+                "lastModified" to formatAsStringAttributeValue(
+                    ZonedDateTime.ofInstant(
+                        Instant.ofEpochSecond(AccountsTable.updated.optionalFrom(this) ?: -1L),
+                        zoneId
+                    )
+                ),
+                Meta.TIME_ZONE_ID to (map[AccountAttributes.TIMEZONE] ?: "UTC")
             )
         }
 
