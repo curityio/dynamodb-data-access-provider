@@ -15,6 +15,8 @@ Building the Plugin
 You can build the plugin by issuing the command ``mvn package``. This will produce a JAR file in the ``target`` directory,
 which can be installed.
 
+Building the plugin requires ``JAVA_HOME`` to point to a JDK with version 21 or above.
+
 Installing the Plugin
 ~~~~~~~~~~~~~~~~~~~~~
 

@@ -20,19 +20,19 @@
     </licenses>
 
     <properties>
-        <kotlin.version>1.9.0</kotlin.version>
+        <kotlin.version>1.9.21</kotlin.version>
         <kotlin.code.style>official</kotlin.code.style>
 
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <apache-client.version>4.5.13</apache-client.version>
-        <awssdk.version>2.19.8</awssdk.version>
-        <byte-buddy.version>1.11.0</byte-buddy.version>
+        <awssdk.version>2.21.42</awssdk.version>
+        <byte-buddy.version>1.14.10</byte-buddy.version>
         <curity.version>8.7.0</curity.version>
         <jackson.version>2.16.0</jackson.version>
-        <junit.version>5.9.1</junit.version>
-        <mockito.version>2.6.5</mockito.version>
-        <mockito-kotlin.version>2.2.11</mockito-kotlin.version>
+        <junit.version>5.10.1</junit.version>
+        <mockito.version>5.7.0</mockito.version>
+        <mockito-kotlin.version>5.2.1</mockito-kotlin.version>
         <slf4j.version>2.0.3</slf4j.version>
         <surefire.version>2.22.2</surefire.version>
     </properties>
@@ -62,7 +62,7 @@
                     </execution>
                 </executions>
                 <configuration>
-                    <jvmTarget>17</jvmTarget>
+                    <jvmTarget>21</jvmTarget>
                     <args>
                         <arg>-Xemit-jvm-type-annotations</arg>
                     </args>
