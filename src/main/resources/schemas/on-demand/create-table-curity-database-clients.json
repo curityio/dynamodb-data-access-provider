@@ -1,5 +1,6 @@
 {
   "TableName": "curity-database-clients",
+  "BillingMode": "PAY_PER_REQUEST",
   "AttributeDefinitions": [
     {
       "AttributeName" : "profile_id",
@@ -119,10 +120,6 @@
           "attributes"
         ]
       },
-      "ProvisionedThroughput": {
-        "WriteCapacityUnits": 5,
-        "ReadCapacityUnits": 10
-      },
       "KeySchema": [
         {
           "KeyType": "HASH",
@@ -146,10 +143,6 @@
           "created",
           "attributes"
         ]
-      },
-      "ProvisionedThroughput": {
-        "WriteCapacityUnits": 5,
-        "ReadCapacityUnits": 10
       },
       "KeySchema": [
         {
@@ -175,10 +168,6 @@
           "attributes"
         ]
       },
-      "ProvisionedThroughput" : {
-        "WriteCapacityUnits" : 5,
-        "ReadCapacityUnits" : 10
-      },
       "KeySchema" : [
         {
           "KeyType" : "HASH",
@@ -202,10 +191,6 @@
           "lastModified",
           "attributes"
         ]
-      },
-      "ProvisionedThroughput": {
-        "WriteCapacityUnits": 5,
-        "ReadCapacityUnits": 10
       },
       "KeySchema": [
         {
@@ -231,10 +216,6 @@
           "attributes"
         ]
       },
-      "ProvisionedThroughput": {
-        "WriteCapacityUnits": 5,
-        "ReadCapacityUnits": 10
-      },
       "KeySchema": [
         {
           "KeyType": "HASH",
@@ -259,10 +240,6 @@
           "attributes"
         ]
       },
-      "ProvisionedThroughput": {
-        "WriteCapacityUnits": 5,
-        "ReadCapacityUnits": 10
-      },
       "KeySchema": [
         {
           "KeyType": "HASH",
@@ -284,11 +261,5 @@
       "KeyType": "RANGE",
       "AttributeName" : "client_id_key"
     }
-  ],
-  "ProvisionedThroughput": {
-    "WriteCapacityUnits": 5,
-    "ReadCapacityUnits": 10
-  }
+  ]
 }
-
-
