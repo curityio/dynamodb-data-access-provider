@@ -673,20 +673,11 @@ class DynamoDBUserAccountDataAccessProvider(
             )
         }
 
-        val request = updateBuilder.build()
         try {
-            _dynamoDBClient.transactionWriteItems(request)
+            _dynamoDBClient.transactionWriteItems(updateBuilder.build())
             return TransactionAttemptResult.Success(Unit)
         } catch (ex: Exception) {
             if (ex.isTransactionCancelledDueToConditionFailure()) {
-                val exceptionCause = ex.cause
-                if (exceptionCause is TransactionCanceledException) {
-                    ex.validateKnownUniqueConstraintsForAccountMutations(
-                        exceptionCause.cancellationReasons(),
-                        request.transactItems()
-                    )
-                }
-
                 return TransactionAttemptResult.Failure(ex)
             }
             throw ex

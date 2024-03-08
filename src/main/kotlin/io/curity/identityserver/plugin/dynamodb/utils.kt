@@ -18,12 +18,12 @@ package io.curity.identityserver.plugin.dynamodb
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBUserAccountDataAccessProvider.AccountsTable
 import org.slf4j.LoggerFactory
-import se.curity.identityserver.sdk.errors.EmailConflictException
-import se.curity.identityserver.sdk.errors.PhoneNumberConflictException
-import se.curity.identityserver.sdk.errors.UsernameConflictException
+import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException
 import software.amazon.awssdk.services.dynamodb.model.CancellationReason
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
-import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException
+import se.curity.identityserver.sdk.errors.UsernameConflictException
+import se.curity.identityserver.sdk.errors.PhoneNumberConflictException
+import se.curity.identityserver.sdk.errors.EmailConflictException
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 
@@ -48,7 +48,7 @@ fun Exception.isTransactionCancelledDueToConditionFailure(): Boolean {
 
 fun Exception.validateKnownUniqueConstraintsForAccountMutations(
     cancellationReasons: List<CancellationReason>,
-    transactionItems: List<TransactWriteItem>
+    transactionItems: MutableList<TransactWriteItem>
 ) {
     cancellationReasons.forEachIndexed { index, reason ->
         // Cancellation reason does not contain any reference to field causing the failure,
