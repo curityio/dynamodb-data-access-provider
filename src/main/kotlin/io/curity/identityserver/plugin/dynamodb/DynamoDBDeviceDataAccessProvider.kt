@@ -94,6 +94,9 @@ class DynamoDBDeviceDataAccessProvider(
         val created = NumberLongAttribute("created")
         val updated = NumberLongAttribute("updated")
         val deletableAt = NumberLongAttribute("deletableAt")
+
+        // index
+        val deviceIdIndex = PartitionOnlyIndex("deviceId-index", deviceId)
     }
 
     /**
@@ -281,42 +284,8 @@ class DynamoDBDeviceDataAccessProvider(
     }
 
     override fun update(deviceAttributes: DeviceAttributes) {
-        val now = Instant.now()
 
-        val deviceAttributesAsMap = deviceAttributes.asMap()
-        val updateBuilder = UpdateExpressionsBuilder()
-        _deviceAttributesToDynamoAttributes.forEach {
-            it.addToUpdateBuilder(
-                deviceAttributes,
-                deviceAttributesAsMap,
-                updateBuilder
-            )
-        }
-
-        deviceAttributesAsMap.remove(ResourceAttributes.ID)
-
-        if (deviceAttributesAsMap.isNotEmpty()) {
-            deviceAttributesAsMap.remove(META)
-            updateBuilder.update(
-                DeviceTable.attributes,
-                _jsonHandler.fromAttributes(Attributes.fromMap(deviceAttributesAsMap))
-            )
-        } else {
-            updateBuilder.update(DeviceTable.attributes, null)
-        }
-
-        updateBuilder.update(DeviceTable.updated, now.epochSecond)
-
-        updateBuilder.onlyIf(DeviceTable.deviceId, deviceAttributes.deviceId)
-        deviceAttributes.accountId?.let {
-            updateBuilder.onlyIf(DeviceTable.accountId, it)
-        }
-
-        val deletableAt: Long? = deviceAttributes.expiresAt?.let {
-            it.epochSecond + _configuration.getDevicesTtlRetainDuration()
-        }
-
-        updateBuilder.update(DeviceTable.deletableAt, deletableAt)
+        val updateBuilder = getUpdateExpressions(deviceAttributes, null)
 
         val transactionItems = mutableListOf<TransactWriteItem>()
         transactionItems.add(
@@ -360,6 +329,128 @@ class DynamoDBDeviceDataAccessProvider(
         } catch (ex: Exception) {
             if (ex.isTransactionCancelledDueToConditionFailure()) {
                 _logger.trace("No device matches the update condition")
+            } else {
+                throw ex
+            }
+        }
+    }
+
+    private fun getUpdateExpressions(
+        deviceAttributes: DeviceAttributes,
+        currentDeviceId: String?
+    ): UpdateExpressionsBuilder {
+
+        val now = Instant.now()
+        val deviceAttributesAsMap = deviceAttributes.asMap()
+
+        val updateBuilder = UpdateExpressionsBuilder()
+        _deviceAttributesToDynamoAttributes.forEach {
+            it.addToUpdateBuilder(
+                deviceAttributes,
+                deviceAttributesAsMap,
+                updateBuilder
+            )
+        }
+
+        deviceAttributesAsMap.remove(ResourceAttributes.ID)
+
+        if (deviceAttributesAsMap.isNotEmpty()) {
+            deviceAttributesAsMap.remove(META)
+            updateBuilder.update(
+                DeviceTable.attributes,
+                _jsonHandler.fromAttributes(Attributes.fromMap(deviceAttributesAsMap))
+            )
+        } else {
+            updateBuilder.update(DeviceTable.attributes, null)
+        }
+
+        updateBuilder.update(DeviceTable.updated, now.epochSecond)
+
+        updateBuilder.onlyIf(
+            DeviceTable.deviceId, if (currentDeviceId.isNullOrEmpty()) deviceAttributes.deviceId else currentDeviceId
+        )
+        deviceAttributes.accountId?.let {
+            updateBuilder.onlyIf(DeviceTable.accountId, it)
+        }
+
+        val deletableAt: Long? = deviceAttributes.expiresAt?.let {
+            it.epochSecond + _configuration.getDevicesTtlRetainDuration()
+        }
+
+        updateBuilder.update(DeviceTable.deletableAt, deletableAt)
+        return updateBuilder
+    }
+
+    override fun update(attributes: DeviceAttributes, currentDeviceId: String) {
+
+        val transactionItems = mutableListOf<TransactWriteItem>()
+
+        // Delete the record (the one having (accountId, deviceId) as the PK) - sk can not be updated
+        transactionItems.add(
+            TransactWriteItem.builder()
+                .delete {
+                    it.tableName(DeviceTable.name(_configuration))
+                    it.key(
+                        mapOf(
+                            DeviceTable.pk.toNameValuePair(computePkFromAccountId(attributes.accountId)),
+                            DeviceTable.sk.toNameValuePair(currentDeviceId)
+                        )
+                    )
+                    it.conditionExpression("${DeviceTable.id.hashName} = ${DeviceTable.id.colonName}")
+                    it.expressionAttributeValues(mapOf(DeviceTable.id.toExpressionNameValuePair(attributes.id)))
+                    it.expressionAttributeNames(mapOf(DeviceTable.id.toNamePair()))
+                }
+                .build()
+        )
+
+        // Update the device id on the primary record (the one having the id as the PK)
+        val updateBuilder = getUpdateExpressions(attributes, currentDeviceId)
+
+        transactionItems.add(
+            TransactWriteItem.builder()
+                .update {
+                    it.tableName(DeviceTable.name(_configuration))
+                    updateBuilder.applyTo(it)
+                    it.key(
+                        mapOf(
+                            DeviceTable.pk.toNameValuePair(computePkFromId(attributes.id)),
+                            DeviceTable.sk.toNameValuePair(SK_FOR_ID_ITEM)
+
+                        )
+                    )
+                }
+                .build()
+        )
+
+        // Create a new secondary record (accountId, deviceId as the PK) to replace the deleted one
+        val secondaryRecords = attributes.toItem().toMutableMap()
+        DeviceTable.pk.addTo(secondaryRecords, computePkFromAccountId(attributes.accountId))
+        DeviceTable.sk.addTo(secondaryRecords, attributes.deviceId)
+
+        DeviceTable.expires.optionalFrom(secondaryRecords)?.let { expires ->
+            val deletableAt = expires + _configuration.getDevicesTtlRetainDuration()
+            DeviceTable.deletableAt.addTo(secondaryRecords, deletableAt)
+        }
+
+        transactionItems.add(
+            TransactWriteItem.builder()
+                .put {
+                    it.tableName(DeviceTable.name(_configuration))
+                    it.conditionExpression("attribute_not_exists(${DeviceTable.pk})")
+                    it.item(secondaryRecords)
+                }
+                .build()
+        )
+
+        val request = TransactWriteItemsRequest.builder()
+            .transactItems(transactionItems)
+            .build()
+
+        try {
+            _dynamoDBClient.transactionWriteItems(request)
+        } catch (ex: Exception) {
+            if (ex.isTransactionCancelledDueToConditionFailure()) {
+                _logger.trace("Unable to update the device details")
             } else {
                 throw ex
             }
@@ -425,6 +516,25 @@ class DynamoDBDeviceDataAccessProvider(
 
     override fun getByAccountId(accountId: String, attributesEnumeration: ResourceQuery.AttributesEnumeration):
             List<ResourceAttributes<*>> = getByAccountId(accountId).map { it.filter(attributesEnumeration) }
+
+    override fun getBy(deviceId: String): DeviceAttributes? {
+        _logger.debug(MASK_MARKER, "Received request to get device by deviceId: {}", deviceId)
+
+        val requestBuilder = QueryRequest.builder()
+            .tableName(DeviceTable.name(_configuration))
+            .indexName(DeviceTable.deviceIdIndex.name)
+            .keyConditionExpression(DeviceTable.deviceIdIndex.expression)
+            .expressionAttributeValues(DeviceTable.deviceIdIndex.expressionValueMap(deviceId))
+            .expressionAttributeNames(DeviceTable.deviceIdIndex.expressionNameMap)
+
+        val response = _dynamoDBClient.query(requestBuilder.build())
+
+        if (response.items().isEmpty()) {
+            return null
+        }
+
+        return response.items().map { it.toDeviceAttributes() }.toList().first()
+    }
 
     override fun getBy(deviceId: String, accountId: String): DeviceAttributes? {
         _logger.debug(MASK_MARKER, "Received request to get device by deviceId: {} and accountId: {}", deviceId, accountId)
