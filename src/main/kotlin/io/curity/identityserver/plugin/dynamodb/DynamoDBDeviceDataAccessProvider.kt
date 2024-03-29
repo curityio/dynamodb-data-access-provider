@@ -517,7 +517,7 @@ class DynamoDBDeviceDataAccessProvider(
     override fun getByAccountId(accountId: String, attributesEnumeration: ResourceQuery.AttributesEnumeration):
             List<ResourceAttributes<*>> = getByAccountId(accountId).map { it.filter(attributesEnumeration) }
 
-    override fun getBy(deviceId: String): DeviceAttributes? {
+    override fun getByDeviceId(deviceId: String): DeviceAttributes? {
         _logger.debug(MASK_MARKER, "Received request to get device by deviceId: {}", deviceId)
 
         val requestBuilder = QueryRequest.builder()
