@@ -517,8 +517,8 @@ class DynamoDBDeviceDataAccessProvider(
     override fun getByAccountId(accountId: String, attributesEnumeration: ResourceQuery.AttributesEnumeration):
             List<ResourceAttributes<*>> = getByAccountId(accountId).map { it.filter(attributesEnumeration) }
 
-    override fun getByDeviceId(deviceId: String): DeviceAttributes? {
-        _logger.debug(MASK_MARKER, "Received request to get device by deviceId: {}", deviceId)
+    override fun getByDeviceId(deviceId: String): List<DeviceAttributes> {
+        _logger.debug(MASK_MARKER, "Received request to get devices by deviceId: {}", deviceId)
 
         val requestBuilder = QueryRequest.builder()
             .tableName(DeviceTable.name(_configuration))
@@ -530,11 +530,16 @@ class DynamoDBDeviceDataAccessProvider(
         val response = _dynamoDBClient.query(requestBuilder.build())
 
         if (response.items().isEmpty()) {
-            return null
+            return emptyList()
         }
 
-        return response.items().map { it.toDeviceAttributes() }.toList().first()
+        return response.items().map { it.toDeviceAttributes() }.toList()
     }
+
+    override fun getByDeviceId(
+        deviceId: String,
+        attributesEnumeration: ResourceQuery.AttributesEnumeration
+    ): List<ResourceAttributes<*>> = getByDeviceId(deviceId).map { it.filter(attributesEnumeration) }
 
     override fun getBy(deviceId: String, accountId: String): DeviceAttributes? {
         _logger.debug(MASK_MARKER, "Received request to get device by deviceId: {} and accountId: {}", deviceId, accountId)
