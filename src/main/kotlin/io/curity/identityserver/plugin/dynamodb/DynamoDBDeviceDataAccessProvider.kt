@@ -285,8 +285,9 @@ class DynamoDBDeviceDataAccessProvider(
 
     override fun update(deviceAttributes: DeviceAttributes) {
 
-        val updateBuilder = getUpdateExpressions(deviceAttributes, null)
+        val updateBuilder = getUpdateExpressionBuilder(deviceAttributes, null)
 
+        // updates the main item (i.e. the one with pk = “id#{id}”)
         val transactionItems = mutableListOf<TransactWriteItem>()
         transactionItems.add(
             TransactWriteItem.builder()
@@ -304,6 +305,7 @@ class DynamoDBDeviceDataAccessProvider(
                 .build()
         )
 
+        // updates the secondary item (i.e. the with pk = “accountId#{accountId}”
         transactionItems.add(
             TransactWriteItem.builder()
                 .update {
@@ -335,7 +337,14 @@ class DynamoDBDeviceDataAccessProvider(
         }
     }
 
-    private fun getUpdateExpressions(
+    /**
+     * Creates UpdateExpressionsBuilder with required mutation and condition expressions to an update TransactWriteItem
+     *
+     * @param  deviceAttributes updated attributes od a device
+     * @param  currentDeviceId  currently used device id
+     * @return UpdateExpressionsBuilder
+     */
+    private fun getUpdateExpressionBuilder(
         deviceAttributes: DeviceAttributes,
         currentDeviceId: String?
     ): UpdateExpressionsBuilder {
@@ -366,6 +375,7 @@ class DynamoDBDeviceDataAccessProvider(
 
         updateBuilder.update(DeviceTable.updated, now.epochSecond)
 
+        // to make the update conditional on the item having a given deviceId.
         updateBuilder.onlyIf(
             DeviceTable.deviceId, if (currentDeviceId.isNullOrEmpty()) deviceAttributes.deviceId else currentDeviceId
         )
@@ -403,8 +413,8 @@ class DynamoDBDeviceDataAccessProvider(
                 .build()
         )
 
-        // Update the device id on the primary record (the one having the id as the PK)
-        val updateBuilder = getUpdateExpressions(attributes, currentDeviceId)
+        // Update the device attributes (including device id) on the primary record (the one having the id as the PK)
+        val updateBuilder = getUpdateExpressionBuilder(attributes, currentDeviceId)
 
         transactionItems.add(
             TransactWriteItem.builder()
