@@ -842,7 +842,7 @@ class DynamoDBUserAccountDataAccessProvider(
             return null
         }
 
-        val subjectAttributes = SubjectAttributes.of(
+        val updatedSubjectAttributes = SubjectAttributes.of(
             username,
             Attributes.of(
                 Attribute.of("accountId", AccountsTable.accountId.optionalFrom(item)),
@@ -851,7 +851,7 @@ class DynamoDBUserAccountDataAccessProvider(
         )
         val passwordData = AccountsTable.password.optionalFrom(item)
 
-        return GetResult(subjectAttributes, passwordData)
+        return GetResult(updatedSubjectAttributes, passwordData)
     }
 
     // From Credential DAP
@@ -1373,6 +1373,7 @@ class DynamoDBUserAccountDataAccessProvider(
                 }
             },
             attributeMap = buildMap {
+                put(Meta.CREATED, created)
                 put(AccountAttributes.USER_NAME, userName)
                 put(userNameInitial.name, userNameInitial)
                 put(email.name, email)
