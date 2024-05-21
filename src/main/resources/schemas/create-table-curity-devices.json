@@ -8,6 +8,28 @@
     {
       "AttributeName": "sk",
       "AttributeType": "S"
+    },
+    {
+      "AttributeName": "deviceId",
+      "AttributeType": "S"
+    }
+  ],
+  "GlobalSecondaryIndexes" : [
+    {
+      "IndexName" : "deviceId-index",
+      "KeySchema" : [
+        {
+          "KeyType" : "HASH",
+          "AttributeName" : "deviceId"
+        }
+      ],
+      "Projection" : {
+        "ProjectionType" : "ALL"
+      },
+      "ProvisionedThroughput" : {
+        "WriteCapacityUnits" : 5,
+        "ReadCapacityUnits" : 10
+      }
     }
   ],
   "KeySchema": [
