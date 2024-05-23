@@ -36,6 +36,7 @@ import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegi
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.INITIAL_CLIENT
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.INSTANCE_OF_CLIENT
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.REDIRECT_URIS
+import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.RESOURCE_TYPE
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.SCOPE
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.STATUS
 import se.curity.identityserver.sdk.attribute.scim.v2.extensions.DynamicallyRegisteredClientAttributes.Status
@@ -44,6 +45,7 @@ import se.curity.identityserver.sdk.datasource.DynamicallyRegisteredClientDataAc
 import se.curity.identityserver.sdk.datasource.pagination.PaginatedDataAccessResult
 import se.curity.identityserver.sdk.datasource.pagination.PaginationRequest
 import se.curity.identityserver.sdk.datasource.query.AttributesSorting
+import se.curity.identityserver.sdk.datasource.query.AttributesSorting.SortAttribute
 import se.curity.identityserver.sdk.errors.ConflictException
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
@@ -84,6 +86,15 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         private val instanceOfClientUpdatedIndex =
             PartitionAndSortIndex("instanceOfClient-updated-index", instanceOfClient, updated)
 
+        fun sortAttributeFor(sort: SortAttribute): DynamoDBAttribute<*>? {
+            return when (sort) {
+                SortAttribute.CREATED_TIMESTAMP -> created
+                SortAttribute.LAST_MODIFIED_TIMESTAMP -> updated
+                SortAttribute.NAME, SortAttribute.DEFAULT_SORT -> clientId
+                SortAttribute.NONE -> null
+            }
+        }
+
         override fun queryCapabilities(): TableQueryCapabilities = TableQueryCapabilities(
             indexes = listOf(
                 Index.from(primaryKey),
@@ -116,7 +127,7 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             add(
                 Attribute.of(
                     META,
-                    Meta.of(DynamicallyRegisteredClientAttributes.RESOURCE_TYPE)
+                    Meta.of(RESOURCE_TYPE)
                         .withCreated(ofEpochSecond(DcrTable.created.from(item)))
                         .withLastModified(ofEpochSecond(DcrTable.updated.from(item)))
                 )
@@ -327,7 +338,13 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
         indexAndKeys: QueryHelper.IndexAndKeys<Any, Any>
     ): (Map<String, AttributeValue>) -> Map<String, AttributeValue> =
         if (indexAndKeys.index != null) ({ indexAndKeys.index.toIndexPrimaryKey(it, DcrTable.primaryKey) })
-        else ({ mapOf(DcrTable.primaryKey.partitionAttribute.name to DcrTable.primaryKey.partitionAttribute.attributeValueFrom(it)) })
+        else ({
+            mapOf(
+                DcrTable.primaryKey.partitionAttribute.name to DcrTable.primaryKey.partitionAttribute.attributeValueFrom(
+                    it
+                )
+            )
+        })
 
     companion object {
         private val logger: Logger =
@@ -355,7 +372,9 @@ class DynamoDBDynamicallyRegisteredClientDataAccessProvider(
             }
 
             val potentialSortKeys: MutableMap<DynamoDBAttribute<*>, Any> = mutableMapOf()
-            val sortBy = DcrTable.queryCapabilities().attributeMap[sortRequest?.sortBy]
+            val sortBy = sortRequest?.let {
+                DcrTable.sortAttributeFor(it.sortAttribute)
+            }
             if (sortBy != null) {
                 potentialSortKeys[sortBy] = QueryHelper.NoValueForSortKeys()
             }
