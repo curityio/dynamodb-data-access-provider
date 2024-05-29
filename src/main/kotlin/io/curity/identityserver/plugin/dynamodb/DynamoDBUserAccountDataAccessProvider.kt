@@ -1373,7 +1373,6 @@ class DynamoDBUserAccountDataAccessProvider(
                 }
             },
             attributeMap = buildMap {
-                put(Meta.CREATED, created)
                 put(AccountAttributes.USER_NAME, userName)
                 put(userNameInitial.name, userNameInitial)
                 put(email.name, email)
