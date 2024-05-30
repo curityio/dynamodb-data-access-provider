@@ -57,6 +57,7 @@ import se.curity.identityserver.sdk.datasource.pagination.PaginationRequest
 import se.curity.identityserver.sdk.datasource.query.AttributesFiltering
 import se.curity.identityserver.sdk.datasource.query.AttributesSorting
 import se.curity.identityserver.sdk.errors.ConflictException
+import se.curity.identityserver.sdk.service.authentication.TenantId
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
@@ -114,11 +115,12 @@ class DynamoDBUserAccountDataAccessProvider(
 ) : UserAccountDataAccessProvider, PageableUserAccountDataAccessProvider,
     CredentialDataAccessProviderFactory, CredentialStoringDataAccessProvider {
     private val jsonHandler = _configuration.getJsonHandler()
+    private val tenantId = _configuration.getTenantId()
 
     companion object {
         /**
          * As explained above, by default the phone number of an account must be unique among all accounts of the table,
-         * and leads to the creation of a secondary item. However it is possible to lift this restriction by setting this
+         * and leads to the creation of a secondary item. However, it is possible to lift this restriction by setting this
          * system property to ``false`` on all nodes.
          *
          * Once done, it will be possible to have a given phone number shared by more than one of the accounts created
@@ -186,9 +188,11 @@ class DynamoDBUserAccountDataAccessProvider(
                     AccountsTable.accountId
                 )
 
-        private val filterForItemsWithAccountIdPk = DynamoDBScan(
+        private fun getFilterForItemsWithAccountIdPk(tenantId: TenantId) = DynamoDBScan(
             filterExpression = "begins_with(pk, :pkPrefix)",
-            valueMap = mapOf(":pkPrefix" to AttributeValue.builder().s(AccountsTable.accountId.prefix).build()),
+            valueMap = mapOf(
+                ":pkPrefix" to AttributeValue.builder().s(AccountsTable.accountId.toValuePrefix(tenantId)).build()
+            ),
             nameMap = mapOf()
         )
 
@@ -249,7 +253,7 @@ class DynamoDBUserAccountDataAccessProvider(
     ): ResourceAttributes<*>? {
         val requestBuilder = GetItemRequest.builder()
             .tableName(tableName)
-            .key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(key, keyValue)))
+            .key(AccountsTable.keyFrom(key, tenantId, keyValue))
             .consistentRead(true)
 
         val request = requestBuilder.build()
@@ -284,12 +288,14 @@ class DynamoDBUserAccountDataAccessProvider(
         // Fill the initials for userName and email (if present) only for the main item,
         // to build a partial Global Secondary Index on these attributes.
         val mainItemAdditionalAttributes = mutableMapOf(
-            AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.accountId, accountId),
-            AccountsTable.userNameInitial.toNameValuePair(userName)
+            AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.accountId, tenantId, accountId),
+            AccountsTable.userNameInitial.uniqueKeyEntryFor(tenantId, userName)
         )
 
         commonItem[AccountsTable.email.name]?.also {
-            mainItemAdditionalAttributes.addAttr(AccountsTable.emailInitial, it.s())
+            AccountsTable.emailInitial.uniqueKeyEntryFor(tenantId, it.s()).also { pair ->
+                mainItemAdditionalAttributes[pair.first] = pair.second
+            }
         }
 
         addTransactionItem(
@@ -301,7 +307,7 @@ class DynamoDBUserAccountDataAccessProvider(
         // Add secondary item with userName
         addTransactionItem(
             commonItem,
-            mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, userName)),
+            AccountsTable.keyFrom(AccountsTable.userName, tenantId, userName),
             transactionItems, writeConditionExpression
         )
 
@@ -309,7 +315,7 @@ class DynamoDBUserAccountDataAccessProvider(
         commonItem[AccountsTable.email.name]?.also { emailAttr ->
             addTransactionItem(
                 commonItem,
-                mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.email, emailAttr.s())),
+                AccountsTable.keyFrom(AccountsTable.email, tenantId, emailAttr.s()),
                 transactionItems, writeConditionExpression
             )
         }
@@ -319,7 +325,7 @@ class DynamoDBUserAccountDataAccessProvider(
             commonItem[AccountsTable.phone.name]?.also { phoneNumberAttr ->
                 addTransactionItem(
                     commonItem,
-                    mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.phone, phoneNumberAttr.s())),
+                    AccountsTable.keyFrom(AccountsTable.phone, tenantId, phoneNumberAttr.s()),
                     transactionItems, writeConditionExpression
                 )
             }
@@ -473,7 +479,7 @@ class DynamoDBUserAccountDataAccessProvider(
             index,
             BinaryAttributeExpression(
                 startsWithAttribute, BinaryAttributeOperator.Eq,
-                startsWithAttribute.toAttrValue(filterRequest.filter).s()
+                startsWithAttribute.toInitials(tenantId, filterRequest.filter)
             ),
             RangeCondition.Binary(
                 BinaryAttributeExpression(
@@ -495,7 +501,7 @@ class DynamoDBUserAccountDataAccessProvider(
         val getItemResponse = _dynamoDBClient.getItem(
             GetItemRequest.builder()
                 .tableName(tableName)
-                .key(AccountsTable.keyFromAccountId(accountId))
+                .key(AccountsTable.keyFromAccountId(accountId, tenantId))
                 .build()
         )
 
@@ -526,7 +532,7 @@ class DynamoDBUserAccountDataAccessProvider(
             TransactWriteItem.builder()
                 .delete {
                     it.tableName(tableName)
-                    it.key(AccountsTable.keyFromAccountId(accountId))
+                    it.key(AccountsTable.keyFromAccountId(accountId, tenantId))
                     it.conditionExpression(conditionExpression)
                 }
                 .build()
@@ -535,7 +541,7 @@ class DynamoDBUserAccountDataAccessProvider(
             TransactWriteItem.builder()
                 .delete {
                     it.tableName(tableName)
-                    it.key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, userName)))
+                    it.key(AccountsTable.keyFrom(AccountsTable.userName, tenantId, userName))
                     it.conditionExpression(conditionExpression)
                 }
                 .build()
@@ -545,7 +551,7 @@ class DynamoDBUserAccountDataAccessProvider(
                 TransactWriteItem.builder()
                     .delete {
                         it.tableName(tableName)
-                        it.key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.email, email)))
+                        it.key(AccountsTable.keyFrom(AccountsTable.email, tenantId, email))
                         it.conditionExpression(conditionExpression)
                     }
                     .build()
@@ -556,7 +562,7 @@ class DynamoDBUserAccountDataAccessProvider(
                 TransactWriteItem.builder()
                     .delete {
                         it.tableName(tableName)
-                        it.key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.phone, phone)))
+                        it.key(AccountsTable.keyFrom(AccountsTable.phone, tenantId, phone))
                         it.conditionExpression(conditionExpression)
                     }
                     .build()
@@ -632,10 +638,13 @@ class DynamoDBUserAccountDataAccessProvider(
 
         // Fill the initials for userName and email (if present) only for the main item,
         // to build a partial Global Secondary Index on these attributes.
-        val mainItemAttributes = mutableMapOf<String, AttributeValue>()
-        mainItemAttributes.addAttr(AccountsTable.userNameInitial, accountAttributes.userName)
+        val mainItemAttributes = mutableMapOf<String, AttributeValue>(
+            AccountsTable.userNameInitial.uniqueKeyEntryFor(tenantId, accountAttributes.userName)
+        )
         commonItem[AccountsTable.email.name]?.also {
-            mainItemAttributes.addAttr(AccountsTable.emailInitial, it.s())
+            AccountsTable.emailInitial.uniqueKeyEntryFor(tenantId, it.s()).also { pair ->
+                mainItemAttributes[pair.first] = pair.second
+            }
         }
 
         val updateBuilder = UpdateBuilderWithMultipleUniquenessConstraints(
@@ -751,10 +760,13 @@ class DynamoDBUserAccountDataAccessProvider(
 
             // Fill the initials for userName and email (if present) only for the main item,
             // to build a partial Global Secondary Index on these attributes.
-            val additionalAttributesForTheMainItem = mutableMapOf<String, AttributeValue>()
-            additionalAttributesForTheMainItem.addAttr(AccountsTable.userNameInitial, username)
+            val additionalAttributesForTheMainItem = mutableMapOf<String, AttributeValue>(
+                AccountsTable.userNameInitial.uniqueKeyEntryFor(tenantId, username)
+            )
             commonItem[AccountsTable.email.name]?.also {
-                additionalAttributesForTheMainItem.addAttr(AccountsTable.emailInitial, it.s())
+                AccountsTable.emailInitial.uniqueKeyEntryFor(tenantId, it.s()).also { pair ->
+                    additionalAttributesForTheMainItem[pair.first] = pair.second
+                }
             }
 
             val updateBuilder = UpdateBuilderWithMultipleUniquenessConstraints(
@@ -816,13 +828,7 @@ class DynamoDBUserAccountDataAccessProvider(
         val request = GetItemRequest.builder()
             .tableName(tableName)
             // 'password' is not a DynamoDB reserved word
-            .key(
-                mapOf(
-                    AccountsTable.pk.uniqueKeyEntryFor(
-                        AccountsTable.userName, username
-                    )
-                )
-            )
+            .key(AccountsTable.keyFrom(AccountsTable.userName, tenantId, username))
             .projectionExpression(
                 "${AccountsTable.accountId.name}, ${AccountsTable.userName.name}, " +
                         "${AccountsTable.password.name}, ${AccountsTable.active.name}"
@@ -866,7 +872,7 @@ class DynamoDBUserAccountDataAccessProvider(
     private fun getItemByAccountId(accountId: String): DynamoDBItem? {
         val requestBuilder = GetItemRequest.builder()
             .tableName(tableName)
-            .key(AccountsTable.keyFromAccountId(accountId))
+            .key(AccountsTable.keyFromAccountId(accountId, tenantId))
             .consistentRead(true)
 
         val request = requestBuilder.build()
@@ -878,7 +884,7 @@ class DynamoDBUserAccountDataAccessProvider(
     private fun getItemByUsername(userName: String): DynamoDBItem? {
         val requestBuilder = GetItemRequest.builder()
             .tableName(tableName)
-            .key(AccountsTable.keyFromUserName(userName))
+            .key(AccountsTable.keyFrom(AccountsTable.userName, tenantId, userName))
             .consistentRead(true)
 
         val request = requestBuilder.build()
@@ -895,7 +901,7 @@ class DynamoDBUserAccountDataAccessProvider(
     ) {
         val request = PutItemRequest.builder()
             .tableName(LinksTable.name(_configuration))
-            .item(LinksTable.createItem(linkingAccountManager, localAccountId, foreignDomainName, foreignUserName))
+            .item(LinksTable.createItem(tenantId, linkingAccountManager, localAccountId, foreignDomainName, foreignUserName))
             .build()
 
         _dynamoDBClient.putItem(request)
@@ -906,8 +912,10 @@ class DynamoDBUserAccountDataAccessProvider(
             .tableName(LinksTable.name(_configuration))
             .indexName(LinksTable.listLinksIndex.name)
             .keyConditionExpression(LinksTable.listLinksIndex.keyConditionExpression)
+            .filterExpression(LinksTable.listLinksIndex.filterExpression(tenantId))
             .expressionAttributeValues(
                 LinksTable.listLinksIndex.expressionValueMap(
+                    tenantId,
                     localAccountId,
                     linkingAccountManager
                 )
@@ -934,7 +942,7 @@ class DynamoDBUserAccountDataAccessProvider(
     ): AccountAttributes? {
         val request = GetItemRequest.builder()
             .tableName(LinksTable.name(_configuration))
-            .key(mapOf(LinksTable.pk.toNameValuePair(foreignAccountId, foreignDomainName)))
+            .key(mapOf(LinksTable.pk.toNameValuePair(tenantId, foreignAccountId, foreignDomainName)))
             .consistentRead(true)
             .build()
 
@@ -967,7 +975,7 @@ class DynamoDBUserAccountDataAccessProvider(
     ): Boolean {
         val request = DeleteItemRequest.builder()
             .tableName(LinksTable.name(_configuration))
-            .key(mapOf(LinksTable.pk.toNameValuePair(foreignAccountId, foreignDomainName)))
+            .key(mapOf(LinksTable.pk.toNameValuePair(tenantId, foreignAccountId, foreignDomainName)))
             .conditionExpression(
                 "${LinksTable.localAccountId.name} = ${LinksTable.localAccountId.colonName} AND "
                         + "${LinksTable.linkingAccountManager.name} = ${LinksTable.linkingAccountManager.colonName}"
@@ -1044,12 +1052,12 @@ class DynamoDBUserAccountDataAccessProvider(
             .tableName(tableName)
 
         return if (queryPlan != null && queryPlan.expression.products.isNotEmpty()) {
-            val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression).addPkFiltering()
+            val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression).addPkFiltering(tenantId)
             scanRequestBuilder.configureWith(dynamoDBScan)
             scanSequence(scanRequestBuilder.build(), _dynamoDBClient)
                 .filterWith(queryPlan.expression.products)
         } else {
-            scanRequestBuilder.configureWith(filterForItemsWithAccountIdPk)
+            scanRequestBuilder.configureWith(getFilterForItemsWithAccountIdPk(tenantId))
             scanSequence(scanRequestBuilder.build(), _dynamoDBClient)
         }
     }
@@ -1067,11 +1075,11 @@ class DynamoDBUserAccountDataAccessProvider(
         val scanRequestBuilder = ScanRequest.builder().tableName(tableName)
 
         val result = if (queryPlan != null && queryPlan.expression.products.isNotEmpty()) {
-            val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression).addPkFiltering()
+            val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression).addPkFiltering(tenantId)
             scanRequestBuilder.configureWith(dynamoDBScan)
             scanWithPagination(_dynamoDBClient, scanRequestBuilder, limit, exclusiveStartKey, ::toLastEvaluatedKey)
         } else {
-            scanRequestBuilder.configureWith(filterForItemsWithAccountIdPk)
+            scanRequestBuilder.configureWith(getFilterForItemsWithAccountIdPk(tenantId))
             scanWithPagination(_dynamoDBClient, scanRequestBuilder, limit, exclusiveStartKey, ::toLastEvaluatedKey)
         }
 
@@ -1086,20 +1094,23 @@ class DynamoDBUserAccountDataAccessProvider(
             .tableName(tableName)
 
         return if (queryPlan != null && queryPlan.expression.products.isNotEmpty()) {
-            val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression).addPkFiltering()
+            val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression).addPkFiltering(tenantId)
             scanRequestBuilder.configureWith(dynamoDBScan).select(Select.COUNT)
             count(scanRequestBuilder.build(), _dynamoDBClient)
         } else {
-            scanRequestBuilder.configureWith(filterForItemsWithAccountIdPk).select(Select.COUNT)
+            scanRequestBuilder.configureWith(getFilterForItemsWithAccountIdPk(tenantId)).select(Select.COUNT)
             count(scanRequestBuilder.build(), _dynamoDBClient)
         }
     }
 
-    private fun DynamoDBScan.addPkFiltering() = DynamoDBScan(
-        filterExpression = "${filterForItemsWithAccountIdPk.filterExpression} AND (${this.filterExpression})",
-        valueMap = filterForItemsWithAccountIdPk.valueMap + this.valueMap,
-        nameMap = filterForItemsWithAccountIdPk.nameMap + this.nameMap
-    )
+    private fun DynamoDBScan.addPkFiltering(tenantId: TenantId): DynamoDBScan {
+        val pkScan = getFilterForItemsWithAccountIdPk(tenantId)
+        return DynamoDBScan(
+            filterExpression = "${pkScan.filterExpression} AND (${this.filterExpression})",
+            valueMap = pkScan.valueMap + this.valueMap,
+            nameMap = pkScan.nameMap + this.nameMap
+        )
+    }
 
     private fun query(queryPlan: QueryPlan.UsingQueries): Sequence<DynamoDBItem> {
         val nOfQueries = queryPlan.queries.entries.size
@@ -1213,6 +1224,10 @@ class DynamoDBUserAccountDataAccessProvider(
         item.addAttr(AccountsTable.created, created)
         item.addAttr(AccountsTable.updated, updated)
 
+        tenantId.tenantId?.let {
+            item.addAttr(AccountsTable.tenantId, it)
+        }
+
         if (!password.isNullOrEmpty()) {
             item.addAttr(AccountsTable.password, password)
         }
@@ -1263,6 +1278,9 @@ class DynamoDBUserAccountDataAccessProvider(
         forEach { (key, value) ->
             when (key) {
                 AccountsTable.pk.name -> { /*ignore*/
+                }
+
+                AccountsTable.tenantId.name -> { /*ignore*/
                 }
 
                 AccountsTable.version.name -> { /*ignore*/
@@ -1332,15 +1350,16 @@ class DynamoDBUserAccountDataAccessProvider(
 
     object AccountsTable : Table("curity-accounts") {
         val pk = KeyStringAttribute("pk")
-        val accountId = UniqueStringAttribute("accountId", "ai#")
+        val tenantId = StringAttribute("tenantId")
+        val accountId = UniqueStringAttribute("accountId", "ai", "#")
         val version = NumberLongAttribute("version")
-        val userName = UniqueStringAttribute("userName", "un#")
+        val userName = UniqueStringAttribute("userName", "un", "#")
         val userNameInitial = StartsWithStringAttribute("userNameInitial", userName, INITIAL_LENGTH)
-        val email = UniqueStringAttribute("email", "em#")
+        val email = UniqueStringAttribute("email", "em", "#")
         val emailInitial = StartsWithStringAttribute("emailInitial", email, INITIAL_LENGTH)
 
         // Used only if UNIQUE_ACCOUNT_PHONE_NUMBER is true
-        val phone = UniqueStringAttribute("phone", "pn#")
+        val phone = UniqueStringAttribute("phone", "pn", "#")
         val password = StringAttribute("password")
         val active = BooleanAttribute("active")
         val attributes = StringAttribute("attributes")
@@ -1353,12 +1372,10 @@ class DynamoDBUserAccountDataAccessProvider(
         private val emailInitialEmailIndex =
             PartitionAndSortIndex("emailInitial-email-index", emailInitial, email)
 
-        fun keyFromAccountId(accountIdValue: String) = mapOf(
-            pk.name to pk.toAttrValue(accountId.uniquenessValueFrom(accountIdValue))
-        )
+        fun keyFromAccountId(accountIdValue: String, tenantId: TenantId) = keyFrom(accountId, tenantId, accountIdValue)
 
-        fun keyFromUserName(userNameValue: String) = mapOf(
-            pk.name to pk.toAttrValue(userName.uniquenessValueFrom(userNameValue))
+        fun  keyFrom(uniqueAttribute: UniqueAttribute<String>, tenantId: TenantId, value: String) = mapOf(
+            pk.name to pk.toAttrValue(uniqueAttribute.uniquenessValueFrom(tenantId, value))
         )
 
         val queryCapabilities = TableQueryCapabilities(
@@ -1389,28 +1406,47 @@ class DynamoDBUserAccountDataAccessProvider(
 
     object LinksTable : Table("curity-links") {
         val pk =
-            StringCompositeAttribute2("linkedAccountId_linkedAccountDomainName") { linkedAccountId, linkedAccountDomainName -> "$linkedAccountId@$linkedAccountDomainName" }
+            StringCompositeAttribute2("linkedAccountId_linkedAccountDomainName") { tenantId, linkedAccountId, linkedAccountDomainName ->
+                val tenantSuffix = if (tenantId?.tenantId != null) ".${tenantId.tenantId}" else ""
+                // e.g. abc@facebook or abc@facebook.tenant1
+                "$linkedAccountId@$linkedAccountDomainName$tenantSuffix"
+            }
+        val tenantId = StringAttribute("tenantId")
         val localAccountId = StringAttribute("accountId")
         val linkedAccountId = StringAttribute("linkedAccountId")
         val linkedAccountDomainName = StringAttribute("linkedAccountDomainName")
         val linkingAccountManager = StringAttribute("linkingAccountManager")
         val created = NumberLongAttribute("created")
 
-        val listLinksIndex = PartitionAndSortIndex("list-links-index", localAccountId, linkingAccountManager)
+        val listLinksIndex = TenantAwarePartitionAndSortIndex(
+            "list-links-index",
+            localAccountId,
+            linkingAccountManager,
+            tenantId
+        )
 
         fun createItem(
+            tenantIdValue: TenantId,
             linkingAccountManagerValue: String,
             localAccountIdValue: String,
             foreignDomainNameValue: String,
             foreignUserNameValue: String
-        ) = mapOf(
-            pk.toNameValuePair(foreignUserNameValue, foreignDomainNameValue),
-            localAccountId.toNameValuePair(localAccountIdValue),
-            linkedAccountId.toNameValuePair(foreignUserNameValue),
-            linkedAccountDomainName.toNameValuePair(foreignDomainNameValue),
-            linkingAccountManager.toNameValuePair(linkingAccountManagerValue),
-            created.toNameValuePair(Instant.now().epochSecond)
-        )
+        ): Map<String, AttributeValue> {
+            val attributes = mutableMapOf(
+                pk.toNameValuePair(tenantIdValue, foreignUserNameValue, foreignDomainNameValue),
+                localAccountId.toNameValuePair(localAccountIdValue),
+                linkedAccountId.toNameValuePair(foreignUserNameValue),
+                linkedAccountDomainName.toNameValuePair(foreignDomainNameValue),
+                linkingAccountManager.toNameValuePair(linkingAccountManagerValue),
+                created.toNameValuePair(Instant.now().epochSecond)
+            )
+
+            tenantIdValue.tenantId?.let {
+                attributes.addAttr(tenantId, it)
+            }
+
+            return attributes.toMap()
+        }
     }
 
     private fun versionAndAccountIdConditionExpression(version: Long, accountId: String) = object : Expression(

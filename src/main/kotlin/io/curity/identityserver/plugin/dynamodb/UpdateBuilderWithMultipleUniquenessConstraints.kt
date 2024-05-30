@@ -38,7 +38,7 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
     // ... and the sort key attribute
     private val _skAttribute: DynamoDBAttribute<String>? = null,
 ) {
-
+    private val _tenantId = _configuration.getTenantId()
     private val _transactionItems = mutableListOf<TransactWriteItem>()
     private var _conditionExpressionOverride: Expression? = null
     private var _commonItemOverride: Map<String, AttributeValue>? = null
@@ -56,16 +56,16 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
         if (before == after) {
             if (after != null) {
                 // Even if the key value doesn't change, we still need to update the item's data.
-                updateItem(attribute.uniquenessValueFrom(after), additionalAttributes)
+                updateItem(attribute.uniquenessValueFrom(_tenantId, after), additionalAttributes)
             }
         } else if (after != null) {
             if (before != null) {
-                removeItem(attribute.uniquenessValueFrom(before))
+                removeItem(attribute.uniquenessValueFrom(_tenantId, before))
             }
-            insertItem(attribute.uniquenessValueFrom(after), additionalAttributes)
+            insertItem(attribute.uniquenessValueFrom(_tenantId, after), additionalAttributes)
         } else {
             if (before != null) {
-                removeItem(attribute.uniquenessValueFrom(before))
+                removeItem(attribute.uniquenessValueFrom(_tenantId, before))
             }
         }
 

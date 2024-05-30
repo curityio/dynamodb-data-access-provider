@@ -26,14 +26,12 @@ class DynamoDBAttributeDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient,
     private val _configuration: DynamoDBDataAccessProviderConfiguration
 ) : AttributeDataAccessProvider {
+    private val tenantId = _configuration.getTenantId()
+
     override fun getAttributes(subject: String): AttributeTableView {
         val accountQuery = GetItemRequest.builder()
             .tableName(AccountsTable.name(_configuration))
-            .key(
-                mapOf(
-                    AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, subject)
-                )
-            )
+            .key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, tenantId, subject)))
             .build()
 
         val accountQueryResult = _dynamoDBClient.getItem(accountQuery)

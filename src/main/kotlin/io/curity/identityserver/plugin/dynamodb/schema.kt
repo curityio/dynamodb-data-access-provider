@@ -18,10 +18,10 @@ package io.curity.identityserver.plugin.dynamodb
 
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
+import se.curity.identityserver.sdk.service.authentication.TenantId
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.Delete
 import software.amazon.awssdk.services.dynamodb.model.Put
-import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 
 /*
@@ -89,6 +89,7 @@ interface DynamoDBAttribute<T> {
 interface UniqueAttribute<T> : DynamoDBAttribute<T> {
     // The value to use on the partition key
     fun uniquenessValueFrom(value: T): String
+    fun uniquenessValueFrom(tenantId: TenantId, value: T): String
 }
 
 abstract class BaseAttribute<T>(
@@ -145,7 +146,7 @@ private fun <T : Comparable<T>> compare(a: T?, b: T?) =
         a.compareTo(b)
     }
 
-class StringAttribute(name: String) : BaseAttribute<String>(name, AttributeType.S) {
+open class StringAttribute(name: String) : BaseAttribute<String>(name, AttributeType.S) {
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
     override fun from(attrValue: AttributeValue): String = attrValue.s()
     override fun cast(value: Any) = value as? String
@@ -197,23 +198,34 @@ class ListStringAttribute(name: String) : BaseAttribute<Collection<String>>(name
 }
 
 // An attribute that is composed by two values
-class StringCompositeAttribute2(name: String, private val template: (String, String) -> String) :
+class StringCompositeAttribute2(name: String, private val template: (TenantId?, String, String) -> String) :
     BaseAttribute<Pair<String, String>>(name, AttributeType.S) {
     override fun toAttrValue(value: Pair<String, String>): AttributeValue =
-        AttributeValue.builder().s(template(value.first, value.second)).build()
+        AttributeValue.builder().s(template(null, value.first, value.second)).build()
 
-    fun toNameValuePair(first: String, second: String) = name to toAttrValue(Pair(first, second))
+    fun toAttrValue(tenantId: TenantId, value: Pair<String, String>): AttributeValue =
+        AttributeValue.builder().s(template(tenantId, value.first, value.second)).build()
+
+    fun toNameValuePair(tenantId: TenantId, first: String, second: String) = name to toAttrValue(tenantId, first to second)
     override fun from(attrValue: AttributeValue) = throw UnsupportedOperationException("Cannot read a composite value")
     override fun cast(value: Any) = throw UnsupportedOperationException("Cannot cast a composite value")
     override fun comparator(): Comparator<Map<String, AttributeValue>>? = null
 }
 
-open class UniqueStringAttribute(name: String, val prefix: String) : BaseAttribute<String>(name, AttributeType.S),
-    UniqueAttribute<String> {
-    private fun getUniquePkValue(value: String) = "$prefix$value"
+open class UniqueStringAttribute(name: String, val prefix: String, private val separator: String = "") :
+    BaseAttribute<String>(name, AttributeType.S), UniqueAttribute<String> {
+    private fun getUniquePkValue(tenantId: TenantId?, value: String) = toValuePrefix(tenantId) + value
+    fun toValuePrefix(tenantId: TenantId?) = if (tenantId?.tenantId == null) {
+        // e.g. "ai#"
+        prefix + separator
+    } else {
+        // e.g. "ai(tenant1)#"
+        "$prefix(${tenantId.tenantId})$separator"
+    }
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
     override fun from(attrValue: AttributeValue): String = attrValue.s()
-    override fun uniquenessValueFrom(value: String) = getUniquePkValue(value)
+    override fun uniquenessValueFrom(value: String) = getUniquePkValue(null, value)
+    override fun uniquenessValueFrom(tenantId: TenantId, value: String): String = getUniquePkValue(tenantId, value)
     override fun cast(value: Any) = value as? String
     override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
 }
@@ -222,8 +234,8 @@ class KeyStringAttribute(name: String) : BaseAttribute<String>(name, AttributeTy
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
     override fun from(attrValue: AttributeValue): String = attrValue.s()
 
-    fun <T> uniqueKeyEntryFor(uniqueAttribute: UniqueAttribute<T>, value: T) =
-        toNameValuePair(uniqueAttribute.uniquenessValueFrom(value))
+    fun <T> uniqueKeyEntryFor(uniqueAttribute: UniqueAttribute<T>, tenantId: TenantId, value: T) =
+        toNameValuePair(uniqueAttribute.uniquenessValueFrom(tenantId, value))
 
     override fun cast(value: Any) = value as? String
 
@@ -275,22 +287,36 @@ class UniquenessBasedIndexStringAttribute(
 
 class StartsWithStringAttribute(
     // The attribute's name storing the first letters of the full attribute.
-    _initialsAttribute: String,
+    initialsAttribute: String,
     // The attribute storing the full value which starts with _initialAttribute value.
-    val fullAttribute: BaseAttribute<String>,
+    val fullAttribute: UniqueStringAttribute,
     // The length of the initials stored in the _initialsAttribute.
     private val _initialLength: Int
-) : BaseAttribute<String>(_initialsAttribute, AttributeType.S) {
+) : StringAttribute(initialsAttribute) {
     private fun getInitials(value: String): String =
         if (value.length < _initialLength) value else value.substring(0, _initialLength)
 
-    override fun from(attrValue: AttributeValue): String = attrValue.s()
+    /**
+     * Creates a name, value pair whose value has unique initials from the given value for the given tenant ID.
+     * When tenant ID is null, raw initials are returned, e.g. "johndoe" => "joh"
+     * When tenant ID is not null, prefixed initials are returned, e.g. "tenant1", "johndoe" => "un(tenant1)#joh"
+     *
+     * @return a name, value pair with initials for the given value prefixed by the tenant ID (when not null).
+     */
+    fun uniqueKeyEntryFor(tenantId: TenantId, value: String) = toNameValuePair(toInitials(tenantId, value))
 
-    override fun cast(value: Any): String? = value as? String
-
-    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
-
-    override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(getInitials(value)).build()
+    /**
+     * Creates unique initials from the given value for the given tenant ID.
+     * When tenant ID is null, raw initials are returned, e.g. "johndoe" => "joh"
+     * When tenant ID is not null, prefixed initials are returned, e.g. "tenant1", "johndoe" => "un(tenant1)#joh"
+     *
+     * @return initials for the given value prefixed by the tenant ID (when not null).
+     */
+    fun toInitials(tenantId: TenantId, value: String): String = if (tenantId.tenantId == null) {
+        getInitials(value)
+    } else {
+        fullAttribute.uniquenessValueFrom(tenantId, getInitials(value))
+    }
 
     override fun canBeUsedOnQueryTo(other: DynamoDBAttribute<*>) = this == other || fullAttribute == other
 }
@@ -356,16 +382,8 @@ class PartitionOnlyIndex<T>(
     val expressionNameMap = mapOf(attribute.hashName to attribute.name)
 }
 
-fun <T> QueryRequest.Builder.useIndexAndKey(index: PartitionOnlyIndex<T>, value: T): QueryRequest.Builder {
-    this.indexName(index.name)
-    this.keyConditionExpression(index.expression)
-    this.expressionAttributeNames(index.expressionNameMap)
-    this.expressionAttributeValues(index.expressionValueMap(value))
-    return this
-}
-
 // A DynamoDB index composed by two columns (partition key + sort key)
-class PartitionAndSortIndex<T1, T2>(
+open class PartitionAndSortIndex<T1, T2>(
     val name: String,
     val partitionAttribute: DynamoDBAttribute<T1>,
     val sortAttribute: DynamoDBAttribute<T2>
@@ -376,15 +394,48 @@ class PartitionAndSortIndex<T1, T2>(
         sortAttribute.toExpressionNameValuePair(second)
     )
 
-    val expressionNameMap = mapOf(
-        partitionAttribute.hashName to partitionAttribute.name,
-        sortAttribute.hashName to sortAttribute.name
-    )
+    open val expressionNameMap = sequenceOf(partitionAttribute, sortAttribute).map { it.hashName to it.name }.toMap()
 
     val keyConditionExpression =
         "${partitionAttribute.hashName} = ${partitionAttribute.colonName} AND ${sortAttribute.hashName} = ${sortAttribute.colonName}"
 }
 
+// A DynamoDB index composed by two columns (partition key + sort key) which should also be filtered by tenant ID.
+class TenantAwarePartitionAndSortIndex<T1, T2>(
+    name: String,
+    partitionAttribute: DynamoDBAttribute<T1>,
+    sortAttribute: DynamoDBAttribute<T2>,
+    private val tenantIdAttribute: StringAttribute
+): PartitionAndSortIndex<T1, T2>(name, partitionAttribute, sortAttribute) {
+    fun expressionValueMap(tenantId: TenantId, first: T1, second: T2): Map<String, AttributeValue> {
+        val values = mutableMapOf(
+            partitionAttribute.toExpressionNameValuePair(first),
+            sortAttribute.toExpressionNameValuePair(second)
+        )
+
+        if (tenantId.tenantId != null) {
+            tenantIdAttribute.toExpressionNameValuePair(tenantId.tenantId).let {
+                values[it.first] = it.second
+            }
+        }
+
+        return values.toMap()
+    }
+
+    fun filterExpression(tenantId: TenantId) = if (tenantId.tenantId != null) {
+        "${tenantIdAttribute.hashName} = ${tenantIdAttribute.colonName}"
+    } else {
+        "attribute_not_exists(${tenantIdAttribute.hashName})"
+    }
+
+    override val expressionNameMap =
+        sequenceOf(partitionAttribute, sortAttribute, tenantIdAttribute).map { it.hashName to it.name }.toMap()
+}
+
 fun <T> MutableMap<String, AttributeValue>.addAttr(attribute: DynamoDBAttribute<T>, value: T) {
     this[attribute.name] = attribute.toAttrValue(value)
+}
+
+fun <T> MutableMap<String, AttributeValue>.addExpressionNameValue(attribute: DynamoDBAttribute<T>, value: T) {
+    this[attribute.colonName] = attribute.toAttrValue(value)
 }

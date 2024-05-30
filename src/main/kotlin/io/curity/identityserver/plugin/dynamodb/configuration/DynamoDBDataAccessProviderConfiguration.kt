@@ -23,6 +23,7 @@ import se.curity.identityserver.sdk.config.annotation.Description
 import se.curity.identityserver.sdk.config.annotation.RangeConstraint
 import se.curity.identityserver.sdk.service.ExceptionFactory
 import se.curity.identityserver.sdk.service.Json
+import se.curity.identityserver.sdk.service.authentication.TenantId
 import java.util.Optional
 
 interface DynamoDBDataAccessProviderConfiguration : Configuration {
@@ -149,4 +150,6 @@ interface DynamoDBDataAccessProviderConfiguration : Configuration {
     fun getExceptionFactory(): ExceptionFactory
 
     fun getJsonHandler(): Json
+
+    fun getTenantId(): TenantId
 }
