@@ -22,7 +22,6 @@ import se.curity.identityserver.sdk.service.authentication.TenantId
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.Delete
 import software.amazon.awssdk.services.dynamodb.model.Put
-import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 
 /*
  * A DynamoDB item (i.e. a table row) is represented by a Map
@@ -77,6 +76,7 @@ interface DynamoDBAttribute<T> {
     fun addToNullable(map: MutableMap<String, AttributeValue>, value: T?)
     fun addToAny(map: MutableMap<String, AttributeValue>, value: Any)
     fun cast(value: Any): T?
+    fun castOrThrow(value: Any): T
     fun isValueCompatible(value: Any): Boolean
     fun toNameAttributePair(): Pair<String, DynamoDBAttribute<T>>
     fun toAttrValueWithCast(value: Any): AttributeValue
@@ -89,7 +89,19 @@ interface DynamoDBAttribute<T> {
 interface UniqueAttribute<T> : DynamoDBAttribute<T> {
     // The value to use on the partition key
     fun uniquenessValueFrom(value: T): String
-    fun uniquenessValueFrom(tenantId: TenantId, value: T): String
+}
+
+/**
+ * A DynamoDB attribute that must also be unique and whose unique value embeds a tenant ID.
+ * This type can be used when the primary key is based on a value which is not unique across tenants,
+ * like for example the subject/username.
+ */
+interface TenantAwareUniqueAttribute : UniqueAttribute<String> {
+    override fun uniquenessValueFrom(value: String): String = throw UnsupportedOperationException(
+        "A tenant is mandatory to compute the unique value of a tenant aware unique attribute"
+    )
+
+    fun uniquenessValueFrom(tenantId: TenantId, value: String): String
 }
 
 abstract class BaseAttribute<T>(
@@ -129,8 +141,10 @@ abstract class BaseAttribute<T>(
 
     override fun toNameAttributePair() = name to this
 
-    override fun toAttrValueWithCast(value: Any) =
-        toAttrValue(cast(value) ?: throw RuntimeException("Unable to convert '$value' to '$name' attribute value"))
+    override fun castOrThrow(value: Any): T =
+        cast(value) ?: throw RuntimeException("Unable to convert '$value' to '$name' attribute value")
+
+    override fun toAttrValueWithCast(value: Any) = toAttrValue(castOrThrow(value))
 
     override fun canBeUsedOnQueryTo(other: DynamoDBAttribute<*>) = this == other
 }
@@ -212,20 +226,41 @@ class StringCompositeAttribute2(name: String, private val template: (TenantId?, 
     override fun comparator(): Comparator<Map<String, AttributeValue>>? = null
 }
 
-open class UniqueStringAttribute(name: String, val prefix: String, private val separator: String = "") :
+open class UniqueStringAttribute(name: String, val prefix: String) :
     BaseAttribute<String>(name, AttributeType.S), UniqueAttribute<String> {
-    private fun getUniquePkValue(tenantId: TenantId?, value: String) = toValuePrefix(tenantId) + value
-    fun toValuePrefix(tenantId: TenantId?) = if (tenantId?.tenantId == null) {
-        // e.g. "ai#"
-        prefix + separator
-    } else {
-        // e.g. "ai(tenant1)#"
-        "$prefix(${tenantId.tenantId})$separator"
-    }
+    private fun getUniquePkValue(value: String) = "$prefix$value"
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
     override fun from(attrValue: AttributeValue): String = attrValue.s()
-    override fun uniquenessValueFrom(value: String) = getUniquePkValue(null, value)
-    override fun uniquenessValueFrom(tenantId: TenantId, value: String): String = getUniquePkValue(tenantId, value)
+    override fun uniquenessValueFrom(value: String) = getUniquePkValue(value)
+    override fun cast(value: Any) = value as? String
+    override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
+}
+
+class TenantAwareUniqueStringAttribute(name: String, private val _prefixTemplate: KeyPrefixTemplate) :
+    BaseAttribute<String>(name, AttributeType.S), TenantAwareUniqueAttribute {
+    interface KeyPrefixTemplate {
+        val prefix: String
+        fun toPrefix(tenantId: TenantId): String
+    }
+
+    val prefix = _prefixTemplate.prefix
+
+    constructor(name: String, prefix: String, separator: String = ""): this(name, object: KeyPrefixTemplate {
+        override val prefix = prefix
+        override fun toPrefix(tenantId: TenantId): String =
+            if (tenantId.tenantId == null) {
+                // e.g. "ai#"
+                if (prefix.isNotEmpty()) prefix + separator else ""
+            } else {
+                // e.g. "ai(tenant1)#"
+                "$prefix(${tenantId.tenantId})$separator"
+            }
+    })
+
+    fun toValuePrefix(tenantId: TenantId) = _prefixTemplate.toPrefix(tenantId)
+    override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
+    override fun from(attrValue: AttributeValue): String = attrValue.s()
+    override fun uniquenessValueFrom(tenantId: TenantId, value: String): String = toValuePrefix(tenantId) + value
     override fun cast(value: Any) = value as? String
     override fun comparator() = Comparator<DynamoDBItem> { a, b -> compare(optionalFrom(a), optionalFrom(b)) }
 }
@@ -234,7 +269,7 @@ class KeyStringAttribute(name: String) : BaseAttribute<String>(name, AttributeTy
     override fun toAttrValue(value: String): AttributeValue = AttributeValue.builder().s(value).build()
     override fun from(attrValue: AttributeValue): String = attrValue.s()
 
-    fun <T> uniqueKeyEntryFor(uniqueAttribute: UniqueAttribute<T>, tenantId: TenantId, value: T) =
+    fun uniqueKeyEntryFor(uniqueAttribute: TenantAwareUniqueAttribute, tenantId: TenantId, value: String) =
         toNameValuePair(uniqueAttribute.uniquenessValueFrom(tenantId, value))
 
     override fun cast(value: Any) = value as? String
@@ -266,15 +301,17 @@ class UniquenessBasedIndexStringAttribute(
     // The attribute representing the primary key
     private val _primaryKeyAttribute: KeyStringAttribute,
     // The attribute that is added as primary key on a secondary item
-    private val _uniqueAttribute: UniqueAttribute<String>
+    private val _uniqueAttribute: TenantAwareUniqueAttribute
 )
 // the attribute name is the name of the primary key attribute
-    : BaseAttribute<String>(_primaryKeyAttribute.name, AttributeType.S) {
+    : BaseAttribute<String>(_primaryKeyAttribute.name, AttributeType.S), TenantAwareUniqueAttribute {
 
     // the attribute name comes from the primary key, however the value uses the unique attribute mapping function
-    override fun toAttrValue(value: String) = _primaryKeyAttribute.toAttrValue(
-        _uniqueAttribute.uniquenessValueFrom(value)
-    )
+    override fun toAttrValue(value: String) = _primaryKeyAttribute.toAttrValue(value)
+
+    override fun uniquenessValueFrom(tenantId: TenantId, value: String): String {
+        return _uniqueAttribute.uniquenessValueFrom(tenantId, value)
+    }
 
     override fun from(attrValue: AttributeValue) = _primaryKeyAttribute.from(attrValue)
 
@@ -289,10 +326,10 @@ class StartsWithStringAttribute(
     // The attribute's name storing the first letters of the full attribute.
     initialsAttribute: String,
     // The attribute storing the full value which starts with _initialAttribute value.
-    val fullAttribute: UniqueStringAttribute,
+    val fullAttribute: TenantAwareUniqueStringAttribute,
     // The length of the initials stored in the _initialsAttribute.
     private val _initialLength: Int
-) : StringAttribute(initialsAttribute) {
+) : StringAttribute(initialsAttribute), TenantAwareUniqueAttribute {
     private fun getInitials(value: String): String =
         if (value.length < _initialLength) value else value.substring(0, _initialLength)
 
@@ -318,6 +355,8 @@ class StartsWithStringAttribute(
         fullAttribute.uniquenessValueFrom(tenantId, getInitials(value))
     }
 
+    override fun uniquenessValueFrom(tenantId: TenantId, value: String): String = toInitials(tenantId, value)
+
     override fun canBeUsedOnQueryTo(other: DynamoDBAttribute<*>) = this == other || fullAttribute == other
 }
 
@@ -336,14 +375,6 @@ abstract class Expression(
 }
 
 // Extension functions that apply expressions to request builders
-fun UpdateItemRequest.Builder.updateExpression(expression: Expression)
-        : UpdateItemRequest.Builder {
-    this.updateExpression(expression.expression)
-    this.expressionAttributeNames(expression.attributeNames)
-    this.expressionAttributeValues(expression.values)
-    return this
-}
-
 fun Delete.Builder.conditionExpression(expression: Expression)
         : Delete.Builder {
     this.conditionExpression(expression.expression)
@@ -434,8 +465,4 @@ class TenantAwarePartitionAndSortIndex<T1, T2>(
 
 fun <T> MutableMap<String, AttributeValue>.addAttr(attribute: DynamoDBAttribute<T>, value: T) {
     this[attribute.name] = attribute.toAttrValue(value)
-}
-
-fun <T> MutableMap<String, AttributeValue>.addExpressionNameValue(attribute: DynamoDBAttribute<T>, value: T) {
-    this[attribute.colonName] = attribute.toAttrValue(value)
 }

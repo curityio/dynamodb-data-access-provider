@@ -56,16 +56,24 @@ import java.util.UUID
  * [https://aws.amazon.com/blogs/database/simulating-amazon-dynamodb-unique-constraints-using-transactions/]
  *
  * The `pk` column has the "primary key", which is unique and can be:
- * - `id#{id}` (for default tenant) or `id{tenantId}#{id}` for custom tenant: main item, with all the attributes.
- * - `accountId#{accountId}` (for default tenant) or `accountId{tenantId}#{accountId}` for custom tenant:
+ * - `id#{id}` (for default tenant) or `id({tenantId})#{id}` for custom tenant: main item, with all the attributes.
+ * - `accountId#{accountId}` (for default tenant) or `accountId({tenantId})#{accountId}` for custom tenant:
  *    secondary item, both to ensure uniqueness
  * and to allow strong consistency reads by accountId and deviceId.
+ *
+ * Note that when a device is owned by a custom tenant, a `tenantId` attribute is persisted with the device main and
+ * secondary item. This may help filtering all items for a given tenant. Devices owned by default tenant do not have
+ * a tenantId attribute.
  */
 class DynamoDBDeviceDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient,
     private val _configuration: DynamoDBDataAccessProviderConfiguration
 ) : DeviceDataAccessProvider {
-    private val _tenantId = _configuration.getTenantId()
+    // Lazy initialization is required to avoid cyclic dependencies while Femto containers are built.
+    // TenantId should not be resolved from the configuration at DAP initialization time.
+    private val _tenantId: TenantId by lazy {
+        _configuration.getTenantId()
+    }
     private val _jsonHandler = _configuration.getJsonHandler()
 
     object DeviceTable : Table("curity-devices") {
@@ -82,9 +90,9 @@ class DynamoDBDeviceDataAccessProvider(
         // the sort key
         val sk = KeyStringAttribute("sk")
 
-        val id = UniqueStringAttribute("id", "id", "#")
+        val id = TenantAwareUniqueStringAttribute("id", "id", "#")
         val tenantId = StringAttribute("tenantId")
-        val accountId = UniqueStringAttribute("accountId", "accountId", "#")
+        val accountId = TenantAwareUniqueStringAttribute("accountId", "accountId", "#")
         val deviceId = StringAttribute("deviceId")
         val externalId = StringAttribute("externalId")
         val alias = StringAttribute("alias")
@@ -519,6 +527,9 @@ class DynamoDBDeviceDataAccessProvider(
             .tableName(DeviceTable.name(_configuration))
             .indexName(DeviceTable.deviceIdIndex.name)
             .keyConditionExpression(DeviceTable.deviceIdIndex.expression)
+            // The deviceId-Index GSI contains the main item (starting with id#) and the secondary item
+            // (starting with accountId#). A filter expression is needed to only return the main item
+            // as well as to filter on the right tenant ID.
             .filterExpression("begins_with(${DeviceTable.pk}, ${DeviceTable.pk.colonName})")
             .expressionAttributeValues(mapOf(
                 DeviceTable.deviceId.toExpressionNameValuePair(deviceId),

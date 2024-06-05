@@ -18,7 +18,9 @@ package io.curity.identityserver.plugin.dynamodb.query
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBUserAccountDataAccessProvider
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
-import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import se.curity.identityserver.sdk.data.query.Filter
 
@@ -33,7 +35,7 @@ class AccountsQueryTests {
                 Filter.AttributeExpression(Filter.AttributeOperator.EQ, "emails", "jane.doe@example.com")
             )
 
-        val queryPlanner = QueryPlanner(DynamoDBUserAccountDataAccessProvider.AccountsTable.queryCapabilities)
+        val queryPlanner = QueryPlanner(DynamoDBUserAccountDataAccessProvider.AccountsTable.queryCapabilities, { null })
 
         val queryPlan = queryPlanner.build(filterExpression)
 
@@ -71,7 +73,7 @@ class AccountsQueryTests {
                 Filter.AttributeExpression(Filter.AttributeOperator.EQ, "emails", "jane.doe@example.com")
             )
 
-        val queryPlanner = QueryPlanner(DynamoDBUserAccountDataAccessProvider.AccountsTable.queryCapabilities)
+        val queryPlanner = QueryPlanner(DynamoDBUserAccountDataAccessProvider.AccountsTable.queryCapabilities, { null })
 
         val queryPlan = queryPlanner.build(filterExpression)
 
@@ -79,7 +81,7 @@ class AccountsQueryTests {
 
         val queries = (queryPlan as QueryPlan.UsingQueries).queries.entries
 
-        val userNameQuery = queries.single { query -> query.key.partitionCondition.value == "janedoe" }
+        val userNameQuery = queries.single { query -> query.key.partitionCondition.value == "un#janedoe" }
 
         val dynamoUserNameDBQuery = DynamoDBQueryBuilder.buildQuery(userNameQuery.key, userNameQuery.value)
 
@@ -99,7 +101,7 @@ class AccountsQueryTests {
             dynamoUserNameDBQuery.nameMap
         )
 
-        val emailQuery = queries.single { query -> query.key.partitionCondition.value == "jane.doe@example.com" }
+        val emailQuery = queries.single { query -> query.key.partitionCondition.value == "em#jane.doe@example.com" }
 
         val dynamoEmailDBQuery = DynamoDBQueryBuilder.buildQuery(emailQuery.key, emailQuery.value)
 
