@@ -28,7 +28,7 @@
         <apache-client.version>4.5.13</apache-client.version>
         <awssdk.version>2.21.42</awssdk.version>
         <byte-buddy.version>1.14.10</byte-buddy.version>
-        <curity.version>9.0.0</curity.version>
+        <curity.version>9.3.0</curity.version>
         <jackson.version>2.16.0</jackson.version>
         <junit.version>5.10.1</junit.version>
         <mockito.version>5.7.0</mockito.version>
