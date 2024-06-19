@@ -77,10 +77,22 @@ object QueryHelper {
             val (list, lastEvaluationKey) = if (indexAndKeys.useScan) {
                 val listScanBuilder = ScanRequest.builder().init(tableName, indexAndKeys)
                 // Items will be unsorted!
-                scanWithPagination(dynamoDBClient, listScanBuilder, expectedCount, exclusiveStartKey, toLastEvaluatedKey)
+                scanWithPagination(
+                    dynamoDBClient,
+                    listScanBuilder,
+                    expectedCount,
+                    exclusiveStartKey,
+                    toLastEvaluatedKey
+                )
             } else {
                 val listQueryBuilder = QueryRequest.builder().init(tableName, indexAndKeys, ascendingOrder)
-                queryWithPagination(listQueryBuilder, expectedCount, exclusiveStartKey, dynamoDBClient, toLastEvaluatedKey)
+                queryWithPagination(
+                    listQueryBuilder,
+                    expectedCount,
+                    exclusiveStartKey,
+                    dynamoDBClient,
+                    toLastEvaluatedKey
+                )
             }
             items += list
             expectedCount -= list.count()
@@ -177,8 +189,14 @@ object QueryHelper {
             // Ignore sorting with scan as unsupported
             false
         } else {
-            sortRequest?.sortBy?.isNotEmpty() == true
-                    && sortRequest.sortBy != AttributesSorting.SortAttribute.DEFAULT_SORT.toString()
+            when (sortRequest?.sortAttribute) {
+                AttributesSorting.SortAttribute.CREATED_TIMESTAMP -> true
+                AttributesSorting.SortAttribute.LAST_MODIFIED_TIMESTAMP -> true
+                AttributesSorting.SortAttribute.NAME -> true
+                AttributesSorting.SortAttribute.NONE -> false
+                AttributesSorting.SortAttribute.DEFAULT_SORT -> false
+                null -> false
+            }
         }
 
         validateSortingRequest(tableCapabilities, sortingExpected)

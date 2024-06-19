@@ -18,12 +18,12 @@ package io.curity.identityserver.plugin.dynamodb
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBUserAccountDataAccessProvider.AccountsTable
 import org.slf4j.LoggerFactory
-import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException
+import se.curity.identityserver.sdk.errors.EmailConflictException
+import se.curity.identityserver.sdk.errors.PhoneNumberConflictException
+import se.curity.identityserver.sdk.errors.UsernameConflictException
 import software.amazon.awssdk.services.dynamodb.model.CancellationReason
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
-import se.curity.identityserver.sdk.errors.UsernameConflictException
-import se.curity.identityserver.sdk.errors.PhoneNumberConflictException
-import se.curity.identityserver.sdk.errors.EmailConflictException
+import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 
@@ -48,24 +48,32 @@ fun Exception.isTransactionCancelledDueToConditionFailure(): Boolean {
 
 fun Exception.validateKnownUniqueConstraintsForAccountMutations(
     cancellationReasons: List<CancellationReason>,
-    transactionItems: MutableList<TransactWriteItem>
+    transactionItems: List<TransactWriteItem>
 ) {
     cancellationReasons.forEachIndexed { index, reason ->
         // Cancellation reason does not contain any reference to field causing the failure,
         // this can be established by position of the cancellationReasons list which corresponds to position in
         // transactionItems list
+        val putItem = transactionItems[index].put()
         if (reason.code().equals("ConditionalCheckFailed") &&
-            transactionItems[index].put() != null &&
-            transactionItems[index].put().item()[AccountsTable.pk.name]?.s() != null) {
+            putItem != null &&
+            putItem.item()[AccountsTable.pk.name]?.s() != null) {
 
-            val pk = transactionItems[index].put().item()[AccountsTable.pk.name]!!.s()
+            // We can only fail with NnnnnConflictException if the condition check failure
+            // was due to an attribute_not_exists.
+            // There may be other condition checks (e.g. optimistic concurrency) that must not produce these exceptions.
+            // To determine this, we look inside the conditionalExpression of the transaction item.
+            val conditionExpression = putItem.conditionExpression()
+            if(conditionExpression != null && conditionExpression.contains("attribute_not_exists")) {
+                val pk = putItem.item()[AccountsTable.pk.name]!!.s()
 
-            if (pk.startsWith(AccountsTable.userName.prefix)) {
-                throw UsernameConflictException()
-            } else if (pk.startsWith(AccountsTable.phone.prefix)) {
-                throw PhoneNumberConflictException()
-            } else if (pk.startsWith(AccountsTable.email.prefix)) {
-                throw EmailConflictException()
+                if (pk.startsWith(AccountsTable.userName.prefix)) {
+                    throw UsernameConflictException()
+                } else if (pk.startsWith(AccountsTable.phone.prefix)) {
+                    throw PhoneNumberConflictException()
+                } else if (pk.startsWith(AccountsTable.email.prefix)) {
+                    throw EmailConflictException()
+                }
             }
         }
     }

@@ -9,6 +9,24 @@
     {
       "AttributeName": "sk",
       "AttributeType": "S"
+    },
+    {
+      "AttributeName": "deviceId",
+      "AttributeType": "S"
+    }
+  ],
+  "GlobalSecondaryIndexes" : [
+    {
+      "IndexName" : "deviceId-index",
+      "KeySchema" : [
+        {
+          "KeyType" : "HASH",
+          "AttributeName" : "deviceId"
+        }
+      ],
+      "Projection" : {
+        "ProjectionType" : "ALL"
+      }
     }
   ],
   "KeySchema": [

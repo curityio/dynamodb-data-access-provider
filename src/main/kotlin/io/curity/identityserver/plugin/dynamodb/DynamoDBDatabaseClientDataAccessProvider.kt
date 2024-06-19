@@ -1015,10 +1015,11 @@ class DynamoDBDatabaseClientDataAccessProvider(
                 },
                 { asymmetricKey: String? ->
                     StringAttribute(JWT_ASSERTION_ASYMMETRIC_KEY_ID).addToNullable(item, asymmetricKey)
-                }
-            ) { jwksUri: JwksUri? ->
-                StringAttribute(JWT_ASSERTION_JWKS_URI_CLIENT_ID).addToNullable(item, jwksUri?.httpClientId)
-            }
+                }, { jwksUri: JwksUri? ->
+                    StringAttribute(JWT_ASSERTION_JWKS_URI_CLIENT_ID).addToNullable(item, jwksUri?.httpClientId)
+                }, { jwks ->
+                    // no references
+                })
         }
         StringAttribute(HAAPI_POLICY_ID).addToNullable(
             item,
