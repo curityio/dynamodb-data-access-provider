@@ -39,6 +39,17 @@ The included ``ProvisionedThroughput`` values are illustrative and need to be ad
 There is also another set of JSON files for the `on-demand` Billing Mode which can be found from the `on-demand` folder
 under the `schemas`.
 
+Multi-Tenancy
+~~~~~~~~~~~~~
+
+Multi-tenancy is supported out of the box by the DynamoDB data source plugin.
+Any user name, phone number, email, linked account, device ID or bucket can exist in different tenants.
+For each item (account, linked account, device, bucket) owned by a tenant, a `tenantId` attribute with the tenant ID
+value is persisted with the item. This may help filtering all items for a given tenant. Items owned by default tenant
+do not have a `tenantId` attribute and can be queried using the filter expression: ``attribute_not_exists(tenantId)``.
+Documentation for each `DynamoDBXXXDataAccessProvider` class details the strategy used to persist data for various tenants
+in tables and global secondary indexes.
+
 Phone number uniqueness requirement
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

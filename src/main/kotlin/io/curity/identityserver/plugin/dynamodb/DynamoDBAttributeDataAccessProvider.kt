@@ -19,6 +19,7 @@ import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccess
 import se.curity.identityserver.sdk.attribute.AttributeTableView
 import se.curity.identityserver.sdk.attribute.Attributes
 import se.curity.identityserver.sdk.datasource.AttributeDataAccessProvider
+import se.curity.identityserver.sdk.service.authentication.TenantId
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 
@@ -26,14 +27,16 @@ class DynamoDBAttributeDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient,
     private val _configuration: DynamoDBDataAccessProviderConfiguration
 ) : AttributeDataAccessProvider {
+    // Lazy initialization is required to avoid cyclic dependencies while Femto containers are built.
+    // TenantId should not be resolved from the configuration at DAP initialization time.
+    private val _tenantId: TenantId by lazy {
+        _configuration.getTenantId()
+    }
+
     override fun getAttributes(subject: String): AttributeTableView {
         val accountQuery = GetItemRequest.builder()
             .tableName(AccountsTable.name(_configuration))
-            .key(
-                mapOf(
-                    AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, subject)
-                )
-            )
+            .key(mapOf(AccountsTable.pk.uniqueKeyEntryFor(AccountsTable.userName, _tenantId, subject)))
             .build()
 
         val accountQueryResult = _dynamoDBClient.getItem(accountQuery)
