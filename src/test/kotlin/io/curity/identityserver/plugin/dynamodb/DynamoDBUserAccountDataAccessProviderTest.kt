@@ -28,6 +28,7 @@ import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import se.curity.identityserver.sdk.datasource.query.AttributesFiltering
 import se.curity.identityserver.sdk.service.Json
+import se.curity.identityserver.sdk.service.authentication.TenantId
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.QueryResponse
 import software.amazon.awssdk.services.dynamodb.model.Select
@@ -35,9 +36,11 @@ import java.util.Optional
 
 class DynamoDBUserAccountDataAccessProviderTest {
     private val jsonHandler = mock<Json>()
+    private val tenantId = mock<TenantId>()
     private val configuration = mock<DynamoDBDataAccessProviderConfiguration> {
         on { getTableNamePrefix() } doReturn Optional.empty()
         on { getJsonHandler() } doReturn jsonHandler
+        on { getTenantId() } doReturn tenantId
     }
     private val dynamoDBClient = mock<DynamoDBClient>()
     private val featureId = DynamoDBSecondaryIndexFeatureCheck.buildFeatureId(
@@ -114,7 +117,9 @@ class DynamoDBUserAccountDataAccessProviderTest {
             .expressionAttributeNames(mapOf("#userNameInitial" to "userNameInitial", "#userName" to "userName"))
             .expressionAttributeValues(
                 mapOf(
-                    ":userNameInitial_1" to AccountsTable.userNameInitial.toAttrValue(FILTER_VALUE),
+                    ":userNameInitial_1" to AccountsTable.userNameInitial.toAttrValue(
+                        AccountsTable.userNameInitial.toInitials(tenantId, FILTER_VALUE)
+                    ),
                     ":userName_1" to AccountsTable.userName.toAttrValue(FILTER_VALUE)
                 )
             )

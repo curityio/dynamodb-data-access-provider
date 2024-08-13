@@ -15,8 +15,6 @@
  */
 package io.curity.identityserver.plugin.dynamodb
 
-import io.curity.identityserver.plugin.dynamodb.DynamoDBDeviceDataAccessProvider.Companion.computePkFromAccountId
-import io.curity.identityserver.plugin.dynamodb.DynamoDBDeviceDataAccessProvider.Companion.computePkFromId
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -40,6 +38,7 @@ import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.data.query.ResourceQueryResult
 import se.curity.identityserver.sdk.datasource.DeviceDataAccessProvider
 import se.curity.identityserver.sdk.errors.ConflictException
+import se.curity.identityserver.sdk.service.authentication.TenantId
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
@@ -52,27 +51,37 @@ import java.util.UUID
 /**
  * The devices table has two uniqueness restrictions:
  * - The `id` must be unique.
- * - The `(accountId, deviceId)` pair must also be unique.
+ * - The `(accountId, deviceId)` pair must also be unique for a given tenant.
  * Due to this, this table uses the design documented on
  * [https://aws.amazon.com/blogs/database/simulating-amazon-dynamodb-unique-constraints-using-transactions/]
  *
  * The `pk` column has the "primary key", which is unique and can be:
- * - `id#{id}` (see [computePkFromId]) - main item, with all the attributes.
- * - `accountId#{accountId}` (see [computePkFromAccountId]) - secondary item, both to ensure uniqueness
- * and to allow strong consistency reads by accountId and deviceId
+ * - `id#{id}` (for default tenant) or `id({tenantId})#{id}` for custom tenant: main item, with all the attributes.
+ * - `accountId#{accountId}` (for default tenant) or `accountId({tenantId})#{accountId}` for custom tenant:
+ *    secondary item, both to ensure uniqueness
+ * and to allow strong consistency reads by accountId and deviceId.
  *
+ * Note that when a device is owned by a custom tenant, a `tenantId` attribute is persisted with the device main and
+ * secondary item. This may help filtering all items for a given tenant. Devices owned by default tenant do not have
+ * a tenantId attribute.
  */
 class DynamoDBDeviceDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient,
     private val _configuration: DynamoDBDataAccessProviderConfiguration
 ) : DeviceDataAccessProvider {
+    // Lazy initialization is required to avoid cyclic dependencies while Femto containers are built.
+    // TenantId should not be resolved from the configuration at DAP initialization time.
+    private val _tenantId: TenantId by lazy {
+        _configuration.getTenantId()
+    }
     private val _jsonHandler = _configuration.getJsonHandler()
 
     object DeviceTable : Table("curity-devices") {
         // Each device has two items in the table, with the following primary key structure
         // (pk - partition key, sk - sort key):
-        // - pk=id#{id}, sk="sk" (sk is constant, since id must be unique)
-        // - pk=accountId#{accountId}, sk={deviceId} (the pair (accountId, deviceId) must be unique)
+        // - pk=id#{id} or id({tenantId})#id, sk="sk" (sk is constant, since id must be unique)
+        // - pk=accountId#{accountId} or accountId({tenantId})#id, sk={deviceId}
+        //   (the pair (accountId, deviceId) must be unique)
         // This structure allows reads with strong consistency by id or by (accountId, deviceId)
 
         // the partition key
@@ -81,8 +90,9 @@ class DynamoDBDeviceDataAccessProvider(
         // the sort key
         val sk = KeyStringAttribute("sk")
 
-        val id = StringAttribute("id")
-        val accountId = StringAttribute("accountId")
+        val id = TenantAwareUniqueStringAttribute("id", "id", "#")
+        val tenantId = StringAttribute("tenantId")
+        val accountId = TenantAwareUniqueStringAttribute("accountId", "accountId", "#")
         val deviceId = StringAttribute("deviceId")
         val externalId = StringAttribute("externalId")
         val alias = StringAttribute("alias")
@@ -102,9 +112,8 @@ class DynamoDBDeviceDataAccessProvider(
     /**
      * Produces a [MutableDynamoDBItem] (i.e. a table row) from a [DeviceAttributes].
      */
-    private fun DeviceAttributes.toItem(): MutableDynamoDBItem {
+    private fun DeviceAttributes.toItem(tenantId: TenantId): MutableDynamoDBItem {
         val now = Instant.now()
-        val created = now
 
         val item = mutableMapOf<String, AttributeValue>()
         val deviceAttributesAsMap = this.asMap()
@@ -113,12 +122,16 @@ class DynamoDBDeviceDataAccessProvider(
         val id = deviceAttributesAsMap.remove(ResourceAttributes.ID) as? String ?: UUID.randomUUID().toString()
         DeviceTable.id.addTo(item, id)
 
+        tenantId.tenantId?.let {
+            DeviceTable.tenantId.addTo(item, tenantId.tenantId)
+        }
+
         if (deviceAttributesAsMap.isNotEmpty()) {
             deviceAttributesAsMap.remove(META)
             DeviceTable.attributes.addTo(item, _jsonHandler.fromAttributes(Attributes.fromMap(deviceAttributesAsMap)))
         }
 
-        DeviceTable.created.addTo(item, created.epochSecond)
+        DeviceTable.created.addTo(item, now.epochSecond)
         DeviceTable.updated.addTo(item, now.epochSecond)
 
         return item
@@ -161,13 +174,14 @@ class DynamoDBDeviceDataAccessProvider(
         val transactionItems = mutableListOf<TransactWriteItem>()
 
         // Add main item with all the columns/attributes
-        val commonItem = deviceAttributes.toItem()
+        val commonItem = deviceAttributes.toItem(_tenantId)
+
         val mainItem = commonItem.toMutableMap()
-        DeviceTable.pk.addTo(mainItem, computePkFromId(deviceAttributes.id))
+        DeviceTable.pk.addTo(mainItem, DeviceTable.id.uniquenessValueFrom(_tenantId, deviceAttributes.id))
         DeviceTable.sk.addTo(mainItem, SK_FOR_ID_ITEM)
 
         val secondaryItem = commonItem.toMutableMap()
-        DeviceTable.pk.addTo(secondaryItem, computePkFromAccountId(deviceAttributes.accountId))
+        DeviceTable.pk.addTo(secondaryItem, DeviceTable.accountId.uniquenessValueFrom(_tenantId, deviceAttributes.accountId))
         DeviceTable.sk.addTo(secondaryItem, deviceAttributes.deviceId)
 
         // Conditionally add the `deletableAt` to *both* main and secondary items
@@ -230,7 +244,7 @@ class DynamoDBDeviceDataAccessProvider(
                     it.tableName(DeviceTable.name(_configuration))
                     it.key(
                         mapOf(
-                            DeviceTable.pk.toNameValuePair(computePkFromId(id)),
+                            DeviceTable.pk.uniqueKeyEntryFor(DeviceTable.id, _tenantId, id),
                             DeviceTable.sk.toNameValuePair(SK_FOR_ID_ITEM)
                         )
                     )
@@ -245,11 +259,11 @@ class DynamoDBDeviceDataAccessProvider(
                     it.tableName(DeviceTable.name(_configuration))
                     it.key(
                         mapOf(
-                            DeviceTable.pk.toNameValuePair(computePkFromAccountId(accountId)),
+                            DeviceTable.pk.uniqueKeyEntryFor(DeviceTable.accountId, _tenantId, accountId),
                             DeviceTable.sk.toNameValuePair(deviceId)
                         )
                     )
-                    // To double check we are removing the right secondary item.
+                    // To double-check we are removing the right secondary item.
                     it.conditionExpression("${DeviceTable.id.hashName} = ${DeviceTable.id.colonName}")
                     it.expressionAttributeValues(mapOf(DeviceTable.id.toExpressionNameValuePair(id)))
                     it.expressionAttributeNames(mapOf(DeviceTable.id.toNamePair()))
@@ -296,7 +310,7 @@ class DynamoDBDeviceDataAccessProvider(
                     updateBuilder.applyTo(it)
                     it.key(
                         mapOf(
-                            DeviceTable.pk.toNameValuePair(computePkFromId(deviceAttributes.id)),
+                            DeviceTable.pk.uniqueKeyEntryFor(DeviceTable.id, _tenantId, deviceAttributes.id),
                             DeviceTable.sk.toNameValuePair(SK_FOR_ID_ITEM)
 
                         )
@@ -313,7 +327,7 @@ class DynamoDBDeviceDataAccessProvider(
                     updateBuilder.applyTo(it)
                     it.key(
                         mapOf(
-                            DeviceTable.pk.toNameValuePair(computePkFromAccountId(deviceAttributes.accountId)),
+                            DeviceTable.pk.uniqueKeyEntryFor(DeviceTable.accountId, _tenantId, deviceAttributes.accountId),
                             DeviceTable.sk.toNameValuePair(deviceAttributes.deviceId)
 
                         )
@@ -402,7 +416,7 @@ class DynamoDBDeviceDataAccessProvider(
                     it.tableName(DeviceTable.name(_configuration))
                     it.key(
                         mapOf(
-                            DeviceTable.pk.toNameValuePair(computePkFromAccountId(attributes.accountId)),
+                            DeviceTable.pk.uniqueKeyEntryFor(DeviceTable.accountId, _tenantId, attributes.accountId),
                             DeviceTable.sk.toNameValuePair(currentDeviceId)
                         )
                     )
@@ -423,9 +437,8 @@ class DynamoDBDeviceDataAccessProvider(
                     updateBuilder.applyTo(it)
                     it.key(
                         mapOf(
-                            DeviceTable.pk.toNameValuePair(computePkFromId(attributes.id)),
+                            DeviceTable.pk.uniqueKeyEntryFor(DeviceTable.id, _tenantId, attributes.id),
                             DeviceTable.sk.toNameValuePair(SK_FOR_ID_ITEM)
-
                         )
                     )
                 }
@@ -433,8 +446,8 @@ class DynamoDBDeviceDataAccessProvider(
         )
 
         // Create a new secondary record (accountId, deviceId as the PK) to replace the deleted one
-        val secondaryRecords = attributes.toItem().toMutableMap()
-        DeviceTable.pk.addTo(secondaryRecords, computePkFromAccountId(attributes.accountId))
+        val secondaryRecords = attributes.toItem(_tenantId).toMutableMap()
+        DeviceTable.pk.addTo(secondaryRecords, DeviceTable.accountId.uniquenessValueFrom(_tenantId, attributes.accountId))
         DeviceTable.sk.addTo(secondaryRecords, attributes.deviceId)
 
         DeviceTable.expires.optionalFrom(secondaryRecords)?.let { expires ->
@@ -468,30 +481,10 @@ class DynamoDBDeviceDataAccessProvider(
     }
 
     override fun getBy(
-        deviceId: String, accountId: String,
+        deviceId: String,
+        accountId: String,
         attributesEnumeration: ResourceQuery.AttributesEnumeration
-    ): ResourceAttributes<*>? {
-
-        _logger.debug(MASK_MARKER, "Received request to get device by deviceId: {} and accountId: {}", deviceId, accountId)
-
-        val requestBuilder = GetItemRequest.builder()
-            .tableName(DeviceTable.name(_configuration))
-            .key(
-                mapOf(
-                    DeviceTable.pk.toNameValuePair(computePkFromAccountId(accountId)),
-                    DeviceTable.sk.toNameValuePair(deviceId)
-                )
-            )
-            .consistentRead(true)
-
-        val response = _dynamoDBClient.getItem(requestBuilder.build())
-
-        if (!response.hasItem()) {
-            return null
-        }
-
-        return response.item().toDeviceAttributes(attributesEnumeration).filter(attributesEnumeration)
-    }
+    ): ResourceAttributes<*>? = doGetBy(deviceId, accountId, attributesEnumeration)?.filter(attributesEnumeration)
 
     override fun getByAccountId(accountId: String?): List<DeviceAttributes> {
 
@@ -506,7 +499,7 @@ class DynamoDBDeviceDataAccessProvider(
             .keyConditionExpression("${DeviceTable.pk.hashName} = ${DeviceTable.pk.colonName}")
             .expressionAttributeValues(
                 mapOf(
-                    DeviceTable.pk.toExpressionNameValuePair(computePkFromAccountId(accountId))
+                    DeviceTable.pk.toExpressionNameValuePair(DeviceTable.accountId.uniquenessValueFrom(_tenantId, accountId))
                 )
             )
             .expressionAttributeNames(
@@ -534,7 +527,14 @@ class DynamoDBDeviceDataAccessProvider(
             .tableName(DeviceTable.name(_configuration))
             .indexName(DeviceTable.deviceIdIndex.name)
             .keyConditionExpression(DeviceTable.deviceIdIndex.expression)
-            .expressionAttributeValues(DeviceTable.deviceIdIndex.expressionValueMap(deviceId))
+            // The deviceId-Index GSI contains the main item (starting with id#) and the secondary item
+            // (starting with accountId#). A filter expression is needed to only return the main item
+            // as well as to filter on the right tenant ID.
+            .filterExpression("begins_with(${DeviceTable.pk}, ${DeviceTable.pk.colonName})")
+            .expressionAttributeValues(mapOf(
+                DeviceTable.deviceId.toExpressionNameValuePair(deviceId),
+                DeviceTable.pk.toExpressionNameValuePair(DeviceTable.id.toValuePrefix(_tenantId))
+            ))
             .expressionAttributeNames(DeviceTable.deviceIdIndex.expressionNameMap)
 
         val response = _dynamoDBClient.query(requestBuilder.build())
@@ -551,14 +551,20 @@ class DynamoDBDeviceDataAccessProvider(
         attributesEnumeration: ResourceQuery.AttributesEnumeration
     ): List<ResourceAttributes<*>> = getByDeviceId(deviceId).map { it.filter(attributesEnumeration) }
 
-    override fun getBy(deviceId: String, accountId: String): DeviceAttributes? {
+    override fun getBy(deviceId: String, accountId: String): DeviceAttributes? = doGetBy(deviceId, accountId, null)
+
+    private fun doGetBy(
+        deviceId: String,
+        accountId: String,
+        attributesEnumeration: ResourceQuery.AttributesEnumeration?
+    ): DeviceAttributes? {
         _logger.debug(MASK_MARKER, "Received request to get device by deviceId: {} and accountId: {}", deviceId, accountId)
 
         val requestBuilder = GetItemRequest.builder()
             .tableName(DeviceTable.name(_configuration))
             .key(
                 mapOf(
-                    DeviceTable.pk.toNameValuePair(computePkFromAccountId(accountId)),
+                    DeviceTable.pk.uniqueKeyEntryFor(DeviceTable.accountId, _tenantId, accountId),
                     DeviceTable.sk.toNameValuePair(deviceId)
                 )
             )
@@ -570,7 +576,7 @@ class DynamoDBDeviceDataAccessProvider(
             return null
         }
 
-        return response.item().toDeviceAttributes()
+        return response.item().toDeviceAttributes(attributesEnumeration)
     }
 
     override fun getById(id: String): DeviceAttributes? {
@@ -580,7 +586,7 @@ class DynamoDBDeviceDataAccessProvider(
             .tableName(DeviceTable.name(_configuration))
             .key(
                 mapOf(
-                    DeviceTable.pk.toNameValuePair(computePkFromId(id)),
+                    DeviceTable.pk.uniqueKeyEntryFor(DeviceTable.id, _tenantId, id),
                     DeviceTable.sk.toNameValuePair(SK_FOR_ID_ITEM)
                 )
             )
@@ -612,7 +618,9 @@ class DynamoDBDeviceDataAccessProvider(
         val request = ScanRequest.builder()
             .tableName(DeviceTable.name(_configuration))
             .filterExpression("begins_with(${DeviceTable.pk}, ${DeviceTable.pk.colonName})")
-            .expressionAttributeValues(mapOf(DeviceTable.pk.toExpressionNameValuePair("id#")))
+            .expressionAttributeValues(
+                mapOf(DeviceTable.pk.toExpressionNameValuePair(DeviceTable.id.toValuePrefix(_tenantId)))
+            )
             .build()
 
         val all = scanSequence(request, _dynamoDBClient).toList()
@@ -632,10 +640,6 @@ class DynamoDBDeviceDataAccessProvider(
         private val MASK_MARKER : Marker = MarkerFactory.getMarker("MASK")
 
         private const val SK_FOR_ID_ITEM = "sk"
-
-        private fun computePkFromId(id: String) = "id#$id"
-
-        private fun computePkFromAccountId(accountId: String) = "accountId#$accountId"
 
         private val _deviceAttributesToDynamoAttributes = listOf(
             // Note than on DynamoDB, both deviceId and accountId are required.
@@ -660,7 +664,7 @@ class DynamoDBDeviceDataAccessProvider(
 }
 
 /**
- * Associates a SDK [DeviceAttributes] attribute to a [DynamoDBAttribute].
+ * Associates an SDK [DeviceAttributes] attribute to a [DynamoDBAttribute].
  */
 private data class AttributeMapping<T>(
     val dynamoAttribute: DynamoDBAttribute<T>,

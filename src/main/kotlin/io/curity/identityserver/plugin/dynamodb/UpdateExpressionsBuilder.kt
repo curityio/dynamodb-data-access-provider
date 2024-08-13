@@ -38,6 +38,12 @@ class UpdateExpressionsBuilder {
         }
     }
 
+    fun <T> updateIfNotExists(attribute: DynamoDBAttribute<T>, after: T) {
+        _updateExpressionParts.add("${attribute.hashName} = if_not_exists(${attribute.hashName}, ${attribute.colonName}_new)")
+        _attributeValues["${attribute.colonName}_new"] = attribute.toAttrValue(after)
+        _attributeNames[attribute.hashName] = attribute.name
+    }
+
     fun <T> onlyIf(attribute: DynamoDBAttribute<T>, value: T) {
         _conditionExpressionParts.add("${attribute.hashName} = ${attribute.colonName}_curr")
         _attributeValues["${attribute.colonName}_curr"] = attribute.toAttrValue(value)
@@ -54,8 +60,7 @@ class UpdateExpressionsBuilder {
 
         if (_updateExpressionParts.isNotEmpty()) {
             updateExpression += "SET ${_updateExpressionParts.joinToString(", ")} "
-            builder
-                .expressionAttributeValues(_attributeValues)
+            builder.expressionAttributeValues(_attributeValues)
         }
 
         if (_attributesToRemoveFromItem.isNotEmpty()) {

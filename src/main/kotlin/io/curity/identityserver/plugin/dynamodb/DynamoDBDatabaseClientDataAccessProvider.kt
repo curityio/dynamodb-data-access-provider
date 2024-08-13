@@ -813,9 +813,7 @@ class DynamoDBDatabaseClientDataAccessProvider(
         // and the filter condition
         val products = filterExpression?.let { normalize(it).products.toList() }.orEmpty()
 
-        val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(
-            keyCondition, products, sortRequest?.sortOrder
-        )
+        val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(keyCondition, products, sortRequest?.sortOrder)
 
         return Pair(index, dynamoDBQuery)
     }

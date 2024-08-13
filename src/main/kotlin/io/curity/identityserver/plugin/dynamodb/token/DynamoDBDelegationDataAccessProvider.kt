@@ -20,19 +20,26 @@ import io.curity.identityserver.plugin.dynamodb.DynamoDBItem
 import io.curity.identityserver.plugin.dynamodb.EnumAttribute
 import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
 import io.curity.identityserver.plugin.dynamodb.PartitionAndSortIndex
-import io.curity.identityserver.plugin.dynamodb.PartitionOnlyIndex
 import io.curity.identityserver.plugin.dynamodb.PartitionKey
+import io.curity.identityserver.plugin.dynamodb.PartitionOnlyIndex
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import io.curity.identityserver.plugin.dynamodb.Table
+import io.curity.identityserver.plugin.dynamodb.TenantAwarePartitionAndSortIndex
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import io.curity.identityserver.plugin.dynamodb.configureWith
 import io.curity.identityserver.plugin.dynamodb.count
+import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeExpression
+import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeOperator
 import io.curity.identityserver.plugin.dynamodb.query.DynamoDBQueryBuilder
 import io.curity.identityserver.plugin.dynamodb.query.Index
+import io.curity.identityserver.plugin.dynamodb.query.Product
 import io.curity.identityserver.plugin.dynamodb.query.QueryPlan
 import io.curity.identityserver.plugin.dynamodb.query.QueryPlanner
 import io.curity.identityserver.plugin.dynamodb.query.TableQueryCapabilities
+import io.curity.identityserver.plugin.dynamodb.query.UnaryAttributeExpression
+import io.curity.identityserver.plugin.dynamodb.query.UnaryAttributeOperator
 import io.curity.identityserver.plugin.dynamodb.query.UnsupportedQueryException
+import io.curity.identityserver.plugin.dynamodb.query.and
 import io.curity.identityserver.plugin.dynamodb.query.filterWith
 import io.curity.identityserver.plugin.dynamodb.querySequence
 import io.curity.identityserver.plugin.dynamodb.scanSequence
@@ -48,6 +55,7 @@ import se.curity.identityserver.sdk.data.authorization.DelegationConsentResult
 import se.curity.identityserver.sdk.data.authorization.DelegationStatus
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.datasource.DelegationDataAccessProvider
+import se.curity.identityserver.sdk.service.authentication.TenantId
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
@@ -56,11 +64,17 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 import software.amazon.awssdk.services.dynamodb.model.Select
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
+import software.amazon.awssdk.utils.ImmutableMap
 
 class DynamoDBDelegationDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient,
     private val _configuration: DynamoDBDataAccessProviderConfiguration
 ) : DelegationDataAccessProvider {
+    // Lazy initialization is required to avoid cyclic dependencies while Femto containers are built.
+    // TenantId should not be resolved from the configuration at DAP initialization time.
+    private val _tenantId: TenantId by lazy {
+        _configuration.getTenantId()
+    }
     private val _jsonHandler = _configuration.getJsonHandler()
 
     /*
@@ -72,6 +86,7 @@ class DynamoDBDelegationDataAccessProvider(
     object DelegationTable : Table("curity-delegations") {
         val version = StringAttribute("version")
         val id = StringAttribute("id")
+        val tenantId = StringAttribute("tenantId")
         val status = EnumAttribute.of<DelegationStatus>("status")
         val owner = StringAttribute("owner")
 
@@ -93,7 +108,7 @@ class DynamoDBDelegationDataAccessProvider(
         val claims = StringAttribute("claims")
 
         val primaryKey = PartitionKey(id)
-        val ownerStatusIndex = PartitionAndSortIndex("owner-status-index", owner, status)
+        val ownerStatusIndex = TenantAwarePartitionAndSortIndex("owner-status-index", owner, status, tenantId)
         val authorizationCodeIndex = PartitionOnlyIndex("authorization-hash-index", authorizationCodeHash)
         val clientStatusIndex = PartitionAndSortIndex("clientId-status-index", clientId, status)
 
@@ -114,7 +129,8 @@ class DynamoDBDelegationDataAccessProvider(
                 "redirect_uri" to redirectUri,
                 Delegation.KEY_STATUS to status,
                 Delegation.KEY_EXPIRES to expires,
-                "externalId" to id
+                "externalId" to id,
+                "tenantId" to tenantId,
             )
         )
     }
@@ -145,6 +161,11 @@ class DynamoDBDelegationDataAccessProvider(
         DelegationTable.claimMap.addTo(res, _jsonHandler.toJson(claimMap))
         DelegationTable.customClaimValues.addTo(res, _jsonHandler.toJson(customClaimValues))
         DelegationTable.claims.addTo(res, _jsonHandler.toJson(claims))
+
+        _tenantId.tenantId?.let {
+            DelegationTable.tenantId.addTo(res, _tenantId.tenantId)
+        }
+
         return res
     }
 
@@ -247,7 +268,7 @@ class DynamoDBDelegationDataAccessProvider(
         try {
             _dynamoDBClient.updateItem(request)
         } catch (_: ConditionalCheckFailedException) {
-            // this exceptions means the entry does not exists
+            // this exception means the entry does not exist
             return 0
         }
         return 1
@@ -261,9 +282,8 @@ class DynamoDBDelegationDataAccessProvider(
             .tableName(DelegationTable.name(_configuration))
             .indexName(index.name)
             .keyConditionExpression(index.keyConditionExpression)
-            .expressionAttributeValues(
-                index.expressionValueMap(owner, DelegationStatus.issued)
-            )
+            .expressionAttributeValues(index.expressionValueMap(_tenantId, owner, DelegationStatus.issued))
+            .filterExpression(index.filterExpression(_tenantId))
             .expressionAttributeNames(index.expressionNameMap)
             .limit(validatedCount)
             .build()
@@ -281,9 +301,8 @@ class DynamoDBDelegationDataAccessProvider(
             .tableName(DelegationTable.name(_configuration))
             .indexName(index.name)
             .keyConditionExpression(index.keyConditionExpression)
-            .expressionAttributeValues(
-                index.expressionValueMap(owner, DelegationStatus.issued)
-            )
+            .expressionAttributeValues(index.expressionValueMap(_tenantId, owner, DelegationStatus.issued))
+            .filterExpression(index.filterExpression(_tenantId))
             .expressionAttributeNames(index.expressionNameMap)
             .select(Select.COUNT)
             .build()
@@ -294,13 +313,7 @@ class DynamoDBDelegationDataAccessProvider(
     override fun getAllActive(startIndex: Long, count: Long): Collection<Delegation> {
         val validatedStartIndex = startIndex.toIntOrThrow("startIndex")
         val validatedCount = count.toIntOrThrow("count")
-
-        val request = ScanRequest.builder()
-            .tableName(DelegationTable.name(_configuration))
-            .filterExpression("${DelegationTable.status.hashName} = ${DelegationTable.status.colonName}")
-            .expressionAttributeValues(issuedStatusExpressionAttributeMap)
-            .expressionAttributeNames(issuedStatusExpressionAttributeNameMap)
-            .build()
+        val request = createAllActiveScanRequestBuilder().build()
 
         return scanSequence(request, _dynamoDBClient)
             .drop(validatedStartIndex)
@@ -310,22 +323,40 @@ class DynamoDBDelegationDataAccessProvider(
     }
 
     override fun getCountAllActive(): Long {
-        val request = ScanRequest.builder()
-            .tableName(DelegationTable.name(_configuration))
-            .filterExpression("${DelegationTable.status.hashName} = ${DelegationTable.status.colonName}")
-            .expressionAttributeValues(issuedStatusExpressionAttributeMap)
-            .expressionAttributeNames(issuedStatusExpressionAttributeNameMap)
+        val request = createAllActiveScanRequestBuilder()
             .select(Select.COUNT)
             .build()
 
         return count(request, _dynamoDBClient)
     }
 
+    private fun createAllActiveScanRequestBuilder(): ScanRequest.Builder {
+        val expressionValues = ImmutableMap.Builder<String, AttributeValue>()
+            .put(issuedStatusExpressionAttribute.first, issuedStatusExpressionAttribute.second)
+        val tenantIdExpression: String
+        if (_tenantId.tenantId != null) {
+            tenantIdExpression = "${DelegationTable.tenantId.hashName} = ${DelegationTable.tenantId.colonName}"
+            expressionValues.put(
+                DelegationTable.tenantId.colonName,
+                DelegationTable.tenantId.toAttrValue(_tenantId.tenantId)
+            )
+        } else {
+            tenantIdExpression = "attribute_not_exists(${DelegationTable.tenantId.hashName})"
+        }
+
+        return ScanRequest.builder()
+            .tableName(DelegationTable.name(_configuration))
+            .filterExpression("${DelegationTable.status.hashName} = ${DelegationTable.status.colonName} " +
+                    "AND $tenantIdExpression")
+            .expressionAttributeValues(expressionValues.build())
+            .expressionAttributeNames(mapOf(DelegationTable.status.toNamePair(), DelegationTable.tenantId.toNamePair()))
+    }
+
     override fun getAll(resourceQuery: ResourceQuery): Collection<DynamoDBDelegation> = try {
         val comparator = getComparatorFor(resourceQuery)
 
         val queryPlan = if (resourceQuery.filter != null) {
-            QueryPlanner(DelegationTable.queryCapabilities).build(resourceQuery.filter)
+            QueryPlanner(DelegationTable.queryCapabilities, _tenantId).build(resourceQuery.filter)
         } else {
             QueryPlan.UsingScan.fullScan()
         }
@@ -367,8 +398,10 @@ class DynamoDBDelegationDataAccessProvider(
             throw UnsupportedQueryException.QueryRequiresTooManyOperations(nOfQueries, MAX_QUERIES)
         }
         val result = linkedMapOf<String, Map<String, AttributeValue>>()
+        val tenantIdProduct = getTenantIdProduct()
         queryPlan.queries.forEach { query ->
-            val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(query.key, query.value)
+            val products = query.value.map { product -> and(product, tenantIdProduct) }
+            val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(query.key, products)
 
             val queryRequest = QueryRequest.builder()
                 .tableName(DelegationTable.name(_configuration))
@@ -376,7 +409,7 @@ class DynamoDBDelegationDataAccessProvider(
                 .build()
 
             querySequence(queryRequest, _dynamoDBClient)
-                .filterWith(query.value)
+                .filterWith(products)
                 .forEach {
                     result[DelegationTable.id.from(it)] = it
                 }
@@ -387,11 +420,20 @@ class DynamoDBDelegationDataAccessProvider(
     private fun scan(queryPlan: QueryPlan.UsingScan): Sequence<DynamoDBItem> {
         val scanRequestBuilder = ScanRequest.builder()
             .tableName(DelegationTable.name(_configuration))
-
-        val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryPlan.expression)
+        val queryExpression = and(getTenantIdProduct(), queryPlan.expression)
+        val dynamoDBScan = DynamoDBQueryBuilder.buildScan(queryExpression)
         scanRequestBuilder.configureWith(dynamoDBScan)
         return scanSequence(scanRequestBuilder.build(), _dynamoDBClient)
-            .filterWith(queryPlan.expression.products)
+            .filterWith(queryExpression.products)
+    }
+
+    private fun getTenantIdProduct(): Product {
+        val tenantExpression = if (_tenantId.tenantId != null) {
+            BinaryAttributeExpression(DelegationTable.tenantId, BinaryAttributeOperator.Eq, _tenantId.tenantId)
+        } else {
+            UnaryAttributeExpression(DelegationTable.tenantId, UnaryAttributeOperator.NotPr)
+        }
+        return Product(setOf(tenantExpression))
     }
 
     private fun getComparatorFor(resourceQuery: ResourceQuery): Comparator<Map<String, AttributeValue>>? {
@@ -412,9 +454,6 @@ class DynamoDBDelegationDataAccessProvider(
         private val MASK_MARKER : Marker = MarkerFactory.getMarker("MASK")
         private val issuedStatusExpressionAttribute =
             DelegationTable.status.toExpressionNameValuePair(DelegationStatus.issued)
-        private val issuedStatusExpressionAttributeMap = mapOf(issuedStatusExpressionAttribute)
-        private val issuedStatusExpressionAttributeName = DelegationTable.status.toNamePair()
-        private val issuedStatusExpressionAttributeNameMap = mapOf(issuedStatusExpressionAttributeName)
         private val updateConditionExpression = "attribute_exists(${DelegationTable.id})"
 
         private const val MAX_QUERIES = 8

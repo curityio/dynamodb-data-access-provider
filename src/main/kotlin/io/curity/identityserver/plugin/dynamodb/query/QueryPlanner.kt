@@ -17,12 +17,15 @@
 package io.curity.identityserver.plugin.dynamodb.query
 
 import io.curity.identityserver.plugin.dynamodb.DynamoDBAttribute
-import org.slf4j.Marker
+import io.curity.identityserver.plugin.dynamodb.TenantAwareUniqueAttribute
+import io.curity.identityserver.plugin.dynamodb.UniqueStringAttribute
 import org.slf4j.LoggerFactory
+import org.slf4j.Marker
 import org.slf4j.MarkerFactory
 import se.curity.identityserver.sdk.data.query.Filter
+import se.curity.identityserver.sdk.service.authentication.TenantId
 
-class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities) {
+class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities, private val tenantId: TenantId? = null) {
     private val expressionBuilder = ExpressionMapper(tableQueryCapabilities.attributeMap)
 
     fun build(filterExpression: Filter) = build(expressionBuilder.from(filterExpression))
@@ -76,13 +79,18 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities) {
             _logger.debug("Index cannot be used: partition key is used with an operator other than EQ")
             return NO_KEY_CONDITION
         }
+
+
+        val renderedPartitionKeyExpression = BinaryAttributeExpression(
+            index.partitionAttribute,
+            BinaryAttributeOperator.Eq,
+            valueFor(index.partitionAttribute, partitionKeyExpression.value, tenantId)
+        )
+        _logger.debug("Partition key expression rendered '{}'", renderedPartitionKeyExpression)
+
         if (index.sortAttribute == null) {
             return listOf(
-                QueryPlan.KeyCondition(
-                    index, BinaryAttributeExpression(
-                        index.partitionAttribute, BinaryAttributeOperator.Eq, partitionKeyExpression.value
-                    )
-                )
+                QueryPlan.KeyCondition(index, renderedPartitionKeyExpression)
             )
         }
         _logger.debug("Computing sort condition for index '{}'", index.indexName)
@@ -90,7 +98,7 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities) {
             .filter { term -> index.sortAttribute.canBeUsedOnQueryTo(term.attribute) }
         if (sortKeyExpressions.isEmpty()) {
             _logger.debug("No sort conditions will be used on index '{}'", index.indexName)
-            return listOf(QueryPlan.KeyCondition(index, partitionKeyExpression))
+            return listOf(QueryPlan.KeyCondition(index, renderedPartitionKeyExpression))
         }
         if (sortKeyExpressions.size > 2) {
             _logger.debug("Index cannot be used: sort keys are used more than twice")
@@ -103,8 +111,33 @@ class QueryPlanner(private val tableQueryCapabilities: TableQueryCapabilities) {
         val binarySortKeyExpressions = sortKeyExpressions.filterIsInstance(BinaryAttributeExpression::class.java)
         val rangeExpressions = getRangeExpressions(index.sortAttribute, binarySortKeyExpressions)
         return rangeExpressions.map {
-            QueryPlan.KeyCondition(index, partitionKeyExpression, it)
+            QueryPlan.KeyCondition(index, renderedPartitionKeyExpression, it)
         }
+    }
+
+    /**
+     * Renders the value of the given attribute depending on the attribute type.
+     * - When the attribute is a tenant aware unique attribute, renders a unique value including the given TenantId
+     * - When the attribute is a unique attribute, renders a unique value
+     * - Otherwise returns the given value itself
+     *
+     * @param attribute the attribute for which to render the value
+     * @param value the value to render
+     * @param tenantId the tenantId to use to render tenant aware unique value
+     * @return a value rendered according to the given attribute type
+     */
+    private fun valueFor(attribute: DynamoDBAttribute<*>, value: Any, tenantId: TenantId?): Any = when (attribute) {
+        is TenantAwareUniqueAttribute -> {
+            if (tenantId == null) {
+                throw IllegalStateException(
+                    "TenantId must not be null when rendering the value for a TenantAwareUniqueAttribute"
+                )
+            }
+            attribute.uniquenessValueFrom(tenantId, attribute.castOrThrow(value))
+        }
+
+        is UniqueStringAttribute -> attribute.uniquenessValueFrom(attribute.castOrThrow(value))
+        else -> value
     }
 
     private fun getRangeExpressions(
