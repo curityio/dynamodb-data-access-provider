@@ -38,6 +38,7 @@ import se.curity.identityserver.sdk.attribute.AccountAttributes
 import se.curity.identityserver.sdk.attribute.Attribute
 import se.curity.identityserver.sdk.attribute.AttributeValue.formatAsStringAttributeValue
 import se.curity.identityserver.sdk.attribute.Attributes
+import se.curity.identityserver.sdk.attribute.CredentialAttributes
 import se.curity.identityserver.sdk.attribute.SubjectAttributes
 import se.curity.identityserver.sdk.attribute.scim.v2.Meta
 import se.curity.identityserver.sdk.attribute.scim.v2.ResourceAttributes
@@ -142,8 +143,10 @@ class DynamoDBUserAccountDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient,
     private val _configuration: DynamoDBDataAccessProviderConfiguration
 ) : UserAccountDataAccessProvider, PageableUserAccountDataAccessProvider,
-    CredentialDataAccessProviderFactory, CredentialStoringDataAccessProvider {
+    CredentialDataAccessProviderFactory, CredentialStoringDataAccessProvider,
+    CredentialStoringDataAccessProvider.CredentialAttributesUpdater {
     private val jsonHandler = _configuration.getJsonHandler()
+
     // Lazy initialization is required to avoid cyclic dependencies while Femto containers are built.
     // TenantId should not be resolved from the configuration at DAP initialization time.
     private val _tenantId: TenantId by lazy {
@@ -302,6 +305,14 @@ class DynamoDBUserAccountDataAccessProvider(
 
     override fun create(accountAttributes: AccountAttributes): AccountAttributes {
         _logger.debug(MASK_MARKER, "Received request to create account with data : {}", accountAttributes)
+
+        if (accountAttributes.password != null) {
+            _logger.warn(
+                "Account creation data includes a password, which isn't the preferred way to store passwords. " +
+                        "Callers should be updated to use the appropriate Credential Management services."
+            )
+        }
+
 
         val accountId = UUID.randomUUID().toString()
         val now = Instant.now().epochSecond
@@ -661,12 +672,23 @@ class DynamoDBUserAccountDataAccessProvider(
         val created = AccountsTable.created.from(observedItem)
         val commonItem = accountAttributes.toItem(accountId, created, updated)
         commonItem.addAttr(AccountsTable.version, newVersion)
-        val maybePassword = AccountsTable.password.optionalFrom(observedItem)
 
         // The password attribute is not updated
-        commonItem.remove(AccountsTable.password.name)
+        if (commonItem.remove(AccountsTable.password.name) != null) {
+            _logger.info(
+                "Received an account update including a password. Cannot update passwords using this method, so the password will be ignored. " +
+                        "Callers should be updated to use the appropriate Credential Management services."
+            )
+        }
+        // Preserve credential data, if any
+        val maybePassword = AccountsTable.password.optionalFrom(observedItem)
         if (maybePassword != null) {
             commonItem[AccountsTable.password.name] = AccountsTable.password.toAttrValue(maybePassword)
+        }
+        val maybeCredentialAttributes = AccountsTable.credentialAttributes.optionalFrom(observedItem)
+        if (maybeCredentialAttributes != null) {
+            commonItem[AccountsTable.credentialAttributes.name] =
+                AccountsTable.credentialAttributes.toAttrValue(maybeCredentialAttributes)
         }
 
         // Fill the initials for userName and email (if present) only for the main item,
@@ -744,22 +766,9 @@ class DynamoDBUserAccountDataAccessProvider(
             val observedItem = getItemByAccountId(accountId) ?: return@retry TransactionAttemptResult.Success(null)
             val observedAttributes = observedItem.toAccountAttributes()
 
-            if (attributeUpdate.attributeAdditions.contains(AccountAttributes.PASSWORD) ||
-                attributeUpdate.attributeReplacements.contains(AccountAttributes.PASSWORD)
-            ) {
-                _logger.info(
-                    "Received an account with a password to update. Cannot update passwords using this method, " +
-                            "so the password will be ignored."
-                )
-            }
-
-            var newAttributes = attributeUpdate.applyOn(observedAttributes)
+            val newAttributes = attributeUpdate.applyOn(observedAttributes)
                 .with(Attribute.of(ResourceAttributes.ID, accountId))
                 .removeAttribute(ResourceAttributes.META)
-
-            if (newAttributes.contains(AccountAttributes.PASSWORD)) {
-                newAttributes = newAttributes.removeAttribute(AccountAttributes.PASSWORD)
-            }
 
             tryUpdateAccount(accountId, fromAttributes(newAttributes), observedItem)
         }
@@ -768,28 +777,70 @@ class DynamoDBUserAccountDataAccessProvider(
         return getById(accountId, attributesEnumeration)
     }
 
-    override fun store(subjectAttributes: SubjectAttributes, passwordData: String) {
-        val username = subjectAttributes.subject
-        _logger.debug(MASK_MARKER, "Received request to update password for username : {}", username)
+    // Start CredentialStoringDataAccessProvider implementation
 
-        retry("updatePassword", N_OF_ATTEMPTS)
+    override fun store(subjectAttributes: SubjectAttributes, passwordData: String) {
+        if (!storeCredential(subjectAttributes, passwordData, null)) {
+            _logger.debug(
+                MASK_MARKER, "Unable to update password because there isn't an account with username {}",
+                subjectAttributes.subject
+            )
+            throw IllegalStateException("Account not found")
+        }
+    }
+
+    override fun store(
+        subjectAttributes: SubjectAttributes,
+        passwordData: String,
+        credentialAttributes: CredentialAttributes
+    ) {
+        if (!storeCredential(subjectAttributes, passwordData, credentialAttributes)) {
+            _logger.debug(
+                MASK_MARKER, "Unable to update password because there isn't an account with username {}",
+                subjectAttributes.subject
+            )
+            throw IllegalStateException("Account not found")
+        }
+    }
+
+    override fun store(subjectAttributes: SubjectAttributes, credentialAttributes: CredentialAttributes): Boolean {
+        return storeCredential(subjectAttributes, null, credentialAttributes)
+    }
+
+    private fun storeCredential(
+        subjectAttributes: SubjectAttributes,
+        passwordData: String?,
+        credentialAttributes: CredentialAttributes?
+    ): Boolean {
+        val username = subjectAttributes.subject
+        _logger.debug(
+            MASK_MARKER, "Received request to update credential for username: {}. Password? {}, attributes? {}.",
+            username,
+            passwordData != null,
+            credentialAttributes != null
+        )
+
+        return retry("storeCredential", N_OF_ATTEMPTS)
         {
             val observedItem = getItemByUsername(username)
             if (observedItem == null) {
-                _logger.debug("Unable to update password because there isn't an account with the given userName")
-                return@retry TransactionAttemptResult.Success(null)
+                return@retry TransactionAttemptResult.Success(false)
             }
 
             val accountId = observedItem.accountId()
             val observedVersion = observedItem.version()
-            val newVersion = observedVersion + 1
 
-            val updated = Instant.now().epochSecond
-            val commonItem = observedItem + mapOf(
-                AccountsTable.updated.toNameValuePair(updated),
-                AccountsTable.password.toNameValuePair(passwordData),
-                AccountsTable.version.toNameValuePair(newVersion)
-            )
+            val commonItem = observedItem + listOfNotNull(
+                AccountsTable.updated.toNameValuePair(Instant.now().epochSecond),
+                AccountsTable.version.toNameValuePair(observedVersion + 1),
+
+                passwordData?.let {
+                    AccountsTable.password.toNameValuePair(it)
+                },
+                credentialAttributes?.let {
+                    AccountsTable.credentialAttributes.toNameValuePair(jsonHandler.fromAttributes(it))
+                }
+            ).toMap()
 
             // Fill the initials for userName and email (if present) only for the main item,
             // to build a partial Global Secondary Index on these attributes.
@@ -843,14 +894,13 @@ class DynamoDBUserAccountDataAccessProvider(
 
             try {
                 _dynamoDBClient.transactionWriteItems(updateBuilder.build())
-                return@retry TransactionAttemptResult.Success(Unit)
+                return@retry TransactionAttemptResult.Success(true)
             } catch (ex: Exception) {
                 if (ex.isTransactionCancelledDueToConditionFailure()) {
                     return@retry TransactionAttemptResult.Failure(ex)
                 }
                 throw ex
             }
-
         }
     }
 
@@ -864,7 +914,7 @@ class DynamoDBUserAccountDataAccessProvider(
             .key(AccountsTable.keyFrom(AccountsTable.userName, _tenantId, username))
             .projectionExpression(
                 "${AccountsTable.accountId.name}, ${AccountsTable.userName.name}, " +
-                        "${AccountsTable.password.name}, ${AccountsTable.active.name}"
+                        "${AccountsTable.password.name}, ${AccountsTable.credentialAttributes.name}, ${AccountsTable.active.name}"
             )
             .build()
 
@@ -881,26 +931,32 @@ class DynamoDBUserAccountDataAccessProvider(
             return null
         }
 
-        val updatedSubjectAttributes = SubjectAttributes.of(
+        val passwordData = AccountsTable.password.optionalFrom(item) ?: return null
+        val credentialAttributes = AccountsTable.credentialAttributes.optionalFrom(item)?.let {
+            CredentialAttributes.of(jsonHandler.toAttributes(it))
+        } ?: CredentialAttributes.empty()
+
+        val outputSubjectAttributes = SubjectAttributes.of(
             username,
             Attributes.of(
                 Attribute.of("accountId", AccountsTable.accountId.optionalFrom(item)),
                 Attribute.of("userName", AccountsTable.userName.optionalFrom(item))
             )
         )
-        val passwordData = AccountsTable.password.optionalFrom(item)
-
-        return GetResult(updatedSubjectAttributes, passwordData)
+        return GetResult(outputSubjectAttributes, credentialAttributes, passwordData)
     }
 
-    // From Credential DAP
     override fun delete(subjectAttributes: SubjectAttributes): Boolean {
+        // The only usage of this method so far in the product is when deleting an account, so here we assume that is
+        // the case and avoid the extra work/traffic.
         _logger.debug(
             "DynamoDB data-source doesn't support deleting credentials because they are stored with accounts. " +
                     "This request will be ignored, but the credential will be removed if the account is deleted."
         )
         return true
     }
+
+    // End CredentialStoringDataAccessProvider implementation
 
     private fun getItemByAccountId(accountId: String): DynamoDBItem? {
         val requestBuilder = GetItemRequest.builder()
@@ -934,7 +990,15 @@ class DynamoDBUserAccountDataAccessProvider(
     ) {
         val request = PutItemRequest.builder()
             .tableName(LinksTable.name(_configuration))
-            .item(LinksTable.createItem(_tenantId, linkingAccountManager, localAccountId, foreignDomainName, foreignUserName))
+            .item(
+                LinksTable.createItem(
+                    _tenantId,
+                    linkingAccountManager,
+                    localAccountId,
+                    foreignDomainName,
+                    foreignUserName
+                )
+            )
             .build()
 
         _dynamoDBClient.putItem(request)
@@ -1120,7 +1184,11 @@ class DynamoDBUserAccountDataAccessProvider(
     }
 
     private fun toLastEvaluatedKey(item: Map<String, AttributeValue>): Map<String, AttributeValue> =
-        mapOf(AccountsTable.primaryKey.partitionAttribute.name to AccountsTable.primaryKey.partitionAttribute.attributeValueFrom(item))
+        mapOf(
+            AccountsTable.primaryKey.partitionAttribute.name to AccountsTable.primaryKey.partitionAttribute.attributeValueFrom(
+                item
+            )
+        )
 
     private fun scanCount(queryPlan: QueryPlan.UsingScan?): Long {
         val scanRequestBuilder = ScanRequest.builder()
@@ -1394,6 +1462,7 @@ class DynamoDBUserAccountDataAccessProvider(
         // Used only if UNIQUE_ACCOUNT_PHONE_NUMBER is true
         val phone = TenantAwareUniqueStringAttribute("phone", "pn", "#")
         val password = StringAttribute("password")
+        val credentialAttributes = StringAttribute("credentialAttributes")
         val active = BooleanAttribute("active")
         val attributes = StringAttribute("attributes")
         val created = NumberLongAttribute("created")
@@ -1407,7 +1476,7 @@ class DynamoDBUserAccountDataAccessProvider(
 
         fun keyFromAccountId(accountIdValue: String, tenantId: TenantId) = keyFrom(accountId, tenantId, accountIdValue)
 
-        fun  keyFrom(uniqueAttribute: TenantAwareUniqueAttribute, tenantId: TenantId, value: String) = mapOf(
+        fun keyFrom(uniqueAttribute: TenantAwareUniqueAttribute, tenantId: TenantId, value: String) = mapOf(
             pk.name to pk.toAttrValue(uniqueAttribute.uniquenessValueFrom(tenantId, value))
         )
 
