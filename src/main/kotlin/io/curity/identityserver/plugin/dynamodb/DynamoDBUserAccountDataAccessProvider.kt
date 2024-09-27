@@ -666,20 +666,14 @@ class DynamoDBUserAccountDataAccessProvider(
         val observedVersion = observedItem.version()
         val newVersion = observedVersion + 1
 
-        val updated = Instant.now().epochSecond
-
         // The created attribute is not updated
         val created = AccountsTable.created.from(observedItem)
+        val updated = Instant.now().epochSecond
         val commonItem = accountAttributes.toItem(accountId, created, updated)
         commonItem.addAttr(AccountsTable.version, newVersion)
 
         // The password attribute is not updated
-        if (commonItem.remove(AccountsTable.password.name) != null) {
-            _logger.info(
-                "Received an account update including a password. Cannot update passwords using this method, so the password will be ignored. " +
-                        "Callers should be updated to use the appropriate Credential Management services."
-            )
-        }
+        commonItem.remove(AccountsTable.password.name)
         // Preserve credential data, if any
         val maybePassword = AccountsTable.password.optionalFrom(observedItem)
         if (maybePassword != null) {
@@ -691,13 +685,44 @@ class DynamoDBUserAccountDataAccessProvider(
                 AccountsTable.credentialAttributes.toAttrValue(maybeCredentialAttributes)
         }
 
+        val request = buildAccountUpdateRequest(accountId, observedItem, commonItem)
+        try {
+            _dynamoDBClient.transactionWriteItems(request)
+            return TransactionAttemptResult.Success(Unit)
+        } catch (ex: Exception) {
+            if (ex.isTransactionCancelledDueToConditionFailure()) {
+                val exceptionCause = ex.cause
+                if (exceptionCause is TransactionCanceledException) {
+                    ex.validateKnownUniqueConstraintsForAccountMutations(
+                        exceptionCause.cancellationReasons(),
+                        request.transactItems()
+                    )
+                }
+
+                return TransactionAttemptResult.Failure(ex)
+            }
+            throw ex
+        }
+    }
+
+    private fun buildAccountUpdateRequest(
+        accountId: String,
+        observedItem: DynamoDBItem,
+        commonItem: MutableMap<String, AttributeValue>,
+    ): TransactWriteItemsRequest {
+        val observedVersion = observedItem.version()
+        val newVersion = observedVersion + 1
+
+        commonItem.addAttr(AccountsTable.version, newVersion)
+        commonItem.addAttr(AccountsTable.updated, Instant.now().epochSecond)
+
         // Fill the initials for userName and email (if present) only for the main item,
         // to build a partial Global Secondary Index on these attributes.
         val mainItemAttributes = mutableMapOf(
-            AccountsTable.userNameInitial.uniqueKeyEntryFor(_tenantId, accountAttributes.userName)
+            AccountsTable.userNameInitial.uniqueKeyEntryFor(_tenantId, AccountsTable.userName.from(commonItem))
         )
-        commonItem[AccountsTable.email.name]?.also {
-            AccountsTable.emailInitial.uniqueKeyEntryFor(_tenantId, it.s()).also { pair ->
+        AccountsTable.email.optionalFrom(commonItem)?.also {
+            AccountsTable.emailInitial.uniqueKeyEntryFor(_tenantId, it).also { pair ->
                 mainItemAttributes[pair.first] = pair.second
             }
         }
@@ -720,41 +745,24 @@ class DynamoDBUserAccountDataAccessProvider(
         updateBuilder.handleUniqueAttribute(
             AccountsTable.userName,
             AccountsTable.userName.optionalFrom(observedItem),
-            accountAttributes.userName
+            AccountsTable.userName.optionalFrom(commonItem),
         )
 
         updateBuilder.handleUniqueAttribute(
             AccountsTable.email,
             AccountsTable.email.optionalFrom(observedItem),
-            accountAttributes.emails.primaryOrFirst?.significantValue
+            AccountsTable.email.optionalFrom(commonItem),
         )
 
         if (UNIQUE_ACCOUNT_PHONE_NUMBER) {
             updateBuilder.handleUniqueAttribute(
                 AccountsTable.phone,
                 AccountsTable.phone.optionalFrom(observedItem),
-                accountAttributes.phoneNumbers.primaryOrFirst?.significantValue
+                AccountsTable.phone.optionalFrom(commonItem),
             )
         }
 
-        val request = updateBuilder.build()
-        try {
-            _dynamoDBClient.transactionWriteItems(request)
-            return TransactionAttemptResult.Success(Unit)
-        } catch (ex: Exception) {
-            if (ex.isTransactionCancelledDueToConditionFailure()) {
-                val exceptionCause = ex.cause
-                if (exceptionCause is TransactionCanceledException) {
-                    ex.validateKnownUniqueConstraintsForAccountMutations(
-                        exceptionCause.cancellationReasons(),
-                        request.transactItems()
-                    )
-                }
-
-                return TransactionAttemptResult.Failure(ex)
-            }
-            throw ex
-        }
+        return updateBuilder.build()
     }
 
     override fun patch(
@@ -827,13 +835,7 @@ class DynamoDBUserAccountDataAccessProvider(
                 return@retry TransactionAttemptResult.Success(false)
             }
 
-            val accountId = observedItem.accountId()
-            val observedVersion = observedItem.version()
-
-            val commonItem = observedItem + listOfNotNull(
-                AccountsTable.updated.toNameValuePair(Instant.now().epochSecond),
-                AccountsTable.version.toNameValuePair(observedVersion + 1),
-
+            val update = listOfNotNull(
                 passwordData?.let {
                     AccountsTable.password.toNameValuePair(it)
                 },
@@ -842,58 +844,11 @@ class DynamoDBUserAccountDataAccessProvider(
                 }
             ).toMap()
 
-            // Fill the initials for userName and email (if present) only for the main item,
-            // to build a partial Global Secondary Index on these attributes.
-            val additionalAttributesForTheMainItem = mutableMapOf(
-                AccountsTable.userNameInitial.uniqueKeyEntryFor(_tenantId, username)
-            )
-            commonItem[AccountsTable.email.name]?.also {
-                AccountsTable.emailInitial.uniqueKeyEntryFor(_tenantId, it.s()).also { pair ->
-                    additionalAttributesForTheMainItem[pair.first] = pair.second
-                }
-            }
-
-            val updateBuilder = UpdateBuilderWithMultipleUniquenessConstraints(
-                _configuration,
-                AccountsTable,
-                commonItem,
-                AccountsTable.pk,
-                versionAndAccountIdConditionExpression(observedVersion, accountId)
-            )
-
-            updateBuilder.handleUniqueAttribute(
-                AccountsTable.accountId,
-                accountId,
-                accountId,
-                additionalAttributesForTheMainItem,
-            )
-
-            updateBuilder.handleUniqueAttribute(
-                AccountsTable.userName,
-                username,
-                username
-            )
-
-            val maybeEmail = AccountsTable.email.optionalFrom(observedItem)
-
-            updateBuilder.handleUniqueAttribute(
-                AccountsTable.email,
-                maybeEmail,
-                maybeEmail
-            )
-
-            if (UNIQUE_ACCOUNT_PHONE_NUMBER) {
-                val maybePhone = AccountsTable.phone.optionalFrom(observedItem)
-
-                updateBuilder.handleUniqueAttribute(
-                    AccountsTable.phone,
-                    maybePhone,
-                    maybePhone
-                )
-            }
+            val accountId = observedItem.accountId()
+            val commonItem = observedItem.toMutableMap().apply { putAll(update) }
 
             try {
-                _dynamoDBClient.transactionWriteItems(updateBuilder.build())
+                _dynamoDBClient.transactionWriteItems(buildAccountUpdateRequest(accountId, observedItem, commonItem))
                 return@retry TransactionAttemptResult.Success(true)
             } catch (ex: Exception) {
                 if (ex.isTransactionCancelledDueToConditionFailure()) {
