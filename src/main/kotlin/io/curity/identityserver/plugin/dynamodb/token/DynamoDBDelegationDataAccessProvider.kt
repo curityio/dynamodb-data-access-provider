@@ -68,6 +68,7 @@ import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
 import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 import software.amazon.awssdk.utils.ImmutableMap
+import java.lang.IllegalArgumentException
 import kotlin.math.min
 
 class DynamoDBDelegationDataAccessProvider(
@@ -509,10 +510,12 @@ class DynamoDBDelegationDataAccessProvider(
             _dynamoDBClient.transactionWriteItems(request)
         } catch (e: Exception) {
             _logger.debug("Error while updating delegations with startIndex: {} - {}", startIndex, e)
-            if(startIndex != 0) {
-                _logger.info("Error while updating delegation batch other than the first ({}), " +
-                        "resulting in a partial delegation update",
-                    startIndex)
+            if (startIndex != 0) {
+                _logger.info(
+                    "Error while updating delegation batch other than the first ({}), " +
+                            "resulting in a partial delegation update",
+                    startIndex
+                )
             }
             throw e
         }
@@ -522,6 +525,12 @@ class DynamoDBDelegationDataAccessProvider(
         val nOfQueries = queryPlan.queries.entries.size
         if (nOfQueries > MAX_QUERIES) {
             throw UnsupportedQueryException.QueryRequiresTooManyOperations(nOfQueries, MAX_QUERIES)
+        }
+        if (nOfQueries == 1) {
+            // Special case where the plan as a single query,
+            // which means we can use streaming and don't need to buffer the multiple queries in the
+            // temporary result
+            return queryWithASinglePlannedQuery(queryPlan)
         }
         val result = linkedMapOf<String, Map<String, AttributeValue>>()
         val tenantIdProduct = getTenantIdProduct()
@@ -541,6 +550,22 @@ class DynamoDBDelegationDataAccessProvider(
                 }
         }
         return result.values.asSequence()
+    }
+
+    private fun queryWithASinglePlannedQuery(queryPlan: QueryPlan.UsingQueries): Sequence<DynamoDBItem> {
+        val (keyCondition, queryProducts) = queryPlan.queries.entries.singleOrNull()
+            ?: throw IllegalArgumentException("queryPlan must have a single query")
+        val tenantIdProduct = getTenantIdProduct()
+        val products = queryProducts.map { product -> and(product, tenantIdProduct) }
+        val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(keyCondition, products)
+
+        val queryRequest = QueryRequest.builder()
+            .tableName(DelegationTable.name(_configuration))
+            .configureWith(dynamoDBQuery)
+            .build()
+
+        return querySequence(queryRequest, _dynamoDBClient)
+            .filterWith(products)
     }
 
     private fun scan(queryPlan: QueryPlan.UsingScan): Sequence<DynamoDBItem> {
