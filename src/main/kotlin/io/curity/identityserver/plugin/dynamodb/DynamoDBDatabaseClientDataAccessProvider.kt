@@ -801,9 +801,9 @@ class DynamoDBDatabaseClientDataAccessProvider(
         // find the right index
         val index = DatabaseClientsTable.queryCapabilities().indexes.firstOrNull {
             it.partitionAttribute == partitionKeyCondition!!.attribute && it.sortAttribute == sortIndexAttribute
-        } ?: throw IllegalStateException("Could not find any applicable index").also {
+        } ?: throw UnsupportedOperationException("Unsupported combination of filter and sort attributes").also {
             logger.debug(
-                "No index selected for execution; PK:{}, SK:{}, filters:{}, sort:{}",
+                "Could not find any applicable index for execution; PK:{}, SK:{}, filters:{}, sort:{}",
                 partitionKeyCondition, sortIndexAttribute, filters, sortRequest
             )
         }

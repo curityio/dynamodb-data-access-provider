@@ -269,19 +269,21 @@ class DynamoDBClient @JvmOverloads constructor(
                 e.awsErrorDetails()?.errorCode() == "ConditionalCheckFailedException" -> throw e
                 e.awsErrorDetails()
                     ?.errorCode() == "UnrecognizedClientException" -> throw ExternalServiceFailedAuthenticationAlarmException(
+                    config.id(),
                     e
                 )
-                e.statusCode() >= 500 -> throw ExternalServiceFailedConnectionAlarmException(e)
-                else -> throw ExternalServiceFailedCommunicationAlarmException(e)
+
+                e.statusCode() >= 500 -> throw ExternalServiceFailedConnectionAlarmException(config.id(), e)
+                else -> throw ExternalServiceFailedCommunicationAlarmException(config.id(), e)
             }
         } catch (e: SdkClientException) {
             if (e.cause is HttpHostConnectException) {
-                throw ExternalServiceFailedConnectionAlarmException(e)
+                throw ExternalServiceFailedConnectionAlarmException(config.id(), e)
             }
             // Not really sure what the cause is, so let's classify it as a communication issue
-            throw ExternalServiceFailedCommunicationAlarmException(e)
+            throw ExternalServiceFailedCommunicationAlarmException(config.id(), e)
         } catch (e: SdkException) {
-            throw ExternalServiceFailedCommunicationAlarmException(e)
+            throw ExternalServiceFailedCommunicationAlarmException(config.id(), e)
         }
     }
 
