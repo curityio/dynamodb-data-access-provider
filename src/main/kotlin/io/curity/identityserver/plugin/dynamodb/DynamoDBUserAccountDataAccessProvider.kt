@@ -47,6 +47,7 @@ import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.data.query.ResourceQueryResult
 import se.curity.identityserver.sdk.data.update.AttributeUpdate
 import se.curity.identityserver.sdk.datasource.CredentialDataAccessProviderFactory
+import se.curity.identityserver.sdk.datasource.CredentialManagementDataAccessProvider
 import se.curity.identityserver.sdk.datasource.CredentialStoringDataAccessProvider
 import se.curity.identityserver.sdk.datasource.CredentialStoringDataAccessProvider.GetResult
 import se.curity.identityserver.sdk.datasource.PageableUserAccountDataAccessProvider
@@ -143,8 +144,10 @@ class DynamoDBUserAccountDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient,
     private val _configuration: DynamoDBDataAccessProviderConfiguration
 ) : UserAccountDataAccessProvider, PageableUserAccountDataAccessProvider,
-    CredentialDataAccessProviderFactory, CredentialStoringDataAccessProvider,
-    CredentialStoringDataAccessProvider.CredentialAttributesUpdater {
+    CredentialDataAccessProviderFactory,
+    CredentialStoringDataAccessProvider,
+    CredentialStoringDataAccessProvider.CredentialAttributesUpdater,
+    CredentialManagementDataAccessProvider.SubjectUpdater {
     private val jsonHandler = _configuration.getJsonHandler()
 
     // Lazy initialization is required to avoid cyclic dependencies while Femto containers are built.
@@ -907,6 +910,16 @@ class DynamoDBUserAccountDataAccessProvider(
         _logger.debug(
             "DynamoDB data-source doesn't support deleting credentials because they are stored with accounts. " +
                     "This request will be ignored, but the credential will be removed if the account is deleted."
+        )
+        return true
+    }
+
+    override fun updateSubject(subject: SubjectAttributes, newSubject: String): Boolean {
+        // The only usage of this method so far in the product is when updating an account, so here we assume that is
+        // the case and avoid the extra work/traffic.
+        _logger.debug(
+            "DynamoDB data-source doesn't support updating credential subjects because they are stored with accounts. " +
+                    "This request will be ignored, but the credential will be up-to-date if the account was updated."
         )
         return true
     }
