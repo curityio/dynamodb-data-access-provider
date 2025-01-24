@@ -55,6 +55,7 @@ import se.curity.identityserver.sdk.data.authorization.DelegationConsentResult
 import se.curity.identityserver.sdk.data.authorization.DelegationStatus
 import se.curity.identityserver.sdk.data.query.ResourceQuery
 import se.curity.identityserver.sdk.datasource.DelegationDataAccessProvider
+import se.curity.identityserver.sdk.datasource.DelegationDataAccessProvider.SetStatusResult
 import se.curity.identityserver.sdk.service.authentication.TenantId
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
@@ -63,8 +64,12 @@ import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest
 import software.amazon.awssdk.services.dynamodb.model.Select
+import software.amazon.awssdk.services.dynamodb.model.TransactWriteItem
+import software.amazon.awssdk.services.dynamodb.model.TransactWriteItemsRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
 import software.amazon.awssdk.utils.ImmutableMap
+import java.lang.IllegalArgumentException
+import kotlin.math.min
 
 class DynamoDBDelegationDataAccessProvider(
     private val _dynamoDBClient: DynamoDBClient,
@@ -274,17 +279,43 @@ class DynamoDBDelegationDataAccessProvider(
         return 1
     }
 
-    override fun getByOwner(owner: String, startIndex: Long, count: Long): Collection<Delegation> {
+    override fun getByOwner(owner: String, startIndex: Long, count: Long): Collection<Delegation> =
+        getByOwnerAndMaybeClient(owner, null, DelegationStatus.issued, startIndex, count)
+
+    private fun getByOwnerAndMaybeClient(
+        owner: String,
+        client: String?,
+        delegationStatus: DelegationStatus,
+        startIndex: Long,
+        count: Long
+    ): Collection<Delegation> {
         val validatedStartIndex = startIndex.toIntOrThrow("startIndex")
         val validatedCount = count.toIntOrThrow("count")
         val index = DelegationTable.ownerStatusIndex
+        val filterExpression = if (client != null) {
+            "${index.filterExpression(_tenantId)} and ${DelegationTable.clientId.hashName} = ${DelegationTable.clientId.colonName}"
+        } else {
+            index.filterExpression(_tenantId)
+        }
+        val expressionValues = if (client != null) {
+            index.expressionValueMap(_tenantId, owner, delegationStatus) +
+                    DelegationTable.clientId.toExpressionNameValuePair(client)
+        } else {
+            index.expressionValueMap(_tenantId, owner, delegationStatus)
+        }
+        val expressionNames = if (client != null) {
+            index.expressionNameMap + DelegationTable.clientId.toNamePair()
+        } else {
+            index.expressionNameMap
+        }
+
         val request = QueryRequest.builder()
             .tableName(DelegationTable.name(_configuration))
             .indexName(index.name)
             .keyConditionExpression(index.keyConditionExpression)
-            .expressionAttributeValues(index.expressionValueMap(_tenantId, owner, DelegationStatus.issued))
-            .filterExpression(index.filterExpression(_tenantId))
-            .expressionAttributeNames(index.expressionNameMap)
+            .filterExpression(filterExpression)
+            .expressionAttributeValues(expressionValues)
+            .expressionAttributeNames(expressionNames)
             .limit(validatedCount)
             .build()
 
@@ -346,8 +377,10 @@ class DynamoDBDelegationDataAccessProvider(
 
         return ScanRequest.builder()
             .tableName(DelegationTable.name(_configuration))
-            .filterExpression("${DelegationTable.status.hashName} = ${DelegationTable.status.colonName} " +
-                    "AND $tenantIdExpression")
+            .filterExpression(
+                "${DelegationTable.status.hashName} = ${DelegationTable.status.colonName} " +
+                        "AND $tenantIdExpression"
+            )
             .expressionAttributeValues(expressionValues.build())
             .expressionAttributeNames(mapOf(DelegationTable.status.toNamePair(), DelegationTable.tenantId.toNamePair()))
     }
@@ -392,10 +425,112 @@ class DynamoDBDelegationDataAccessProvider(
         throw _configuration.getExceptionFactory().externalServiceException(e.message)
     }
 
+    override fun setStatusByOwner(owner: String, status: DelegationStatus): SetStatusResult {
+        _logger.trace("setStatusByOwner called: new status={}", status)
+        // We try to get one more than the maximum
+        val statusOfDelegationsToChange = if (status == DelegationStatus.revoked) {
+            DelegationStatus.issued
+        } else {
+            DelegationStatus.revoked
+        }
+        val delegations = getByOwnerAndMaybeClient(
+            owner, null,
+            statusOfDelegationsToChange, 0, MAX_UPDATABLE_DELEGATIONS + 1
+        ).toTypedArray()
+        if (delegations.size > MAX_UPDATABLE_DELEGATIONS) {
+            _logger.debug(
+                MASK_MARKER,
+                "Unable to setStatusByOwner for '{}' because delegation counts exceeds maximum '{}'",
+                owner, MAX_UPDATABLE_DELEGATIONS
+            )
+            return SetStatusResult.TooManyDelegations.INSTANCE
+        }
+        for (startIndex in delegations.indices step DELEGATION_UPDATE_TRANSACTION_SIZE) {
+            updateDelegations(delegations, status, startIndex, DELEGATION_UPDATE_TRANSACTION_SIZE)
+        }
+        return SetStatusResult.Success(delegations.size.toLong())
+    }
+
+    override fun setStatusByOwnerAndClient(owner: String, clientId: String, status: DelegationStatus): SetStatusResult {
+        _logger.trace("setStatusByOwnerAndClient called: new status={}", status)
+        val statusOfDelegationsToChange = if (status == DelegationStatus.revoked) {
+            DelegationStatus.issued
+        } else {
+            DelegationStatus.revoked
+        }
+        // We try to get one more than the maximum
+        val delegations = getByOwnerAndMaybeClient(
+            owner, clientId,
+            statusOfDelegationsToChange, 0, MAX_UPDATABLE_DELEGATIONS + 1
+        ).toTypedArray()
+        if (delegations.size > MAX_UPDATABLE_DELEGATIONS) {
+            _logger.debug(
+                MASK_MARKER,
+                "Unable to setStatusByOwnerAndClient for owner '{}' and client '{}' " +
+                        "because delegation counts exceeds maximum '{}'",
+                owner, clientId, MAX_UPDATABLE_DELEGATIONS
+            )
+            return SetStatusResult.TooManyDelegations.INSTANCE
+        }
+        for (startIndex in delegations.indices step DELEGATION_UPDATE_TRANSACTION_SIZE) {
+            _logger.debug("Updating delegations, startIndex={}", startIndex)
+            updateDelegations(delegations, status, startIndex, DELEGATION_UPDATE_TRANSACTION_SIZE)
+        }
+        return SetStatusResult.Success(delegations.size.toLong())
+    }
+
+    private fun updateDelegations(
+        delegationsToUpdate: Array<Delegation>,
+        status: DelegationStatus,
+        startIndex: Int,
+        delegationUpdateTransactionSize: Int
+    ) {
+        val statusAttribute = DelegationTable.status
+        val lastIndexPlusOne = min(
+            startIndex + delegationUpdateTransactionSize,
+            delegationsToUpdate.size
+        )
+        val transactionItems = delegationsToUpdate.slice(
+            startIndex until lastIndexPlusOne
+        ).map { delegationToUpdate ->
+            TransactWriteItem.builder()
+                .update {
+                    it.tableName(DelegationTable.name(_configuration))
+                    it.key(mapOf(DelegationTable.id.toNameValuePair(delegationToUpdate.id)))
+                    it.updateExpression("SET ${statusAttribute.hashName} = ${statusAttribute.colonName}")
+                    it.expressionAttributeNames(mapOf(statusAttribute.toNamePair()))
+                    it.expressionAttributeValues(mapOf(statusAttribute.toExpressionNameValuePair(status)))
+                }
+                .build()
+        }
+        val request = TransactWriteItemsRequest.builder()
+            .transactItems(transactionItems)
+            .build()
+        try {
+            _dynamoDBClient.transactionWriteItems(request)
+        } catch (e: Exception) {
+            _logger.debug("Error while updating delegations with startIndex: {} - {}", startIndex, e)
+            if (startIndex != 0) {
+                _logger.info(
+                    "Error while updating delegation batch other than the first ({}), " +
+                            "resulting in a partial delegation update",
+                    startIndex
+                )
+            }
+            throw e
+        }
+    }
+
     private fun query(queryPlan: QueryPlan.UsingQueries): Sequence<DynamoDBItem> {
         val nOfQueries = queryPlan.queries.entries.size
         if (nOfQueries > MAX_QUERIES) {
             throw UnsupportedQueryException.QueryRequiresTooManyOperations(nOfQueries, MAX_QUERIES)
+        }
+        if (nOfQueries == 1) {
+            // Special case where the plan as a single query,
+            // which means we can use streaming and don't need to buffer the multiple queries in the
+            // temporary result
+            return queryWithASinglePlannedQuery(queryPlan)
         }
         val result = linkedMapOf<String, Map<String, AttributeValue>>()
         val tenantIdProduct = getTenantIdProduct()
@@ -415,6 +550,22 @@ class DynamoDBDelegationDataAccessProvider(
                 }
         }
         return result.values.asSequence()
+    }
+
+    private fun queryWithASinglePlannedQuery(queryPlan: QueryPlan.UsingQueries): Sequence<DynamoDBItem> {
+        val (keyCondition, queryProducts) = queryPlan.queries.entries.singleOrNull()
+            ?: throw IllegalArgumentException("queryPlan must have a single query")
+        val tenantIdProduct = getTenantIdProduct()
+        val products = queryProducts.map { product -> and(product, tenantIdProduct) }
+        val dynamoDBQuery = DynamoDBQueryBuilder.buildQuery(keyCondition, products)
+
+        val queryRequest = QueryRequest.builder()
+            .tableName(DelegationTable.name(_configuration))
+            .configureWith(dynamoDBQuery)
+            .build()
+
+        return querySequence(queryRequest, _dynamoDBClient)
+            .filterWith(products)
     }
 
     private fun scan(queryPlan: QueryPlan.UsingScan): Sequence<DynamoDBItem> {
@@ -451,12 +602,15 @@ class DynamoDBDelegationDataAccessProvider(
 
     companion object {
         private val _logger = LoggerFactory.getLogger(DynamoDBDelegationDataAccessProvider::class.java)
-        private val MASK_MARKER : Marker = MarkerFactory.getMarker("MASK")
+        private val MASK_MARKER: Marker = MarkerFactory.getMarker("MASK")
         private val issuedStatusExpressionAttribute =
             DelegationTable.status.toExpressionNameValuePair(DelegationStatus.issued)
         private val updateConditionExpression = "attribute_exists(${DelegationTable.id})"
 
         private const val MAX_QUERIES = 8
+
+        private const val MAX_UPDATABLE_DELEGATIONS = 200L
+        private const val DELEGATION_UPDATE_TRANSACTION_SIZE = 100
     }
 }
 
