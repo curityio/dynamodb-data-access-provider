@@ -28,6 +28,8 @@ import io.curity.identityserver.plugin.dynamodb.TenantAwarePartitionAndSortIndex
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import io.curity.identityserver.plugin.dynamodb.configureWith
 import io.curity.identityserver.plugin.dynamodb.count
+import io.curity.identityserver.plugin.dynamodb.getMapValueForPath
+import io.curity.identityserver.plugin.dynamodb.mapToAttributeValue
 import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeExpression
 import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeOperator
 import io.curity.identityserver.plugin.dynamodb.query.DynamoDBQueryBuilder
@@ -144,34 +146,46 @@ class DynamoDBDelegationDataAccessProvider(
      * Serializes a Delegation into an Item
      */
     private fun Delegation.toItem(): DynamoDBItem {
-        val res = mutableMapOf<String, AttributeValue>()
-        DelegationTable.version.addTo(res, "6.2")
-        DelegationTable.id.addTo(res, id)
-        DelegationTable.status.addTo(res, status)
-        DelegationTable.owner.addTo(res, owner)
-        DelegationTable.created.addTo(res, created)
-        DelegationTable.expires.addTo(res, expires)
-        DelegationTable.deletableAt.addTo(res, expires + _configuration.getDelegationsTtlRetainDuration())
-        DelegationTable.clientId.addTo(res, clientId)
-        DelegationTable.redirectUri.addToNullable(res, redirectUri)
-        DelegationTable.authorizationCodeHash.addToNullable(res, authorizationCodeHash)
-        DelegationTable.scope.addTo(res, scope)
+        val itemMap = mutableMapOf<String, AttributeValue>()
+        addExtraAttributesToItemMap(
+            _configuration.getDelegationAttributesFromClaims(),
+            "claim",
+            this.claims,
+            itemMap
+        )
+        addExtraAttributesToItemMap(
+            _configuration.getDelegationAttributesFromCustomClaimValues(),
+            "customClaimValue",
+            this.customClaimValues,
+            itemMap
+        )
+        DelegationTable.version.addTo(itemMap, "6.2")
+        DelegationTable.id.addTo(itemMap, id)
+        DelegationTable.status.addTo(itemMap, status)
+        DelegationTable.owner.addTo(itemMap, owner)
+        DelegationTable.created.addTo(itemMap, created)
+        DelegationTable.expires.addTo(itemMap, expires)
+        DelegationTable.deletableAt.addTo(itemMap, expires + _configuration.getDelegationsTtlRetainDuration())
+        DelegationTable.clientId.addTo(itemMap, clientId)
+        DelegationTable.redirectUri.addToNullable(itemMap, redirectUri)
+        DelegationTable.authorizationCodeHash.addToNullable(itemMap, authorizationCodeHash)
+        DelegationTable.scope.addTo(itemMap, scope)
 
-        DelegationTable.mtlsClientCertificate.addToNullable(res, mtlsClientCertificate)
-        DelegationTable.mtlsClientCertificateDN.addToNullable(res, mtlsClientCertificateDN)
-        DelegationTable.mtlsClientCertificateX5TS256.addToNullable(res, mtlsClientCertificateX5TS256)
+        DelegationTable.mtlsClientCertificate.addToNullable(itemMap, mtlsClientCertificate)
+        DelegationTable.mtlsClientCertificateDN.addToNullable(itemMap, mtlsClientCertificateDN)
+        DelegationTable.mtlsClientCertificateX5TS256.addToNullable(itemMap, mtlsClientCertificateX5TS256)
 
-        DelegationTable.authenticationAttributes.addTo(res, _jsonHandler.toJson(authenticationAttributes.asMap()))
-        DelegationTable.consentResult.addToNullable(res, consentResult?.asMap()?.let { _jsonHandler.toJson(it) })
-        DelegationTable.claimMap.addTo(res, _jsonHandler.toJson(claimMap))
-        DelegationTable.customClaimValues.addTo(res, _jsonHandler.toJson(customClaimValues))
-        DelegationTable.claims.addTo(res, _jsonHandler.toJson(claims))
+        DelegationTable.authenticationAttributes.addTo(itemMap, _jsonHandler.toJson(authenticationAttributes.asMap()))
+        DelegationTable.consentResult.addToNullable(itemMap, consentResult?.asMap()?.let { _jsonHandler.toJson(it) })
+        DelegationTable.claimMap.addTo(itemMap, _jsonHandler.toJson(claimMap))
+        DelegationTable.customClaimValues.addTo(itemMap, _jsonHandler.toJson(customClaimValues))
+        DelegationTable.claims.addTo(itemMap, _jsonHandler.toJson(claims))
 
         _tenantId.tenantId?.let {
-            DelegationTable.tenantId.addTo(res, _tenantId.tenantId)
+            DelegationTable.tenantId.addTo(itemMap, _tenantId.tenantId)
         }
 
-        return res
+        return itemMap
     }
 
     /*
@@ -611,6 +625,41 @@ class DynamoDBDelegationDataAccessProvider(
 
         private const val MAX_UPDATABLE_DELEGATIONS = 200L
         private const val DELEGATION_UPDATE_TRANSACTION_SIZE = 100
+
+        /**
+         * Adds extra attributes obtained from a map, into the delegation's item attribute map.
+         *
+         * @param pathsToMap The list with the paths ('.' separated strings) for the map entries that should be mapped.
+         * @param prefix The prefix that should be added when building the attribute name.
+         * @param sourceMap map from which to retrieve the additional attribute values.
+         * @param attributeValueMap the mutable attribute value map where to add the new attributes.
+         */
+        private fun addExtraAttributesToItemMap(
+            pathsToMap: List<String>,
+            prefix: String,
+            sourceMap: Map<String, Any>,
+            attributeValueMap: MutableMap<String, AttributeValue>
+        ) {
+            pathsToMap.forEach { path ->
+                val pathSegments = path.split('.')
+                val attributeValue = sourceMap.getMapValueForPath(pathSegments)
+                    ?.let { mapToAttributeValue(it) }
+                if (attributeValue != null) {
+                    attributeValueMap[attributeNameFor(prefix, pathSegments)] = attributeValue
+                }
+            }
+        }
+
+        /**
+         * Computes the attribute name by adding a prefix and joining the path with '_'
+         * E.g. an additional attributes obtained from [Delegation.getClaims] with the claim path
+         * "name1.name2.name3" will have the name "claims_name1_name2_name3".
+         *
+         * @param prefix the prefix
+         * @param path the list with the path segments
+         */
+        private fun attributeNameFor(prefix: String, path: List<String>): String =
+            "${prefix}_${path.joinToString("_")}"
     }
 }
 
