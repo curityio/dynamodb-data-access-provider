@@ -149,13 +149,13 @@ class DynamoDBDelegationDataAccessProvider(
         val itemMap = mutableMapOf<String, AttributeValue>()
         addExtraAttributesToItemMap(
             _configuration.getDelegationAttributesFromClaims(),
-            "claim",
+            "claims", // using the exact same name as the map property
             this.claims,
             itemMap
         )
         addExtraAttributesToItemMap(
             _configuration.getDelegationAttributesFromCustomClaimValues(),
-            "customClaimValue",
+            "customClaimValues", // using the exact same name as the map property
             this.customClaimValues,
             itemMap
         )
