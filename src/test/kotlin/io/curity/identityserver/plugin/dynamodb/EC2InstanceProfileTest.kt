@@ -38,8 +38,6 @@ class EC2InstanceProfileTest {
                 override val webIdentityTokenFile = Optional.empty<AWSAccessMethod.WebIdentityTokenFileConfig>()
                 override val defaultCredentialsProvider =
                     Optional.empty<AWSAccessMethod.DefaultCredentialsProviderConfig>()
-
-                override fun id() = "the-id"
             }
         )
         Mockito.`when`(ec2InstanceProfileConfig.getAwsRegion()).thenReturn(AWSRegion.eu_west_3)
