@@ -20,6 +20,7 @@ import se.curity.identityserver.sdk.config.OneOf
 import se.curity.identityserver.sdk.config.annotation.DefaultBoolean
 import se.curity.identityserver.sdk.config.annotation.DefaultLong
 import se.curity.identityserver.sdk.config.annotation.Description
+import se.curity.identityserver.sdk.config.annotation.Name
 import se.curity.identityserver.sdk.config.annotation.RangeConstraint
 import se.curity.identityserver.sdk.service.ExceptionFactory
 import se.curity.identityserver.sdk.service.Json
@@ -144,6 +145,16 @@ interface DynamoDBDataAccessProviderConfiguration : Configuration {
 
     @Description("Table name prefix. If defined, all the DynamoDB tables used by this plugin will have this string prefixed into the name")
     fun getTableNamePrefix(): Optional<String>
+
+    @Description("Optional list with the delegation 'claims' properties " +
+            "that should also be used as top-level delegation table attributes")
+    @Name("delegation-attributes-from-claims")
+    fun getDelegationAttributesFromClaims(): List<String>
+
+    @Description("Optional list with the delegation 'customClaimValues' properties " +
+            "that should also be used as top-level delegation table attributes")
+    @Name("delegation-attributes-from-custom-claim-values")
+    fun getDelegationAttributesFromCustomClaimValues(): List<String>
 
     // Services
 
