@@ -19,6 +19,7 @@ import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import io.curity.identityserver.plugin.dynamodb.Table
+import io.curity.identityserver.plugin.dynamodb.UpdateExpressionsBuilder
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import org.slf4j.LoggerFactory
 import se.curity.identityserver.sdk.datasource.NonceDataAccessProvider
@@ -101,8 +102,8 @@ class DynamoDBNonceDataAccessProvider(
         }
     }
 
-    override fun consume(nonce: String, consumedAt: Long) {
-        consumeNonce(nonce, consumedAt)
+    override fun consume(nonce: String, consumedAt: Instant): Boolean {
+        return consumeNonce(nonce, consumedAt.epochSecond)
     }
 
     private fun consumeNonce(nonce: String, consumedAt: Long) = changeStatus(nonce, NonceStatus.consumed, consumedAt)
@@ -116,39 +117,32 @@ class DynamoDBNonceDataAccessProvider(
     // Also, if the deletableAt was enabled when the nonce was created and disabled when the nonce is updated,
     // then the original deletableAt is kept.
     // We also don't add a deletableAt when the nonce is updated.
-    private fun changeStatus(nonce: String, status: NonceStatus, maybeConsumedAt: Long?) {
-        val requestBuilder = UpdateItemRequest.builder()
-            .tableName(NonceTable.name(_configuration))
-            .conditionExpression("attribute_exists(${NonceTable.nonce.name})")
-            .key(NonceTable.key(nonce))
+    private fun changeStatus(nonce: String, status: NonceStatus, maybeConsumedAt: Long?): Boolean {
+        val updateBuilder = UpdateExpressionsBuilder().apply {
+            onlyIfExists(NonceTable.nonce)
+            onlyIf(NonceTable.nonceStatus, NonceStatus.issued.name)
+
+            update(NonceTable.nonceStatus, status.name)
+        }
 
         if (status == NonceStatus.consumed) {
             val consumedAt = maybeConsumedAt ?: throw IllegalArgumentException("consumedAt cannot be null")
-            requestBuilder
-                .updateExpression(
-                    "SET ${NonceTable.nonceStatus.name} = ${NonceTable.nonceStatus.colonName}, " +
-                            "${NonceTable.consumedAt.name} = ${NonceTable.consumedAt.colonName}"
-                )
-                .expressionAttributeValues(
-                    mapOf(
-                        NonceTable.nonceStatus.toExpressionNameValuePair(status.name),
-                        NonceTable.consumedAt.toExpressionNameValuePair(consumedAt)
-                    )
-                )
-        } else {
-            requestBuilder
-                .updateExpression("SET ${NonceTable.nonceStatus.name} = ${NonceTable.nonceStatus.colonName}")
-                .expressionAttributeValues(
-                    mapOf(
-                        NonceTable.nonceStatus.toExpressionNameValuePair(status.name)
-                    )
-                )
+
+            updateBuilder.update(NonceTable.consumedAt, consumedAt)
         }
+
+        val requestBuilder = UpdateItemRequest.builder()
+            .tableName(NonceTable.name(_configuration))
+            .key(NonceTable.key(nonce))
+
+        updateBuilder.applyTo(requestBuilder)
 
         try {
             _dynamoDBClient.updateItem(requestBuilder.build())
+            return true
         } catch (_: ConditionalCheckFailedException) {
-            _logger.trace("Trying to update a nonexistent nonce")
+            _logger.trace("Trying to update a nonexistent or already consumed nonce")
+            return false
         }
     }
 
