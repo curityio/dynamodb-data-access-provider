@@ -1,0 +1,294 @@
+{
+  "TableName": "curity-database-clients",
+  "AttributeDefinitions": [
+    {
+      "AttributeName" : "profile_id",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName" : "client_id_key",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName" : "service_provider_name_key",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName" : "service_provider_name",
+      "AttributeType" : "S"
+    },
+    {
+      "AttributeName" : "tag_key",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "created",
+      "AttributeType": "N"
+    },
+    {
+      "AttributeName" : "lastModified",
+      "AttributeType": "N"
+    }
+  ],
+  "LocalSecondaryIndexes" : [
+    {
+      "IndexName" : "lsi-created-index",
+      "Projection" : {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "id",
+          "service_provider_name",
+          "enabled",
+          "tags",
+          "lastModified",
+          "attributes"
+        ]
+      },
+      "KeySchema" : [
+        {
+          "KeyType" : "HASH",
+          "AttributeName" : "profile_id"
+        },
+        {
+          "KeyType" : "RANGE",
+          "AttributeName" : "created"
+        }
+      ]
+    },
+    {
+      "IndexName" : "lsi-lastModified-index",
+      "Projection" : {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "id",
+          "service_provider_name",
+          "enabled",
+          "tags",
+          "created",
+          "attributes"
+        ]
+      },
+      "KeySchema" : [
+        {
+          "KeyType" : "HASH",
+          "AttributeName" : "profile_id"
+        },
+        {
+          "KeyType" : "RANGE",
+          "AttributeName" : "lastModified"
+        }
+      ]
+    },
+    {
+      "IndexName" : "lsi-service_provider_name-index",
+      "Projection" : {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "id",
+          "enabled",
+          "tags",
+          "created",
+          "lastModified",
+          "attributes",
+          "service_provider_name"
+        ]
+      },
+      "KeySchema" : [
+        {
+          "KeyType" : "HASH",
+          "AttributeName" : "profile_id"
+        },
+        {
+          "KeyType" : "RANGE",
+          "AttributeName" : "service_provider_name_key"
+        }
+      ]
+    }
+  ],
+  "GlobalSecondaryIndexes": [
+    {
+      "IndexName" : "service_provider_name-created-index",
+      "Projection": {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "id",
+          "service_provider_name",
+          "enabled",
+          "tags",
+          "lastModified",
+          "attributes"
+        ]
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName" : "service_provider_name_key"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "created"
+        }
+      ]
+    },
+    {
+      "IndexName" : "service_provider_name-lastModified-index",
+      "Projection": {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "id",
+          "service_provider_name",
+          "enabled",
+          "tags",
+          "created",
+          "attributes"
+        ]
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName" : "service_provider_name_key"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName" : "lastModified"
+        }
+      ]
+    },
+    {
+      "IndexName" : "service_provider_name-service_provider_name-index",
+      "Projection" : {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "id",
+          "enabled",
+          "tags",
+          "created",
+          "lastModified",
+          "attributes"
+        ]
+      },
+      "ProvisionedThroughput" : {
+        "WriteCapacityUnits" : 5,
+        "ReadCapacityUnits" : 10
+      },
+      "KeySchema" : [
+        {
+          "KeyType" : "HASH",
+          "AttributeName" : "service_provider_name_key"
+        },
+        {
+          "KeyType" : "RANGE",
+          "AttributeName" : "service_provider_name"
+        }
+      ]
+    },
+    {
+      "IndexName": "tag-created-index",
+      "Projection": {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "id",
+          "service_provider_name",
+          "enabled",
+          "tags",
+          "lastModified",
+          "attributes"
+        ]
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName" : "tag_key"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName": "created"
+        }
+      ]
+    },
+    {
+      "IndexName" : "tag-lastModified-index",
+      "Projection": {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "id",
+          "service_provider_name",
+          "enabled",
+          "tags",
+          "created",
+          "attributes"
+        ]
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName" : "tag_key"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName" : "lastModified"
+        }
+      ]
+    },
+    {
+      "IndexName" : "tag-service_provider_name-index",
+      "Projection": {
+        "ProjectionType" : "INCLUDE",
+        "NonKeyAttributes" : [
+          "id",
+          "enabled",
+          "tags",
+          "created",
+          "lastModified",
+          "attributes"
+        ]
+      },
+      "ProvisionedThroughput": {
+        "WriteCapacityUnits": 5,
+        "ReadCapacityUnits": 10
+      },
+      "KeySchema": [
+        {
+          "KeyType": "HASH",
+          "AttributeName" : "tag_key"
+        },
+        {
+          "KeyType": "RANGE",
+          "AttributeName" : "service_provider_name"
+        }
+      ]
+    }
+  ],
+  "KeySchema": [
+    {
+      "KeyType": "HASH",
+      "AttributeName" : "profile_id"
+    },
+    {
+      "KeyType": "RANGE",
+      "AttributeName" : "service_provider_id_key"
+    }
+  ],
+  "ProvisionedThroughput": {
+    "WriteCapacityUnits": 5,
+    "ReadCapacityUnits": 10
+  }
+}
+
+
