@@ -1,12 +1,12 @@
 {
-  "TableName": "curity-database-clients",
+  "TableName": "curity-database-service-providers",
   "AttributeDefinitions": [
     {
       "AttributeName" : "profile_id",
       "AttributeType": "S"
     },
     {
-      "AttributeName" : "client_id_key",
+      "AttributeName" : "service_provider_id_key",
       "AttributeType": "S"
     },
     {
