@@ -68,6 +68,7 @@ class DynamoDBDatabaseServiceProviderDataAccessProvider(
     private val _json = _configuration.getJsonHandler()
 
     object DatabaseServiceProvidersTable : TableWithCapabilities("curity-database-service-providers") {
+        const val SERVICE_PROVIDER_ID_KEY = "service_provider_id_key"
         const val SERVICE_PROVIDER_NAME_KEY = "service_provider_name_key"
         const val TAG_KEY = "tag_key"
         const val VERSION = "version"
@@ -204,7 +205,7 @@ class DynamoDBDatabaseServiceProviderDataAccessProvider(
             ),
             attributeMap = mapOf(
                 DatabaseServiceProviderAttributesHelper.PROFILE_ID to profileId,
-                SERVICE_PROVIDER_NAME_KEY to serviceProviderIdKey,
+                SERVICE_PROVIDER_ID_KEY to serviceProviderIdKey,
                 DatabaseServiceProviderAttributeKeys.ID to serviceProviderId,
                 SERVICE_PROVIDER_NAME_KEY to serviceProviderNameKey,
                 DatabaseServiceProviderAttributeKeys.NAME to serviceProviderName,
@@ -340,16 +341,14 @@ class DynamoDBDatabaseServiceProviderDataAccessProvider(
     override fun update(attributes: DatabaseServiceProviderAttributes, profileId: String): DatabaseServiceProviderAttributes? {
         logger.debug("Updating database service provider with id: '${attributes.id}' in profile '$profileId'")
 
-        val result = retry("update", N_OF_ATTEMPTS) {
-            val currentMainItem =
-                getItemById(attributes.id, profileId) ?: return@retry TransactionAttemptResult.Success(null)
+        val currentMainItem = getItemById(attributes.id, profileId)
+            ?: throw RuntimeException("Service provider with ID '$profileId:${attributes.id}' could not be updated.")
+
+        retry("update", N_OF_ATTEMPTS) {
             tryUpdate(attributes, profileId, currentMainItem)
         }
-        return if (result != null) {
-            getServiceProviderById(attributes.id, profileId)
-        } else {
-            null
-        }
+
+        return getServiceProviderById(attributes.id, profileId)
     }
 
     private fun tryUpdate(
@@ -508,14 +507,14 @@ class DynamoDBDatabaseServiceProviderDataAccessProvider(
     override fun delete(serviceProviderId: String, profileId: String): Boolean {
         logger.debug("Deleting database service provider with id: '$serviceProviderId' from profile '$profileId'")
 
-        retry("delete", N_OF_ATTEMPTS) {
+        val result = retry("delete", N_OF_ATTEMPTS) {
             tryDelete(serviceProviderId, profileId)
         }
 
-        return true
+        return result
     }
 
-    private fun tryDelete(serviceProviderId: String, profileId: String): TransactionAttemptResult<Unit> {
+    private fun tryDelete(serviceProviderId: String, profileId: String): TransactionAttemptResult<Boolean> {
         logger.debug("Deleting database service provider with id: '$serviceProviderId' from profile '$profileId'")
 
         // Deleting a database service provider requires the deletion of the main item and all the secondary items.
@@ -528,7 +527,7 @@ class DynamoDBDatabaseServiceProviderDataAccessProvider(
         )
 
         if (!getItemResponse.hasItem() || getItemResponse.item().isEmpty()) {
-            return TransactionAttemptResult.Success(Unit)
+            return TransactionAttemptResult.Success(false)
         }
 
         val item = getItemResponse.item()
@@ -581,8 +580,7 @@ class DynamoDBDatabaseServiceProviderDataAccessProvider(
 
         try {
             _dynamoDBClient.transactionWriteItems(request)
-
-            return TransactionAttemptResult.Success(Unit)
+            return TransactionAttemptResult.Success(true)
         } catch (e: Exception) {
             val message = "Unable to delete service provider with id: '$serviceProviderId' from profile '$profileId'"
             logger.trace(message, e)
@@ -744,14 +742,36 @@ class DynamoDBDatabaseServiceProviderDataAccessProvider(
 
         // resolve partition key
         partitionKeyCondition = partitionKeyCondition ?: BinaryAttributeExpression(profileIdAttribute, Eq, profileId)
-        // if no sorting is present take the default which is by service provider name
-        sortIndexAttribute = (sortIndexAttribute ?: DatabaseServiceProvidersTable.serviceProviderName).let {
-            // if sorting is by service provider name and partition key is profile_id the sorting key is serviceProviderNameKey
-            // consult the Use-Case table
-            if (it == DatabaseServiceProvidersTable.serviceProviderName && partitionKeyCondition.attribute == profileIdAttribute) {
-                return@let DatabaseServiceProvidersTable.serviceProviderNameKey
+
+        // if no sorting is present, choose default based on partition key to ensure a valid index exists
+        // For profileId partition: use serviceProviderIdKey (base table)
+        // For other partitions: use created timestamp
+        sortIndexAttribute = (sortIndexAttribute ?: run {
+            if (partitionKeyCondition.attribute == profileIdAttribute) {
+                DatabaseServiceProvidersTable.serviceProviderIdKey
             } else {
-                it
+                DatabaseServiceProvidersTable.created
+            }
+        }).let {
+            // if sorting is by service provider name and partition key is profile_id the sorting key is serviceProviderNameKey
+            // if sorting is by service provider id and partition key is profile_id the sorting key is serviceProviderIdKey
+            // when sorting by updated/created with profileId partition, fall back to serviceProviderIdKey
+            when (it) {
+                DatabaseServiceProvidersTable.serviceProviderName if partitionKeyCondition.attribute == profileIdAttribute -> {
+                    return@let DatabaseServiceProvidersTable.serviceProviderNameKey
+                }
+                DatabaseServiceProvidersTable.serviceProviderId if partitionKeyCondition.attribute == profileIdAttribute -> {
+                    return@let DatabaseServiceProvidersTable.serviceProviderIdKey
+                }
+                DatabaseServiceProvidersTable.created if partitionKeyCondition.attribute == profileIdAttribute -> {
+                    return@let DatabaseServiceProvidersTable.serviceProviderIdKey
+                }
+                DatabaseServiceProvidersTable.updated if partitionKeyCondition.attribute == profileIdAttribute -> {
+                    return@let DatabaseServiceProvidersTable.serviceProviderIdKey
+                }
+                else -> {
+                    it
+                }
             }
         }
 
@@ -880,7 +900,7 @@ class DynamoDBDatabaseServiceProviderDataAccessProvider(
                     )
                 )
             )
-            add(DatabaseServiceProviderAttributeKeys.TAGS, DatabaseServiceProvidersTable.tags.optionalFrom(item))
+            add(DatabaseServiceProviderAttributeKeys.TAGS, DatabaseServiceProvidersTable.tags.optionalFrom(item)?.takeIf { it.isNotEmpty() })
             // 'serviceProviderName' could have been not set if value were not valid as secondary index's key
             add(DatabaseServiceProviderAttributes.DatabaseServiceProviderAttributeKeys.NAME, DatabaseServiceProvidersTable.serviceProviderName.optionalFrom(item))
         }
