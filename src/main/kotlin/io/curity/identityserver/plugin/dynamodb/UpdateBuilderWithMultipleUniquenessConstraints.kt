@@ -51,7 +51,6 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
         conditionExpressionOverride: Expression? = null,
         commonItemOverride: Map<String, AttributeValue>? = null,
     ) {
-        setOverrides(conditionExpressionOverride, commonItemOverride)
         val toUniqueValue = when (attribute) {
             is TenantAwareUniqueAttribute -> { value: T & Any ->
                 attribute.uniquenessValueFrom(_tenantId, attribute.castOrThrow(value))
@@ -59,19 +58,38 @@ class UpdateBuilderWithMultipleUniquenessConstraints(
             else -> { value: T -> attribute.uniquenessValueFrom(value) }
         }
 
+        handleAttribute(
+            before = before?.let { toUniqueValue(it) },
+            after = after?.let { toUniqueValue(it) },
+            additionalAttributes = additionalAttributes,
+            conditionExpressionOverride = conditionExpressionOverride,
+            commonItemOverride = commonItemOverride
+        )
+    }
+
+    // Handles the update of attribute
+    // Not thread-safe when any new overriding parameter is provided
+    fun handleAttribute(
+        before: String?, after: String?,
+        additionalAttributes: Map<String, AttributeValue> = mapOf(),
+        conditionExpressionOverride: Expression? = null,
+        commonItemOverride: Map<String, AttributeValue>? = null,
+    ) {
+        setOverrides(conditionExpressionOverride, commonItemOverride)
+
         if (before == after) {
             if (after != null) {
                 // Even if the key value doesn't change, we still need to update the item's data.
-                updateItem(toUniqueValue(after), additionalAttributes)
+                updateItem(after, additionalAttributes)
             }
         } else if (after != null) {
             if (before != null) {
-                removeItem(toUniqueValue(before))
+                removeItem(before)
             }
-            insertItem(toUniqueValue(after), additionalAttributes)
+            insertItem(after, additionalAttributes)
         } else {
             if (before != null) {
-                removeItem(toUniqueValue(before))
+                removeItem(before)
             }
         }
 

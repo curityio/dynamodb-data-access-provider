@@ -77,7 +77,7 @@ class DynamoDBDataAccessProviderDescriptor :
     override fun getDatabaseClientDataAccessProvider(): Class<out DatabaseClientDataAccessProvider> =
         DynamoDBDatabaseClientDataAccessProvider::class.java
 
-    override fun getDatabaseServiceProviderDataAccessProvider(): @Nullable Class<out DatabaseServiceProviderDataAccessProvider> =
+    override fun getDatabaseServiceProviderDataAccessProvider(): Class<out DatabaseServiceProviderDataAccessProvider> =
         DynamoDBDatabaseServiceProviderDataAccessProvider::class.java
 
     override fun createManagedObject(configuration: DynamoDBDataAccessProviderConfiguration):

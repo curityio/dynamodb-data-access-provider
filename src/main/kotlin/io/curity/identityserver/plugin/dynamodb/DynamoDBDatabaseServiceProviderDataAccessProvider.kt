@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Curity AB
+ *  Copyright 2026 Curity AB
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -81,21 +81,15 @@ class DynamoDBDatabaseServiceProviderDataAccessProvider(
 
         // DynamoDB-specific, composite string made up of service provider's id and tag, or service provider's id only
         // Table Sort Key (SK)
-        val serviceProviderIdKey = object : UniqueStringAttribute("service_provider_id_key", "") {
-            override fun uniquenessValueFrom(value: String) = value
-        }
+        val serviceProviderIdKey = StringAttribute(SERVICE_PROVIDER_ID_KEY)
 
         // DynamoDB-specific, composite string made up of profileId and serviceProviderName
         // PK for serviceProviderName-based GSIs
-        val serviceProviderNameKey = object : UniqueStringAttribute(SERVICE_PROVIDER_NAME_KEY, "") {
-            override fun uniquenessValueFrom(value: String) = value
-        }
+        val serviceProviderNameKey = StringAttribute(SERVICE_PROVIDER_NAME_KEY)
 
         // DynamoDB-specific, composite string made up of profileId and an individual item from tags
         // PK for tag-based GSIs
-        val tagKey = object : UniqueStringAttribute(TAG_KEY, "") {
-            override fun uniquenessValueFrom(value: String) = value
-        }
+        val tagKey = StringAttribute(TAG_KEY)
 
         // DynamoDB-specific, attribute version
         val version = NumberLongAttribute(VERSION)
@@ -379,8 +373,7 @@ class DynamoDBDatabaseServiceProviderDataAccessProvider(
         )
 
         // Update main item
-        updateBuilder.handleUniqueAttribute(
-            DatabaseServiceProvidersTable.serviceProviderIdKey,
+        updateBuilder.handleAttribute(
             before = currentServiceProviderIdKey,
             // New serviceProviderIdKey based on serviceProviderId only
             after = attributes.id,
@@ -426,8 +419,7 @@ class DynamoDBDatabaseServiceProviderDataAccessProvider(
             )
 
             // Update secondary item for newTag
-            updateBuilder.handleUniqueAttribute(
-                DatabaseServiceProvidersTable.serviceProviderIdKey,
+            updateBuilder.handleAttribute(
                 before = secondaryServiceProviderIdKey,
                 // New serviceProviderIdKey based on serviceProviderId and new tag
                 after = DatabaseServiceProvidersTable.serviceProviderIdKeyFor(attributes.id, newTag),
@@ -454,8 +446,7 @@ class DynamoDBDatabaseServiceProviderDataAccessProvider(
             )
 
             // Delete secondary item for currentTag
-            updateBuilder.handleUniqueAttribute(
-                DatabaseServiceProvidersTable.serviceProviderIdKey,
+            updateBuilder.handleAttribute(
                 before = secondaryServiceProviderIdKey,
                 after = null,
                 additionalAttributes = mapOf(),
@@ -472,8 +463,7 @@ class DynamoDBDatabaseServiceProviderDataAccessProvider(
             )
 
             // Create secondary item for newTag
-            updateBuilder.handleUniqueAttribute(
-                DatabaseServiceProvidersTable.serviceProviderIdKey,
+            updateBuilder.handleAttribute(
                 before = null,
                 after = secondaryServiceProviderIdKey,
                 additionalAttributes = mapOf(
