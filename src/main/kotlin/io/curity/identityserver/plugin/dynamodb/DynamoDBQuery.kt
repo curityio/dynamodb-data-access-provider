@@ -32,9 +32,9 @@ data class DynamoDBQuery(
 fun QueryRequest.Builder.configureWith(query: DynamoDBQuery): QueryRequest.Builder {
     if (query.indexName != null) {
         indexName(query.indexName)
-        if (query.sortOrder == SortOrder.DESCENDING) {
-            scanIndexForward(false)
-        }
+    }
+    if (query.sortOrder == SortOrder.DESCENDING) {
+        scanIndexForward(false)
     }
     keyConditionExpression(query.keyExpression)
     if (query.filterExpression.isNotBlank()) {

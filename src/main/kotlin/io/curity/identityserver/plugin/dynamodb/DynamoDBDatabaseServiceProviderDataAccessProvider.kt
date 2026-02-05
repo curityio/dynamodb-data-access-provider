@@ -21,6 +21,7 @@ import io.curity.identityserver.plugin.dynamodb.helpers.DatabaseServiceProviderA
 import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeExpression
 import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeOperator.Co
 import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeOperator.Eq
+import io.curity.identityserver.plugin.dynamodb.query.BinaryAttributeOperator.Sw
 import io.curity.identityserver.plugin.dynamodb.query.DynamoDBQueryBuilder
 import io.curity.identityserver.plugin.dynamodb.query.Index
 import io.curity.identityserver.plugin.dynamodb.query.LogicalExpression
@@ -155,7 +156,7 @@ class DynamoDBDatabaseServiceProviderDataAccessProvider(
         private val lsiCreatedIndex =
             PartitionAndSortIndex("lsi-created-index", profileId, created)
         private val lsiUpdatedIndex =
-            PartitionAndSortIndex("lsi-last_modified-index", profileId, updated)
+            PartitionAndSortIndex("lsi-lastModified-index", profileId, updated)
         private val lsiServiceProviderNameIndex =
             PartitionAndSortIndex("lsi-service_provider_name-index", profileId, serviceProviderNameKey)
 
@@ -709,8 +710,10 @@ class DynamoDBDatabaseServiceProviderDataAccessProvider(
         filters?.serviceProviderNameFilter?.takeIf{ it.isNotBlank() }?.let {
             val serviceProviderNameAttribute = DatabaseServiceProvidersTable.serviceProviderName
             val serviceProviderNameAttributeExpression =
-                BinaryAttributeExpression(serviceProviderNameAttribute, Eq, it)
-            if (partitionKeyCondition == null) {
+                BinaryAttributeExpression(serviceProviderNameAttribute, Sw, it)
+            // If sortIndexAttribute is already set (e.g., from sorting request), we cannot use
+            // serviceProviderNameKey as partition key because it requires exact match and won't work
+            if (partitionKeyCondition == null && sortIndexAttribute == null) {
                 partitionKeyCondition = BinaryAttributeExpression(
                     DatabaseServiceProvidersTable.serviceProviderNameKey, Eq,
                     DatabaseServiceProvidersTable.serviceProviderNameKeyFor(profileId, it)
@@ -745,18 +748,11 @@ class DynamoDBDatabaseServiceProviderDataAccessProvider(
         }).let {
             // if sorting is by service provider name and partition key is profile_id the sorting key is serviceProviderNameKey
             // if sorting is by service provider id and partition key is profile_id the sorting key is serviceProviderIdKey
-            // when sorting by updated/created with profileId partition, fall back to serviceProviderIdKey
             when (it) {
                 DatabaseServiceProvidersTable.serviceProviderName if partitionKeyCondition.attribute == profileIdAttribute -> {
                     return@let DatabaseServiceProvidersTable.serviceProviderNameKey
                 }
                 DatabaseServiceProvidersTable.serviceProviderId if partitionKeyCondition.attribute == profileIdAttribute -> {
-                    return@let DatabaseServiceProvidersTable.serviceProviderIdKey
-                }
-                DatabaseServiceProvidersTable.created if partitionKeyCondition.attribute == profileIdAttribute -> {
-                    return@let DatabaseServiceProvidersTable.serviceProviderIdKey
-                }
-                DatabaseServiceProvidersTable.updated if partitionKeyCondition.attribute == profileIdAttribute -> {
                     return@let DatabaseServiceProvidersTable.serviceProviderIdKey
                 }
                 else -> {
