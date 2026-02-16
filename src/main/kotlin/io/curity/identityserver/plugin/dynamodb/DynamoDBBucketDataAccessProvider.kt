@@ -21,6 +21,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.slf4j.Marker
 import org.slf4j.MarkerFactory
+import se.curity.identityserver.sdk.data.GetBucketResult
 import se.curity.identityserver.sdk.datasource.BucketDataAccessProvider
 import se.curity.identityserver.sdk.service.authentication.TenantId
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest
@@ -49,6 +50,15 @@ class DynamoDBBucketDataAccessProvider(
     }
 
     override fun getAttributes(subject: String, purpose: String): Map<String, Any> {
+        return when (val result = getBucket(subject, purpose)) {
+            is GetBucketResult.Success -> result.attributes
+            else -> mapOf()
+        }
+    }
+
+    override fun getBucket(
+        subject: String, purpose: String
+    ): GetBucketResult {
         _logger.debug(MASK_MARKER, "getAttributes with tenant: {}, subject: {} , purpose : {}",
             _tenantId.tenantId, subject, purpose)
 
@@ -60,23 +70,43 @@ class DynamoDBBucketDataAccessProvider(
         val response = _dynamoDBClient.getItem(request)
 
         if (!response.hasItem()) {
-            return mapOf()
+            return GetBucketResult.Error.NotFound.INSTANCE
+        }
+        val expires: Instant? = BucketsTable.expires.optionalFrom(response.item())?.let {
+            Instant.ofEpochSecond(it)
+        }
+        if (expires != null && Instant.now().isAfter(expires)) {
+            _logger.debug(
+                MASK_MARKER,
+                "A bucket entry was expired, so it will not be returned. subject: {}, purpose: {}, expires: {}",
+                subject, purpose, expires
+            )
+            return GetBucketResult.Error.Expired(expires)
         }
         val attributesString = BucketsTable.attributes.optionalFrom(response.item())
             ?: throw SchemaErrorException(
                 BucketsTable,
                 BucketsTable.attributes
             )
-        return _configuration.getJsonHandler().fromJson(attributesString)
+        return GetBucketResult.Success(
+            _configuration.getJsonHandler().fromJson(attributesString),
+            expires
+        )
     }
 
     override fun storeAttributes(subject: String, purpose: String, dataMap: Map<String, Any>): Map<String, Any> {
+        return storeAttributes(subject, purpose, dataMap, null)
+    }
+
+    override fun storeAttributes(
+        subject: String,
+        purpose: String,
+        dataMap: Map<String, Any>,
+        expires: Instant?
+    ): Map<String, Any> {
         _logger.debug(MASK_MARKER,
-            "storeAttributes with tenant: {}, subject: {} , purpose : {} and data : {}",
-            _tenantId.tenantId,
-            subject,
-            purpose,
-            dataMap
+            "storeAttributes with tenant: {}, subject: {} , purpose : {}, data : {} and expires : {}",
+            _tenantId.tenantId, subject, purpose, dataMap, expires
         )
 
         val attributesString = _configuration.getJsonHandler().toJson(dataMap)
@@ -85,8 +115,11 @@ class DynamoDBBucketDataAccessProvider(
         val request = UpdateItemRequest.builder()
             .tableName(BucketsTable.name(_configuration))
             .key(BucketsTable.key(_tenantId, subject, purpose))
-            .apply { updateExpression(attributesString, now, now).applyTo(this) }
-            .build()
+            .apply {
+                updateExpression(
+                    attributesString, now, now, expires?.epochSecond
+                ).applyTo(this)
+            }.build()
 
         _dynamoDBClient.updateItem(request)
 
@@ -122,6 +155,7 @@ class DynamoDBBucketDataAccessProvider(
         val attributes = StringAttribute("attributes")
         val created = NumberLongAttribute("created")
         val updated = NumberLongAttribute("updated")
+        val expires = NumberLongAttribute("expires")
 
         fun key(tenantId: TenantId, subject: String, purpose: String) = mapOf(
             this.subject.toNameValuePair(this.subject.uniquenessValueFrom(tenantId, subject)),
@@ -132,11 +166,13 @@ class DynamoDBBucketDataAccessProvider(
     private fun updateExpression(
         attributesString: String,
         created: Long,
-        updated: Long
+        updated: Long,
+        expires: Long?,
     ): UpdateExpressionsBuilder {
         val builder = UpdateExpressionsBuilder()
         builder.update(BucketsTable.attributes, attributesString)
         builder.update(BucketsTable.updated, updated)
+        builder.update(BucketsTable.expires, expires)
         builder.updateIfNotExists(BucketsTable.created, created)
 
         if(_tenantId.tenantId != null) {

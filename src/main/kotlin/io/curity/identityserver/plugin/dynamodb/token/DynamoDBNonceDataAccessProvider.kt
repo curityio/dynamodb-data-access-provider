@@ -19,14 +19,18 @@ import io.curity.identityserver.plugin.dynamodb.DynamoDBClient
 import io.curity.identityserver.plugin.dynamodb.NumberLongAttribute
 import io.curity.identityserver.plugin.dynamodb.StringAttribute
 import io.curity.identityserver.plugin.dynamodb.Table
+import io.curity.identityserver.plugin.dynamodb.UpdateExpressionsBuilder
 import io.curity.identityserver.plugin.dynamodb.configuration.DynamoDBDataAccessProviderConfiguration
 import org.slf4j.LoggerFactory
+import se.curity.identityserver.sdk.data.authorization.TokenStatus
+import se.curity.identityserver.sdk.data.tokens.NonceState
 import se.curity.identityserver.sdk.datasource.NonceDataAccessProvider
 import se.curity.identityserver.sdk.errors.ConflictException
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest
+import java.time.Duration
 import java.time.Instant
 
 class DynamoDBNonceDataAccessProvider(
@@ -45,7 +49,7 @@ class DynamoDBNonceDataAccessProvider(
         fun key(nonce: String) = mapOf(this.nonce.toNameValuePair(nonce))
     }
 
-    override fun get(nonce: String): String? {
+    override fun getNonce(nonce: String): NonceState? {
         val request = GetItemRequest.builder()
             .tableName(NonceTable.name(_configuration))
             .key(NonceTable.key(nonce))
@@ -59,11 +63,6 @@ class DynamoDBNonceDataAccessProvider(
         }
         val item = response.item()
 
-        val status = NonceStatus.valueOf(NonceTable.nonceStatus.from(item))
-        if (status != NonceStatus.issued) {
-            return null
-        }
-
         val createdAt = NonceTable.createAt.from(item)
         val ttl = NonceTable.nonceTtl.from(item)
         val now = Instant.now().epochSecond
@@ -72,10 +71,15 @@ class DynamoDBNonceDataAccessProvider(
 
         if (createdAt + ttl <= now) {
             expireNonce(nonce)
-            return null
         }
 
-        return NonceTable.nonceValue.from(item)
+        return DefaultNonce(
+            createdAt,
+            NonceTable.consumedAt.optionalFrom(item),
+            ttl,
+            NonceStatus.valueOf(NonceTable.nonceStatus.from(item)),
+            NonceTable.nonceValue.from(item)
+        )
     }
 
     override fun save(nonce: String, value: String, createdAt: Long, ttl: Long) {
@@ -101,8 +105,8 @@ class DynamoDBNonceDataAccessProvider(
         }
     }
 
-    override fun consume(nonce: String, consumedAt: Long) {
-        consumeNonce(nonce, consumedAt)
+    override fun consume(nonce: String, consumedAt: Instant): Boolean {
+        return consumeNonce(nonce, consumedAt.epochSecond)
     }
 
     private fun consumeNonce(nonce: String, consumedAt: Long) = changeStatus(nonce, NonceStatus.consumed, consumedAt)
@@ -116,39 +120,32 @@ class DynamoDBNonceDataAccessProvider(
     // Also, if the deletableAt was enabled when the nonce was created and disabled when the nonce is updated,
     // then the original deletableAt is kept.
     // We also don't add a deletableAt when the nonce is updated.
-    private fun changeStatus(nonce: String, status: NonceStatus, maybeConsumedAt: Long?) {
-        val requestBuilder = UpdateItemRequest.builder()
-            .tableName(NonceTable.name(_configuration))
-            .conditionExpression("attribute_exists(${NonceTable.nonce.name})")
-            .key(NonceTable.key(nonce))
+    private fun changeStatus(nonce: String, status: NonceStatus, maybeConsumedAt: Long?): Boolean {
+        val updateBuilder = UpdateExpressionsBuilder().apply {
+            onlyIfExists(NonceTable.nonce)
+            onlyIf(NonceTable.nonceStatus, NonceStatus.issued.name)
+
+            update(NonceTable.nonceStatus, status.name)
+        }
 
         if (status == NonceStatus.consumed) {
             val consumedAt = maybeConsumedAt ?: throw IllegalArgumentException("consumedAt cannot be null")
-            requestBuilder
-                .updateExpression(
-                    "SET ${NonceTable.nonceStatus.name} = ${NonceTable.nonceStatus.colonName}, " +
-                            "${NonceTable.consumedAt.name} = ${NonceTable.consumedAt.colonName}"
-                )
-                .expressionAttributeValues(
-                    mapOf(
-                        NonceTable.nonceStatus.toExpressionNameValuePair(status.name),
-                        NonceTable.consumedAt.toExpressionNameValuePair(consumedAt)
-                    )
-                )
-        } else {
-            requestBuilder
-                .updateExpression("SET ${NonceTable.nonceStatus.name} = ${NonceTable.nonceStatus.colonName}")
-                .expressionAttributeValues(
-                    mapOf(
-                        NonceTable.nonceStatus.toExpressionNameValuePair(status.name)
-                    )
-                )
+
+            updateBuilder.update(NonceTable.consumedAt, consumedAt)
         }
+
+        val requestBuilder = UpdateItemRequest.builder()
+            .tableName(NonceTable.name(_configuration))
+            .key(NonceTable.key(nonce))
+
+        updateBuilder.applyTo(requestBuilder)
 
         try {
             _dynamoDBClient.updateItem(requestBuilder.build())
+            return true
         } catch (_: ConditionalCheckFailedException) {
-            _logger.trace("Trying to update a nonexistent nonce")
+            _logger.trace("Trying to update a nonexistent or already consumed nonce")
+            return false
         }
     }
 
@@ -156,6 +153,39 @@ class DynamoDBNonceDataAccessProvider(
         // The string entries in the DB needs to be lowercase
         // there are integration tests that depend on that
         issued, consumed, expired
+    }
+
+    private class DefaultNonce(
+        private val createdAt: Instant,
+        private val consumedAt: Instant?,
+        private val ttl: Duration,
+        private val status: TokenStatus,
+        private val value: String
+    ) : NonceState {
+
+        constructor(
+            createdAt: Long,
+            consumedAt: Long?,
+            ttl: Long,
+            status: NonceStatus,
+            value: String
+        ) : this(
+            Instant.ofEpochSecond(createdAt),
+            consumedAt?.let { Instant.ofEpochSecond(it) },
+            Duration.ofSeconds(ttl),
+            when(status) {
+                NonceStatus.consumed -> TokenStatus.used
+                NonceStatus.issued -> TokenStatus.issued
+                NonceStatus.expired -> TokenStatus.issued // server checks expiration
+            },
+            value
+        )
+
+        override fun createdAt(): Instant = createdAt
+        override fun expiresAt(): Instant = createdAt + ttl
+        override fun consumedAt(): Instant? = consumedAt
+        override fun status(): TokenStatus = status
+        override fun value(): String = value
     }
 
     companion object {

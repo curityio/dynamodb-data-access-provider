@@ -1460,6 +1460,7 @@ class DynamoDBUserAccountDataAccessProvider(
                 }
             },
             attributeMap = buildMap {
+                put(ResourceAttributes.ID, accountId)
                 put(AccountAttributes.USER_NAME, userName)
                 put(userNameInitial.name, userNameInitial)
                 put(email.name, email)
