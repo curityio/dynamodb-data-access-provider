@@ -20,20 +20,20 @@
     </licenses>
 
     <properties>
-        <kotlin.version>2.2.0</kotlin.version>
+        <kotlin.version>2.3.21</kotlin.version>
         <kotlin.code.style>official</kotlin.code.style>
 
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <apache-client.version>4.5.13</apache-client.version>
-        <awssdk.version>2.21.42</awssdk.version>
+        <awssdk.version>2.55.10</awssdk.version>
         <byte-buddy.version>1.14.10</byte-buddy.version>
         <curity.version>11.0.0</curity.version>
-        <jackson.version>2.16.0</jackson.version>
+        <jackson.version>2.22.3</jackson.version>
         <junit.version>5.10.1</junit.version>
         <mockito.version>5.7.0</mockito.version>
         <mockito-kotlin.version>5.2.1</mockito-kotlin.version>
-        <slf4j.version>2.0.3</slf4j.version>
+        <slf4j.version>2.0.17</slf4j.version>
         <surefire.version>2.22.2</surefire.version>
     </properties>
 
